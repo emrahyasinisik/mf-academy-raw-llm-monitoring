@@ -1,0 +1,8 @@
+.env
+*.env.local
+/bin/
+/tmp/
+server
+mf-backend
+*.log
+.DS_Store

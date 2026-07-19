@@ -1,0 +1,20 @@
+# Monorepo root ignores (per-package .gitignore files also apply)
+
+# Env / secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Node / Next.js
+**/node_modules/
+**/.next/
+**/out/
+
+# Go build artifacts
+**/app
+mf-backend/mf-backend
+mf-backend/server
+
+# Misc
+.DS_Store
+*.log
