@@ -2,9 +2,12 @@ package common
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
@@ -39,11 +42,25 @@ func CORS(origins []string) func(http.Handler) http.Handler {
 }
 
 // Recover turns any panic in a handler into a clean 500 instead of crashing
-// the whole server process.
+// the whole server process. Crucially it also records what panicked — the
+// value, the request id and a full stack trace — so a production incident is
+// actually debuggable instead of silently swallowed.
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				// http.ErrAbortHandler is a sentinel meaning "stop, but don't
+				// treat as an error" — re-panic so the server handles it.
+				if rec == http.ErrAbortHandler {
+					panic(rec)
+				}
+				slog.Error("panic recovered",
+					"request_id", middleware.GetReqID(r.Context()),
+					"method", r.Method,
+					"path", r.URL.Path,
+					"panic", rec,
+					"stack", string(debug.Stack()),
+				)
 				Error(w, ErrInternal("panic recovered"))
 			}
 		}()

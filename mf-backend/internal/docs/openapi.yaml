@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: MasterFabric Raw LLM Monitoring & Decision Scoring API
+  description: >-
+    Records browser-run LLM interactions (WebLLM/Gemma) and grades them with a
+    transparent, rule-based decision-scoring engine. Authentication uses JWT
+    access tokens with rotating refresh tokens.
+  version: 0.1.0
+  license:
+    name: MIT
+servers:
+  - url: https://mf-backend-zqsa.onrender.com
+    description: Production (Render)
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: meta
+    description: Public config, health and readiness
+  - name: auth
+    description: Registration, login, sessions and profile
+  - name: llm
+    description: LLM runs, decision scores and aggregate metrics
+
+paths:
+  /config:
+    get:
+      tags: [meta]
+      summary: Public (non-secret) app configuration
+      responses:
+        "200": { description: Configuration object }
+  /version:
+    get:
+      tags: [meta]
+      summary: Build name and version
+      responses:
+        "200": { description: Version object }
+  /health:
+    get:
+      tags: [meta]
+      summary: Liveness probe
+      responses:
+        "200": { description: Process is up }
+  /ready:
+    get:
+      tags: [meta]
+      summary: Readiness probe (checks database)
+      responses:
+        "200": { description: Ready to serve }
+        "500": { description: Database unavailable }
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Create an account and log in
+      description: Rate limited by client IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email and password
+      description: Rate limited by client IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token for a new token pair
+      description: The presented refresh token is revoked and a new pair issued.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the presented refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200": { description: Logged out }
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current authenticated user
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [auth]
+      summary: Update the current user's profile
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/change-password:
+    post:
+      tags: [auth]
+      summary: Change the current user's password
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+      responses:
+        "200": { description: Password changed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/sessions:
+    get:
+      tags: [auth]
+      summary: List the current user's sessions
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Session" }
+                  count: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /auth/sessions/{id}:
+    delete:
+      tags: [auth]
+      summary: Revoke one of the current user's sessions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Revoked }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /llm/models:
+    get:
+      tags: [llm]
+      summary: List browser-runnable models
+      responses:
+        "200":
+          description: Models
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items: { $ref: "#/components/schemas/ModelInfo" }
+  /llm/runs:
+    post:
+      tags: [llm]
+      summary: Record a new LLM run (optionally auto-score it)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRunRequest" }
+      responses:
+        "201":
+          description: Created run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [llm]
+      summary: List the current user's runs (paginated)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+        - { name: model, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Paginated runs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ListResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /llm/runs/{id}:
+    get:
+      tags: [llm]
+      summary: Get a single run
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [llm]
+      summary: Delete a run
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /llm/runs/{id}/score:
+    post:
+      tags: [llm]
+      summary: Score a run (optionally with custom weights)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScoreRequest" }
+      responses:
+        "200":
+          description: Score
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Score" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    get:
+      tags: [llm]
+      summary: Get a run's existing score
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Score
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Score" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /llm/metrics:
+    get:
+      tags: [llm]
+      summary: Aggregate dashboard metrics for the current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Metrics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Metrics" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Conflict (e.g. email already registered)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, description: Stable machine-readable code }
+        message: { type: string }
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        name: { type: string }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name: { type: string }
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 8 }
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, description: Access token lifetime in seconds }
+        user: { $ref: "#/components/schemas/User" }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_agent: { type: string }
+        ip_address: { type: string }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    ModelInfo:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        family: { type: string }
+        size_hint: { type: string }
+        recommended: { type: boolean }
+    Weights:
+      type: object
+      description: Scoring weights; components sum to 1.0.
+      properties:
+        completion: { type: number }
+        latency: { type: number }
+        efficiency: { type: number }
+        keywords: { type: number }
+        length: { type: number }
+    CreateRunRequest:
+      type: object
+      required: [model, prompt, response]
+      properties:
+        model: { type: string }
+        prompt: { type: string }
+        response: { type: string }
+        system_prompt: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        latency_ms: { type: integer }
+        temperature: { type: number }
+        expected_keywords:
+          type: array
+          items: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        auto_score: { type: boolean, description: Score immediately on create }
+    ScoreRequest:
+      type: object
+      properties:
+        weights: { $ref: "#/components/schemas/Weights" }
+    Score:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        score: { type: number, description: 0..100 }
+        grade: { type: string, enum: [A, B, C, D, F] }
+        breakdown:
+          type: object
+          additionalProperties: { type: number }
+        rationale: { type: string }
+        created_at: { type: string, format: date-time }
+    Run:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        model: { type: string }
+        prompt: { type: string }
+        response: { type: string }
+        system_prompt: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        latency_ms: { type: integer }
+        temperature: { type: number }
+        expected_keywords:
+          type: array
+          items: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        score: { $ref: "#/components/schemas/Score" }
+    Metrics:
+      type: object
+      properties:
+        total_runs: { type: integer }
+        scored_runs: { type: integer }
+        avg_score: { type: number }
+        avg_latency_ms: { type: number }
+        avg_completion_tokens: { type: number }
+        runs_by_model:
+          type: object
+          additionalProperties: { type: integer }
+        grade_distribution:
+          type: object
+          additionalProperties: { type: integer }
+    ListResult:
+      type: object
+      properties:
+        runs:
+          type: array
+          items: { $ref: "#/components/schemas/Run" }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }

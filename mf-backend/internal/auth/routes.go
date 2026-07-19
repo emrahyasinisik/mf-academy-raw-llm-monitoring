@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 
@@ -12,14 +11,23 @@ import (
 )
 
 // Routes mounts the auth endpoints. Public routes (register/login/refresh/
-// logout) are open; the rest require a valid access token.
-func (h *Handler) Routes(verify common.TokenVerifier) http.Handler {
+// logout) are open; the rest require a valid access token. The sensitive
+// public routes are wrapped with rateLimit (per-IP) to blunt brute force and
+// abuse; pass nil to disable (e.g. in tests).
+func (h *Handler) Routes(verify common.TokenVerifier, rateLimit func(http.Handler) http.Handler) http.Handler {
 	r := chi.NewRouter()
 
+	// Public but sensitive — rate limited per client IP.
+	r.Group(func(pr chi.Router) {
+		if rateLimit != nil {
+			pr.Use(rateLimit)
+		}
+		pr.Post("/register", h.Register)
+		pr.Post("/login", h.Login)
+		pr.Post("/refresh", h.Refresh)
+	})
+
 	// Public
-	r.Post("/register", h.Register)
-	r.Post("/login", h.Login)
-	r.Post("/refresh", h.Refresh)
 	r.Post("/logout", h.Logout)
 
 	// Protected
@@ -64,16 +72,4 @@ func isUniqueViolation(err error) bool {
 
 func chiURLParam(r *http.Request, key string) string {
 	return chi.URLParam(r, key)
-}
-
-// clientIP extracts a best-effort client IP for session records.
-func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return strings.TrimSpace(strings.Split(fwd, ",")[0])
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

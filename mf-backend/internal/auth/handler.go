@@ -213,7 +213,7 @@ func (h *Handler) issueTokens(w http.ResponseWriter, r *http.Request, user User,
 		common.Error(w, common.ErrInternal("could not create refresh token"))
 		return
 	}
-	if _, err := h.store.CreateSession(r.Context(), user.ID, refreshHash, r.UserAgent(), clientIP(r), expires); err != nil {
+	if _, err := h.store.CreateSession(r.Context(), user.ID, refreshHash, r.UserAgent(), common.ClientIP(r), expires); err != nil {
 		common.Error(w, common.ErrInternal("could not persist session"))
 		return
 	}

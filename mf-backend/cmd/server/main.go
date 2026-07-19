@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,6 +16,7 @@ import (
 	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
 	"github.com/emrah/mf-backend/internal/config"
+	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/migrations"
 	"github.com/go-chi/chi/v5"
@@ -30,10 +31,15 @@ func main() {
 
 	cfg := config.Load()
 
+	// Structured logging: JSON in production (parseable by Render/aggregators),
+	// human-readable text locally.
+	common.SetupLogger(cfg.IsProduction())
+
 	ctx := context.Background()
 	pool, err := common.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		slog.Error("database connection failed", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -41,12 +47,14 @@ func main() {
 	// (see package migrations), so this works regardless of working directory.
 	statements, err := migrations.SQL()
 	if err != nil {
-		log.Fatalf("load migrations: %v", err)
+		slog.Error("load migrations failed", "error", err)
+		os.Exit(1)
 	}
 	if err := common.RunMigrations(ctx, pool, statements...); err != nil {
-		log.Fatalf("migrations: %v", err)
+		slog.Error("migrations failed", "error", err)
+		os.Exit(1)
 	}
-	log.Println("database ready, migrations applied")
+	slog.Info("database ready, migrations applied")
 
 	// ---- dependency wiring (constructor injection, Go Day 46) ----
 	tokens := auth.NewTokenService(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
@@ -58,17 +66,25 @@ func main() {
 
 	cfgHandler := config.NewHandler(cfg)
 
+	// Per-IP rate limiter for sensitive auth endpoints: a burst of 10 then a
+	// steady 1 request every 2s. Enough for real logins, hostile to brute force.
+	authLimiter := common.NewRateLimiter(0.5, 10)
+
 	// ---- router ----
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	r.Use(common.RequestLogger)
 	r.Use(common.Recover)
 	r.Use(common.CORS(cfg.CORSOrigins))
 
 	// Config module
 	r.Get("/config", cfgHandler.Config)
 	r.Get("/version", cfgHandler.Version)
+
+	// API documentation
+	r.Get("/openapi.yaml", docs.SpecYAML)
+	r.Get("/docs", docs.Reference)
 
 	// Common module — liveness & readiness
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -85,7 +101,7 @@ func main() {
 	})
 
 	// Feature modules
-	r.Mount("/auth", authHandler.Routes(tokens.Verify))
+	r.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
 	r.Mount("/llm", llmHandler.Routes(tokens.Verify))
 
 	srv := &http.Server{
@@ -94,23 +110,62 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// ---- background: periodically reap expired/revoked sessions ----
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+	go sessionCleanup(workerCtx, authStore)
+
 	// ---- serve with graceful shutdown (Go Day 36-40) ----
 	go func() {
-		log.Printf("%s listening on :%s (env=%s)", cfg.AppName, cfg.Port, cfg.Env)
+		slog.Info("server listening", "app", cfg.AppName, "port", cfg.Port, "env", cfg.Env)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server: %v", err)
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-	log.Println("shutting down...")
+	slog.Info("shutting down")
 
+	stopWorker()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("graceful shutdown failed: %v", err)
+		slog.Error("graceful shutdown failed", "error", err)
 	}
-	log.Println("stopped")
+	slog.Info("stopped")
+}
+
+// sessionCleanup deletes expired and long-revoked sessions on a fixed interval
+// (and once at startup) so the sessions table doesn't grow without bound. It
+// exits promptly when its context is cancelled during shutdown.
+func sessionCleanup(ctx context.Context, store *auth.Store) {
+	const interval = time.Hour
+
+	reap := func() {
+		reapCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		n, err := store.DeleteExpiredSessions(reapCtx)
+		if err != nil {
+			slog.Warn("session cleanup failed", "error", err)
+			return
+		}
+		if n > 0 {
+			slog.Info("session cleanup", "deleted", n)
+		}
+	}
+
+	reap() // run once at boot
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reap()
+		}
+	}
 }

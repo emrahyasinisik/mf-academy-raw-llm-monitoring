@@ -66,6 +66,22 @@ dimensions, each returned in the response `breakdown`:
 
 Weights default to a balanced profile but can be overridden per request.
 
+## Security & operations
+
+| Concern | How it's handled |
+| --- | --- |
+| **Brute force** | Sensitive public auth routes (`/auth/register`, `/auth/login`, `/auth/refresh`) are rate limited per client IP — burst of 10 then ~1 req / 2s (`internal/common/ratelimit.go`). |
+| **Structured logs** | `slog`-based access logging: JSON in production, human-readable text locally. Panics are recovered *and* logged with request id + stack trace, never silently swallowed. |
+| **Session hygiene** | A background job reaps expired and long-revoked refresh sessions hourly (and once at boot) so the `sessions` table stays bounded. |
+| **Refresh tokens** | Rotated on every use — the presented token is revoked before a new pair is issued — so a stolen refresh token is single-use. |
+
+## API documentation
+
+The full **OpenAPI 3.1** spec is embedded in the binary and served live:
+
+- `GET /openapi.yaml` — the raw spec (feed it to Postman, code generators, etc.)
+- `GET /docs` — a rendered Redoc reference page
+
 ## Local development
 
 ```bash

@@ -137,6 +137,21 @@ func (s *Store) RevokeSessionForUser(ctx context.Context, sessionID, userID stri
 	return nil
 }
 
+// DeleteExpiredSessions permanently removes sessions that can no longer be used:
+// those past their expiry, and those revoked more than a grace window ago (kept
+// briefly so "recently revoked" still lists in the UI). Returns the row count so
+// the caller can log how much was reaped. Safe to run periodically.
+func (s *Store) DeleteExpiredSessions(ctx context.Context) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`DELETE FROM sessions
+		 WHERE expires_at < now()
+		    OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ListSessions returns a user's sessions, newest first.
 func (s *Store) ListSessions(ctx context.Context, userID string) ([]Session, error) {
 	rows, err := s.db.Query(ctx,

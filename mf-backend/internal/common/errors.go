@@ -40,6 +40,13 @@ func ErrConflict(msg string) *APIError {
 	return &APIError{Status: http.StatusConflict, Code: "conflict", Message: msg}
 }
 
+func ErrTooManyRequests(msg string) *APIError {
+	if msg == "" {
+		msg = "too many requests"
+	}
+	return &APIError{Status: http.StatusTooManyRequests, Code: "too_many_requests", Message: msg}
+}
+
 func ErrInternal(msg string) *APIError {
 	return &APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: msg}
 }
