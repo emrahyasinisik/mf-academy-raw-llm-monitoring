@@ -4,7 +4,7 @@ Next.js **single-page app** for the MasterFabric capstone. Runs **Gemma** in the
 browser via **WebLLM / MLC-LLM** (WebGPU), records each run to the Go backend,
 and shows its **decision score**.
 
-- **Live app:** `https://mf-frontend.vercel.app` _(update after deploy)_
+- **Live app:** **https://mf-academy-raw-llm-monitoring-ten.vercel.app** ✅ live
 - **Live API:** **https://mf-backend-zqsa.onrender.com** ✅ live (Render)
 - **Stack:** Next.js 16 · React 19 · Tailwind v4 · `@mlc-ai/web-llm`
 

@@ -33,6 +33,6 @@ services:
         value: 15m
       - key: REFRESH_TOKEN_TTL
         value: 168h
-      # IMPORTANT: set this to your Vercel frontend URL after the first deploy.
+      # Vercel frontend origin (no trailing slash).
       - key: CORS_ORIGINS
-        value: https://mf-frontend.vercel.app
+        value: https://mf-academy-raw-llm-monitoring-ten.vercel.app
