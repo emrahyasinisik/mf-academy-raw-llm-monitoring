@@ -10,8 +10,8 @@
 **/.next/
 **/out/
 
-# Go build artifacts
-**/app
+# Go build artifacts (anchored paths — must NOT match Next.js src/app or cmd/server)
+mf-backend/app
 mf-backend/mf-backend
 mf-backend/server
 
