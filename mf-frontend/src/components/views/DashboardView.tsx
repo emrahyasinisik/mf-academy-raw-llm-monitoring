@@ -4,7 +4,7 @@
 // run history on the left, and the selected run's detail + score on the right.
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import type { Metrics, Run } from "@/lib/types";
 import { ScoreCard } from "../ui/ScoreCard";
 
@@ -13,14 +13,22 @@ export function DashboardView() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [selected, setSelected] = useState<Run | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [m, list] = await Promise.all([api.metrics(), api.listRuns(50, 0)]);
       setMetrics(m);
       setRuns(list.runs);
       setSelected((prev) => prev ?? list.runs[0] ?? null);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Could not load the dashboard. Check your connection and retry.",
+      );
     } finally {
       setLoading(false);
     }
@@ -31,13 +39,35 @@ export function DashboardView() {
   }, [refresh]);
 
   async function remove(id: string) {
-    await api.deleteRun(id);
-    if (selected?.id === id) setSelected(null);
-    refresh();
+    try {
+      await api.deleteRun(id);
+      if (selected?.id === id) setSelected(null);
+      refresh();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not delete that run.",
+      );
+    }
   }
 
   return (
     <div className="max-w-6xl mx-auto p-5 space-y-5">
+      {error && (
+        <div
+          className="card p-4 flex items-center justify-between gap-3 text-sm"
+          style={{
+            background: "color-mix(in srgb, var(--bad) 10%, transparent)",
+            color: "var(--bad)",
+            border: "1px solid color-mix(in srgb, var(--bad) 28%, transparent)",
+          }}
+        >
+          <span>{error}</span>
+          <button className="btn btn-ghost !py-1 !px-2.5 text-xs" onClick={refresh}>
+            ↻ Retry
+          </button>
+        </div>
+      )}
+
       {/* Metrics row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric label="Total runs" value={metrics?.total_runs ?? "—"} />

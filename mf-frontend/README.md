@@ -43,6 +43,26 @@ npm run dev          # → http://localhost:3000
 The backend ([`mf-backend`](../mf-backend)) must be running and its
 `CORS_ORIGINS` must include `http://localhost:3000`.
 
+## Token storage (a deliberate tradeoff)
+
+The typed API client ([`src/lib/api.ts`](src/lib/api.ts)) stores the JWT access
+and refresh tokens in **`localStorage`**. This is a conscious tradeoff, not an
+oversight:
+
+- **Why localStorage:** the frontend deploys to Vercel as a static SPA on a
+  *different origin* from the Render API. `httpOnly` cookies would need
+  `SameSite=None; Secure` plus CORS credentials and CSRF protection — more
+  moving parts than this capstone warrants, and cross-site cookies are
+  increasingly blocked by browsers.
+- **The cost:** tokens in `localStorage` are readable by any JavaScript running
+  on the page, so a successful **XSS** would expose them. We mitigate by keeping
+  the access token short-lived (15 min) with **rotating** refresh tokens, so a
+  leaked token has a small blast radius and stolen refresh tokens are
+  single-use.
+- **Hardening path:** for a production system, move the refresh token to an
+  `httpOnly` cookie (same-site if the API and app share a domain) and keep only
+  the access token in memory.
+
 ## Deploy (Vercel)
 
 Vercel auto-detects Next.js. **Set one environment variable** in the project
