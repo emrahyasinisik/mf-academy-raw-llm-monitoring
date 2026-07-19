@@ -9,7 +9,7 @@ transparent, rule-based **decision scoring** engine.
 | **Frontend** (`mf-frontend/`) | Next.js 16 SPA → **Vercel** |
 | **Backend** (`mf-backend/`) | Go 1.26 + Postgres → **Render** |
 | **Live app** | `https://mf-frontend.vercel.app` _(update after deploy)_ |
-| **Live API** | `https://mf-backend.onrender.com` _(update after deploy)_ |
+| **Live API** | **https://mf-backend-zqsa.onrender.com** ✅ live |
 
 ## Repository layout
 

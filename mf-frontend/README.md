@@ -5,7 +5,7 @@ browser via **WebLLM / MLC-LLM** (WebGPU), records each run to the Go backend,
 and shows its **decision score**.
 
 - **Live app:** `https://mf-frontend.vercel.app` _(update after deploy)_
-- **API:** [`mf-backend`](../mf-backend) → Render
+- **Live API:** **https://mf-backend-zqsa.onrender.com** ✅ live (Render)
 - **Stack:** Next.js 16 · React 19 · Tailwind v4 · `@mlc-ai/web-llm`
 
 > ⚠️ Requires a **WebGPU** browser (Chrome / Edge 111+). The model (~1.4 GB for

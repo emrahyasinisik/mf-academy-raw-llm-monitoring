@@ -4,7 +4,7 @@ Go + Postgres backend for the MasterFabric capstone. Records LLM runs produced
 in the browser (WebLLM/Gemma) and grades them with a transparent, rule-based
 **decision scoring** engine.
 
-- **Live API:** `https://mf-backend.onrender.com` _(update after deploy)_
+- **Live API:** **https://mf-backend-zqsa.onrender.com** ✅ live
 - **Frontend:** see [`mf-frontend`](../mf-frontend) → Vercel
 - **Stack:** Go 1.26 · chi router · pgx/Postgres · JWT · bcrypt
 
