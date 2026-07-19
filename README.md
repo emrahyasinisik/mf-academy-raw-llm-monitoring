@@ -1,3 +1,14 @@
+<!-- Works on docs / sites. GitHub README strips iframes — use Markdown instead. -->
+<iframe
+  src="https://academy.masterfabric.co/embed/badge?credit=1&size=120&style=patch"
+  title="MasterFabric Academy badge"
+  width="220"
+  height="200"
+  style="border:0;overflow:hidden;background:#000"
+  loading="lazy"
+></iframe>
+
+
 # MasterFabric Capstone — Raw LLM Monitoring & Decision Scoring
 
 Full-stack monorepo. A **Gemma** model runs entirely in the browser via
