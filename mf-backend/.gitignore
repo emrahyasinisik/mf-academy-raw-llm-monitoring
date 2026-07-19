@@ -2,7 +2,9 @@
 *.env.local
 /bin/
 /tmp/
-server
-mf-backend
+# Built binaries (root-anchored so they don't match the cmd/server/ dir)
+/server
+/app
+/mf-backend
 *.log
 .DS_Store
