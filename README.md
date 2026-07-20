@@ -11,6 +11,11 @@
 
 # MasterFabric Capstone — Raw LLM Monitoring & Decision Scoring
 
+<!-- GitHub strips <iframe>, so the badge is a linked <img> (both are allowed by GitHub's sanitizer). -->
+<a href="https://academy.masterfabric.co">
+  <img src="https://academy.masterfabric.co/academy-badge.png" alt="MasterFabric Academy" width="220">
+</a>
+
 Full-stack monorepo. A **Gemma** model runs entirely in the browser via
 **WebLLM / MLC-LLM**; every run is recorded by a Go API and graded by a
 transparent, rule-based **decision scoring** engine.
