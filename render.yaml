@@ -17,12 +17,16 @@ services:
     buildCommand: go build -o app ./cmd/server
     startCommand: ./app
     healthCheckPath: /health
-    # Held off for the /llm/runs contract change. The old frontend crashes on a
-    # RunSummary response (it reads expected_keywords, which summaries omit), so
-    # the frontend has to land first; the reverse order white-screens the
-    # dashboard. Vercel deploys the frontend on push, then the backend is
-    # released by hand. Set back to true once both sides are on the new contract.
-    autoDeploy: false
+    # Both sides now speak the new /llm/runs contract, so the ordering that
+    # forced a manual release is no longer a constraint.
+    #
+    # Note for the next breaking change: the frontend deploys from this same
+    # push via Vercel, and the two build at different speeds, so a contract
+    # change leaves a window where they disagree. Work out which side must land
+    # first from the fields each reads on the other's response — not from which
+    # service owns the change — then set this to false while you release them in
+    # that order.
+    autoDeploy: true
     envVars:
       # Wired automatically from the managed database above.
       - key: DATABASE_URL
