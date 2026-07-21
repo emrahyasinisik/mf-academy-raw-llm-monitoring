@@ -162,7 +162,9 @@ func (s *Store) ListSessions(ctx context.Context, userID string) ([]Session, err
 	}
 	defer rows.Close()
 
-	sessions := []Session{}
+	// Most users have a handful of sessions; sizing for that avoids the
+	// grow-and-copy cycle append would otherwise walk through.
+	sessions := make([]Session, 0, 8)
 	for rows.Next() {
 		var se Session
 		if err := rows.Scan(&se.ID, &se.UserAgent, &se.IPAddress, &se.ExpiresAt, &se.RevokedAt, &se.CreatedAt); err != nil {

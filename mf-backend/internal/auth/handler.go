@@ -1,20 +1,63 @@
 package auth
 
 import (
+	"context"
 	"net/http"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/emrah/mf-backend/internal/common"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// bcryptSem bounds how many password hashes may be computed at once.
+//
+// bcrypt is deliberately expensive and, being pure CPU work, never yields to
+// the Go scheduler. Measured at ~50ms per verification on an M3 (and several
+// times that on a shared vCPU), enough concurrent logins will occupy every P in
+// the runtime — starving not just other auth requests but every unrelated
+// handler, and the GC's workers with them. Capping concurrency at the core
+// count keeps password hashing from crowding out the rest of the service.
+var bcryptSem = make(chan struct{}, runtime.NumCPU())
+
+// withBcryptSlot runs fn while holding a hashing slot. It honours the request
+// context so a caller that has already timed out is rejected immediately rather
+// than queueing for work whose result nobody will read.
+func withBcryptSlot(ctx context.Context, fn func() error) error {
+	select {
+	case bcryptSem <- struct{}{}:
+		defer func() { <-bcryptSem }()
+		return fn()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// UserStore is the persistence behaviour the auth handlers need, declared on
+// the consuming side. *Store satisfies it implicitly.
+type UserStore interface {
+	CreateUser(ctx context.Context, email, passwordHash, name string) (User, error)
+	GetUserByEmailWithHash(ctx context.Context, email string) (User, string, error)
+	GetUserByID(ctx context.Context, id string) (User, error)
+	GetPasswordHash(ctx context.Context, id string) (string, error)
+	UpdateName(ctx context.Context, id, name string) (User, error)
+	UpdatePassword(ctx context.Context, id, newHash string) error
+
+	CreateSession(ctx context.Context, userID, tokenHash, userAgent, ip string, expires time.Time) (string, error)
+	FindValidSessionByHash(ctx context.Context, tokenHash string) (sessionID, userID string, err error)
+	RevokeSession(ctx context.Context, sessionID string) error
+	RevokeSessionForUser(ctx context.Context, sessionID, userID string) error
+	ListSessions(ctx context.Context, userID string) ([]Session, error)
+}
+
 // Handler holds the dependencies the auth HTTP handlers need.
 type Handler struct {
-	store  *Store
+	store  UserStore
 	tokens *TokenService
 }
 
-func NewHandler(store *Store, tokens *TokenService) *Handler {
+func NewHandler(store UserStore, tokens *TokenService) *Handler {
 	return &Handler{store: store, tokens: tokens}
 }
 
@@ -32,7 +75,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// bcrypt salts and hashes the password. We never store the plaintext.
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	var hash []byte
+	err := withBcryptSlot(r.Context(), func() error {
+		var e error
+		hash, e = bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		return e
+	})
 	if err != nil {
 		common.Error(w, common.ErrInternal("could not hash password"))
 		return
@@ -67,7 +115,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrUnauthorized("invalid email or password"))
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+	cmpErr := withBcryptSlot(r.Context(), func() error {
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
+	})
+	if cmpErr != nil {
 		common.Error(w, common.ErrUnauthorized("invalid email or password"))
 		return
 	}
@@ -163,12 +214,18 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrNotFound("user not found"))
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword)) != nil {
+	if err := withBcryptSlot(r.Context(), func() error {
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword))
+	}); err != nil {
 		common.Error(w, common.ErrUnauthorized("current password is incorrect"))
 		return
 	}
-	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
+	var newHash []byte
+	if err := withBcryptSlot(r.Context(), func() error {
+		var e error
+		newHash, e = bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		return e
+	}); err != nil {
 		common.Error(w, common.ErrInternal("could not hash password"))
 		return
 	}
