@@ -17,7 +17,12 @@ services:
     buildCommand: go build -o app ./cmd/server
     startCommand: ./app
     healthCheckPath: /health
-    autoDeploy: true
+    # Held off for the /llm/runs contract change. The old frontend crashes on a
+    # RunSummary response (it reads expected_keywords, which summaries omit), so
+    # the frontend has to land first; the reverse order white-screens the
+    # dashboard. Vercel deploys the frontend on push, then the backend is
+    # released by hand. Set back to true once both sides are on the new contract.
+    autoDeploy: false
     envVars:
       # Wired automatically from the managed database above.
       - key: DATABASE_URL
