@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -29,6 +30,22 @@ type AuthClaims struct {
 // The auth package supplies the concrete implementation; common stays
 // ignorant of JWT specifics, avoiding an import cycle.
 type TokenVerifier func(token string) (AuthClaims, error)
+
+// Timeout bounds how long any single request may run, by deriving a deadline
+// on its context. Because every store method threads r.Context() into pgx, the
+// deadline propagates all the way down to the database driver, so a slow query
+// releases its pooled connection instead of holding it until the client hangs
+// up. Enforcing this centrally (rather than per-handler) means a newly added
+// endpoint inherits the bound automatically instead of relying on discipline.
+func Timeout(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 
 // CORS returns a configured CORS middleware allowing the frontend origins.
 func CORS(origins []string) func(http.Handler) http.Handler {

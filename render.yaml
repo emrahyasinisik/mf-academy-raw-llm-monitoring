@@ -29,6 +29,12 @@ services:
         generateValue: true
       - key: APP_ENV
         value: production
+      # Render terminates TLS and fronts this service with its own proxy, so
+      # X-Forwarded-For is set by infrastructure we control and RealIP may
+      # trust it. Without this the limiter sees only the proxy's address and
+      # buckets every user together — one abuser would then lock everyone out.
+      - key: TRUST_PROXY
+        value: "true"
       - key: ACCESS_TOKEN_TTL
         value: 15m
       - key: REFRESH_TOKEN_TTL

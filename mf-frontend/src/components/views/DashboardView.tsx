@@ -3,26 +3,56 @@
 // Master view: Monitoring Dashboard. Aggregate metrics up top, a scrollable
 // run history on the left, and the selected run's detail + score on the right.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { Metrics, Run } from "@/lib/types";
+import type { Metrics, Run, RunSummary } from "@/lib/types";
 import { ScoreCard } from "../ui/ScoreCard";
 
 export function DashboardView() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<Run | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Identifies the most recent detail request so a slow earlier response cannot
+  // overwrite the run the user has since clicked on.
+  const detailReq = useRef(0);
+
+  // The list only carries summaries, so the detail pane fetches the full run —
+  // this is what keeps prompts and responses off every list request.
+  const select = useCallback(async (id: string) => {
+    const req = ++detailReq.current;
+    setDetailLoading(true);
+    try {
+      const run = await api.getRun(id);
+      if (detailReq.current === req) setSelected(run);
+    } catch (err) {
+      if (detailReq.current === req) {
+        setError(
+          err instanceof ApiError ? err.message : "Could not load that run.",
+        );
+      }
+    } finally {
+      if (detailReq.current === req) setDetailLoading(false);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [m, list] = await Promise.all([api.metrics(), api.listRuns(50, 0)]);
+      const [m, list] = await Promise.all([api.metrics(), api.listRuns(50)]);
       setMetrics(m);
       setRuns(list.runs);
-      setSelected((prev) => prev ?? list.runs[0] ?? null);
+      // Open the newest run on first load so the detail pane isn't empty.
+      if (list.runs.length > 0) {
+        setSelected((prev) => {
+          if (!prev) void select(list.runs[0].id);
+          return prev;
+        });
+      }
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -32,7 +62,7 @@ export function DashboardView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [select]);
 
   useEffect(() => {
     refresh();
@@ -120,7 +150,7 @@ export function DashboardView() {
               runs.map((r) => (
                 <button
                   key={r.id}
-                  onClick={() => setSelected(r)}
+                  onClick={() => select(r.id)}
                   className="w-full text-left px-3 py-2.5 rounded-lg transition-colors"
                   style={{
                     background:
@@ -128,7 +158,9 @@ export function DashboardView() {
                   }}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm truncate flex-1">{r.prompt}</span>
+                    <span className="text-sm truncate flex-1">
+                      {r.prompt_preview}
+                    </span>
                     {r.score && (
                       <span className={`pill grade-${r.score.grade}`}>
                         {r.score.grade} · {r.score.score.toFixed(0)}
@@ -151,7 +183,11 @@ export function DashboardView() {
 
         {/* Detail */}
         <div className="space-y-4">
-          {selected ? (
+          {detailLoading && !selected ? (
+            <div className="card p-8 text-center text-sm animate-pulse-soft" style={{ color: "var(--text-dim)" }}>
+              loading run…
+            </div>
+          ) : selected ? (
             <>
               <div className="card p-4">
                 <div className="flex items-start justify-between gap-3 mb-3">
