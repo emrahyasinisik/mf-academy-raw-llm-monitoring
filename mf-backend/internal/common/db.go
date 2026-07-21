@@ -18,8 +18,19 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
-	cfg.MaxConns = 10
+	// Pool sizing. MaxConns is the ceiling on concurrent database work: too low
+	// and requests queue behind each other, too high and Postgres itself starts
+	// thrashing. Keep the sum across all instances below the server's
+	// max_connections. MinConns keeps warm connections so the first requests
+	// after an idle period don't pay the TCP+TLS+auth handshake.
+	cfg.MaxConns = 25
+	cfg.MinConns = 5
 	cfg.MaxConnIdleTime = 5 * time.Minute
+	// Recycle connections periodically. Behind a proxy or managed Postgres, a
+	// long-lived connection can be reaped server-side without the client
+	// noticing; retiring them on our own schedule avoids surfacing that as a
+	// request error.
+	cfg.MaxConnLifetime = 30 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

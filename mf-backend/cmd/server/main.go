@@ -66,16 +66,29 @@ func main() {
 
 	cfgHandler := config.NewHandler(cfg)
 
+	// Background workers share one context so shutdown stops all of them.
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	defer stopWorker()
+
 	// Per-IP rate limiter for sensitive auth endpoints: a burst of 10 then a
 	// steady 1 request every 2s. Enough for real logins, hostile to brute force.
-	authLimiter := common.NewRateLimiter(0.5, 10)
+	authLimiter := common.NewRateLimiter(workerCtx, 0.5, 10)
 
 	// ---- router ----
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// RealIP rewrites RemoteAddr from X-Forwarded-For, which is only meaningful
+	// — and only safe — when a proxy we control has already set that header.
+	// Mounting it on a directly-exposed instance would hand every caller
+	// control of their own apparent IP.
+	if cfg.TrustProxy {
+		r.Use(middleware.RealIP)
+	}
 	r.Use(common.RequestLogger)
 	r.Use(common.Recover)
+	// Bound every request before any handler runs, so the deadline reaches the
+	// database driver and a stalled query cannot hold a pooled connection open.
+	r.Use(common.Timeout(cfg.RequestTimeout))
 	r.Use(common.CORS(cfg.CORSOrigins))
 
 	// Config module
@@ -105,14 +118,22 @@ func main() {
 	r.Mount("/llm", llmHandler.Routes(tokens.Verify))
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           r,
+		Addr:    ":" + cfg.Port,
+		Handler: r,
+		// Every phase of a connection needs a bound. ReadHeaderTimeout alone
+		// leaves body reads and response writes unbounded, so a client that
+		// stalls mid-transfer pins a goroutine and its database connection
+		// indefinitely. WriteTimeout is deliberately wider than the per-request
+		// timeout above, so handlers get to finish writing their error response
+		// rather than having the connection cut from under them.
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	// ---- background: periodically reap expired/revoked sessions ----
-	workerCtx, stopWorker := context.WithCancel(context.Background())
-	defer stopWorker()
 	go sessionCleanup(workerCtx, authStore)
 
 	// ---- serve with graceful shutdown (Go Day 36-40) ----

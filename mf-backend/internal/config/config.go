@@ -19,6 +19,14 @@ type Config struct {
 	CORSOrigins     []string
 	AppName         string
 	AppVersion      string
+	// TrustProxy states whether a proxy we control sits in front of this
+	// process. Only then may X-Forwarded-For be believed: the header is
+	// client-supplied, so trusting it on a directly-exposed instance lets any
+	// caller forge a new identity per request and slip the rate limiter.
+	TrustProxy bool
+	// RequestTimeout bounds a single request end to end, including its database
+	// work. See common.Timeout.
+	RequestTimeout time.Duration
 }
 
 // Load reads configuration from the environment, applying sensible defaults
@@ -35,6 +43,11 @@ func Load() Config {
 		CORSOrigins:     getList("CORS_ORIGINS", []string{"http://localhost:3000"}),
 		AppName:         getEnv("APP_NAME", "MasterFabric Raw LLM Monitoring & Decision Scoring"),
 		AppVersion:      getEnv("APP_VERSION", "0.1.0"),
+		// Defaults to false: a direct-exposed process is the unsafe case, so
+		// the safe behaviour is what you get without configuring anything.
+		// Render (and any reverse proxy deployment) should set TRUST_PROXY=true.
+		TrustProxy:     getBool("TRUST_PROXY", false),
+		RequestTimeout: getDuration("REQUEST_TIMEOUT", 5*time.Second),
 	}
 }
 
@@ -46,6 +59,15 @@ func (c Config) IsProduction() bool {
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getBool(key string, fallback bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
 	}
 	return fallback
 }
