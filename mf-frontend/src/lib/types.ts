@@ -17,12 +17,20 @@ export interface TokenPair {
   user: User;
 }
 
+export interface Breakdown {
+  completion: number;
+  latency: number;
+  efficiency: number;
+  keywords: number;
+  length: number;
+}
+
 export interface Score {
   id: string;
   run_id: string;
   score: number;
   grade: string;
-  breakdown: Record<string, number>;
+  breakdown: Breakdown;
   rationale: string;
   created_at: string;
 }
@@ -44,11 +52,27 @@ export interface Run {
   score?: Score | null;
 }
 
+// RunSummary is what the history list returns. The large text fields (prompt,
+// response, system_prompt) are not included — fetch a single run with
+// api.getRun(id) when the detail view needs them.
+export interface RunSummary {
+  id: string;
+  model: string;
+  prompt_preview: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  latency_ms: number;
+  created_at: string;
+  score?: Score | null;
+}
+
+// Cursor-paginated page of runs. Pass next_cursor back as `before` to fetch the
+// following page; has_more reports whether one exists.
 export interface ListResult {
-  runs: Run[];
-  total: number;
+  runs: RunSummary[];
   limit: number;
-  offset: number;
+  next_cursor?: string;
+  has_more: boolean;
 }
 
 export interface Metrics {

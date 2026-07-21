@@ -146,10 +146,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  listRuns: (limit = 20, offset = 0, model = "") =>
-    request<ListResult>(
-      `/llm/runs?limit=${limit}&offset=${offset}${model ? `&model=${encodeURIComponent(model)}` : ""}`,
-    ),
+  // Cursor-paginated. Omit `before` for the newest page; pass the previous
+  // page's next_cursor to continue. Returns summaries only — use getRun for a
+  // run's full prompt and response.
+  listRuns: (limit = 20, before?: string, model = "") => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", before);
+    if (model) params.set("model", model);
+    return request<ListResult>(`/llm/runs?${params}`);
+  },
   getRun: (id: string) => request<Run>(`/llm/runs/${id}`),
   deleteRun: (id: string) =>
     request<{ status: string }>(`/llm/runs/${id}`, { method: "DELETE" }),
