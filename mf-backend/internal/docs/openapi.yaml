@@ -89,7 +89,12 @@ paths:
     post:
       tags: [auth]
       summary: Rotate a refresh token for a new token pair
-      description: The presented refresh token is revoked and a new pair issued.
+      description: >-
+        The presented refresh token is revoked and a new pair issued. Presenting
+        a token that was already revoked is treated as evidence of theft —
+        rotation means the legitimate holder has since swapped it — so every
+        session for that account is revoked and the caller must sign in again.
+
       requestBody:
         required: true
         content:
@@ -107,6 +112,11 @@ paths:
     post:
       tags: [auth]
       summary: Revoke the presented refresh token
+      description: >-
+        Unauthenticated by design, so a client whose access token has already
+        expired can still retire its refresh token. Rate limited by client IP.
+        Always returns 200, whether or not the token matched, so it cannot be
+        used to probe which tokens exist.
       requestBody:
         required: true
         content:
@@ -114,6 +124,7 @@ paths:
             schema: { $ref: "#/components/schemas/RefreshRequest" }
       responses:
         "200": { description: Logged out }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
   /auth/me:
     get:
       tags: [auth]
@@ -146,6 +157,12 @@ paths:
     post:
       tags: [auth]
       summary: Change the current user's password
+      description: >-
+        Verifies the current password, sets the new one, and revokes every
+        refresh token for the account — including the caller's, so a stolen
+        token cannot outlive the change. A fresh token pair is returned in its
+        place, so the caller stays signed in while every other device is signed
+        out. Clients must replace their stored tokens with this response.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -153,7 +170,11 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
       responses:
-        "200": { description: Password changed }
+        "200":
+          description: Password changed; all sessions revoked and a new token pair issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   /auth/sessions:

@@ -17,7 +17,10 @@ import (
 func (h *Handler) Routes(verify common.TokenVerifier, rateLimit func(http.Handler) http.Handler) http.Handler {
 	r := chi.NewRouter()
 
-	// Public but sensitive — rate limited per client IP.
+	// Public but sensitive — rate limited per client IP. Logout stays
+	// unauthenticated by design (a client whose access token already expired
+	// must still be able to retire its refresh token), but unauthenticated is
+	// not a reason to leave it unmetered: every call costs a session lookup.
 	r.Group(func(pr chi.Router) {
 		if rateLimit != nil {
 			pr.Use(rateLimit)
@@ -25,10 +28,8 @@ func (h *Handler) Routes(verify common.TokenVerifier, rateLimit func(http.Handle
 		pr.Post("/register", h.Register)
 		pr.Post("/login", h.Login)
 		pr.Post("/refresh", h.Refresh)
+		pr.Post("/logout", h.Logout)
 	})
-
-	// Public
-	r.Post("/logout", h.Logout)
 
 	// Protected
 	r.Group(func(pr chi.Router) {
