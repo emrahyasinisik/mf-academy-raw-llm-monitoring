@@ -221,15 +221,22 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
     get:
       tags: [llm]
-      summary: List the current user's runs (paginated)
+      summary: List the current user's runs (cursor-paginated)
+      description: >-
+        Returns run summaries newest-first. Paging is by cursor: pass the
+        previous page's `next_cursor` as `before`. Summaries omit the prompt,
+        response and system_prompt bodies — fetch GET /llm/runs/{id} for those.
       security: [{ bearerAuth: [] }]
       parameters:
-        - { name: limit, in: query, schema: { type: integer, default: 20 } }
-        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+        - name: before
+          in: query
+          description: Return runs created strictly before this instant. Omit for the newest page.
+          schema: { type: string, format: date-time }
         - { name: model, in: query, schema: { type: string } }
       responses:
         "200":
-          description: Paginated runs
+          description: A page of run summaries
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ListResult" }
@@ -443,11 +450,18 @@ components:
         run_id: { type: string, format: uuid }
         score: { type: number, description: 0..100 }
         grade: { type: string, enum: [A, B, C, D, F] }
-        breakdown:
-          type: object
-          additionalProperties: { type: number }
+        breakdown: { $ref: "#/components/schemas/Breakdown" }
         rationale: { type: string }
         created_at: { type: string, format: date-time }
+    Breakdown:
+      type: object
+      description: Per-component scores, each 0..100.
+      properties:
+        completion: { type: number }
+        latency: { type: number }
+        efficiency: { type: number }
+        keywords: { type: number }
+        length: { type: number }
     Run:
       type: object
       properties:
@@ -481,12 +495,29 @@ components:
         grade_distribution:
           type: object
           additionalProperties: { type: integer }
+    RunSummary:
+      type: object
+      description: >-
+        List-view projection of a Run. The large text columns are intentionally
+        absent so listing a page does not transfer data the list never renders.
+      properties:
+        id: { type: string, format: uuid }
+        model: { type: string }
+        prompt_preview: { type: string, description: First 160 characters of the prompt. }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        latency_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+        score: { $ref: "#/components/schemas/Score" }
     ListResult:
       type: object
       properties:
         runs:
           type: array
-          items: { $ref: "#/components/schemas/Run" }
-        total: { type: integer }
+          items: { $ref: "#/components/schemas/RunSummary" }
         limit: { type: integer }
-        offset: { type: integer }
+        next_cursor:
+          type: string
+          format: date-time
+          description: Pass as `before` to fetch the next page. Absent when has_more is false.
+        has_more: { type: boolean }

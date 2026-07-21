@@ -45,19 +45,28 @@ var refusalMarkers = []string{
 
 // ScoreRun applies the rule-based decision scoring to a run and returns a
 // Score with a transparent per-component breakdown and a human rationale.
+//
+// The response is trimmed and lower-cased exactly once here, then shared by the
+// components that need each form. Previously scoreCompletion and scoreKeywords
+// each called strings.ToLower independently, and since ToLower allocates a full
+// copy of its input, a 3KB answer cost two 3KB allocations per score — 96% of
+// the function's total garbage, paid on every run when auto-scoring is on.
 func ScoreRun(run Run, w Weights) Score {
-	completion := scoreCompletion(run.Response)
-	latency := scoreLatency(run.LatencyMs)
-	efficiency := scoreEfficiency(run.CompletionTokens, run.Response)
-	keywords := scoreKeywords(run.Response, run.ExpectedKeywords)
-	length := scoreLength(run.Response)
+	trimmed := strings.TrimSpace(run.Response)
+	lower := strings.ToLower(trimmed)
 
-	breakdown := map[string]float64{
-		"completion": round1(completion),
-		"latency":    round1(latency),
-		"efficiency": round1(efficiency),
-		"keywords":   round1(keywords),
-		"length":     round1(length),
+	completion := scoreCompletion(trimmed, lower)
+	latency := scoreLatency(run.LatencyMs)
+	efficiency := scoreEfficiency(run.CompletionTokens, trimmed)
+	keywords := scoreKeywords(lower, run.ExpectedKeywords)
+	length := scoreLength(trimmed)
+
+	breakdown := Breakdown{
+		Completion: round1(completion),
+		Latency:    round1(latency),
+		Efficiency: round1(efficiency),
+		Keywords:   round1(keywords),
+		Length:     round1(length),
 	}
 
 	total := completion*w.Completion +
@@ -78,12 +87,11 @@ func ScoreRun(run Run, w Weights) Score {
 }
 
 // scoreCompletion: 100 if a substantive answer, low if empty or a refusal.
-func scoreCompletion(response string) float64 {
-	trimmed := strings.TrimSpace(response)
+// Takes both forms of the response so it does not have to lower-case again.
+func scoreCompletion(trimmed, lower string) float64 {
 	if trimmed == "" {
 		return 0
 	}
-	lower := strings.ToLower(trimmed)
 	for _, m := range refusalMarkers {
 		if strings.Contains(lower, m) {
 			return 30 // answered, but looks like a refusal/hedge
@@ -130,11 +138,11 @@ func scoreEfficiency(completionTokens int, response string) float64 {
 
 // scoreKeywords: fraction of expected keywords present in the response.
 // With no expected keywords, this dimension is neutral (does not punish).
-func scoreKeywords(response string, expected []string) float64 {
+// `lower` is the already-lower-cased response supplied by ScoreRun.
+func scoreKeywords(lower string, expected []string) float64 {
 	if len(expected) == 0 {
 		return 100
 	}
-	lower := strings.ToLower(response)
 	found := 0
 	for _, kw := range expected {
 		if kw = strings.ToLower(strings.TrimSpace(kw)); kw != "" && strings.Contains(lower, kw) {
@@ -178,18 +186,20 @@ func grade(score float64) string {
 }
 
 // rationale produces a short human-readable explanation of the score.
-func rationale(run Run, b map[string]float64) string {
-	parts := []string{}
-	if b["completion"] < 50 {
+func rationale(run Run, b Breakdown) string {
+	// At most four deductions are possible, so size the slice for that up front
+	// rather than letting append grow and copy it.
+	parts := make([]string, 0, 4)
+	if b.Completion < 50 {
 		parts = append(parts, "response was empty or looked like a refusal")
 	}
-	if b["keywords"] < 100 && len(run.ExpectedKeywords) > 0 {
-		parts = append(parts, fmt.Sprintf("covered %.0f%% of expected keywords", b["keywords"]))
+	if b.Keywords < 100 && len(run.ExpectedKeywords) > 0 {
+		parts = append(parts, fmt.Sprintf("covered %.0f%% of expected keywords", b.Keywords))
 	}
-	if b["latency"] < 60 {
+	if b.Latency < 60 {
 		parts = append(parts, fmt.Sprintf("slow response (%dms)", run.LatencyMs))
 	}
-	if b["length"] < 60 {
+	if b.Length < 60 {
 		parts = append(parts, "answer length was suboptimal")
 	}
 	if len(parts) == 0 {

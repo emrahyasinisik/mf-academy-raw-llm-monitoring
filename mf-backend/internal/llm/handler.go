@@ -1,19 +1,37 @@
 package llm
 
 import (
+	"context"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/emrah/mf-backend/internal/common"
 	"github.com/go-chi/chi/v5"
 )
 
-// Handler serves the LLM monitoring & decision-scoring endpoints.
-type Handler struct {
-	store *Store
+// RunStore is the persistence behaviour these handlers need, declared here on
+// the consuming side rather than exported from the store. *Store satisfies it
+// implicitly, so nothing has to be registered or wired differently — but the
+// handlers now depend on the four operations they actually call instead of on
+// a concrete type carrying a live connection pool. That is what makes them
+// testable and benchmarkable without a running PostgreSQL, which in turn is
+// what lets the performance work here be defended by tests in CI.
+type RunStore interface {
+	CreateRun(ctx context.Context, userID string, req CreateRunRequest) (Run, error)
+	GetRun(ctx context.Context, userID, runID string) (Run, error)
+	ListRuns(ctx context.Context, userID, model string, limit int, before time.Time) (ListResult, error)
+	DeleteRun(ctx context.Context, userID, runID string) error
+	UpsertScore(ctx context.Context, sc Score) (Score, error)
+	Metrics(ctx context.Context, userID string) (Metrics, error)
 }
 
-func NewHandler(store *Store) *Handler { return &Handler{store: store} }
+// Handler serves the LLM monitoring & decision-scoring endpoints.
+type Handler struct {
+	store RunStore
+}
+
+func NewHandler(store RunStore) *Handler { return &Handler{store: store} }
 
 // browserModels are the WebLLM/MLC-LLM models the frontend can run in-browser.
 // Gemma is the required model for this capstone; others are offered as options.
@@ -59,15 +77,29 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusCreated, run)
 }
 
-// ListRuns returns a paginated list of the user's runs. GET /llm/runs
+// ListRuns returns a page of the user's runs, newest first. GET /llm/runs
+//
+// Paging is by cursor: ?before=<RFC3339 timestamp> from the previous page's
+// next_cursor. An absent cursor returns the newest page. The old ?offset= form
+// is gone — its cost grew with depth, and a cursor is both cheaper and stable
+// when rows are inserted while the user is paging.
 func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())
 	q := r.URL.Query()
 	limit := clampInt(atoiDefault(q.Get("limit"), 20), 1, 100)
-	offset := clampInt(atoiDefault(q.Get("offset"), 0), 0, 1_000_000)
 	model := q.Get("model")
 
-	result, err := h.store.ListRuns(r.Context(), claims.UserID, model, limit, offset)
+	var before time.Time
+	if raw := q.Get("before"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			common.Error(w, common.ErrBadRequest("before must be an RFC3339 timestamp"))
+			return
+		}
+		before = parsed
+	}
+
+	result, err := h.store.ListRuns(r.Context(), claims.UserID, model, limit, before)
 	if err != nil {
 		common.Error(w, common.ErrInternal("could not list runs"))
 		return
