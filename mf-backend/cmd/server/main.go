@@ -35,6 +35,17 @@ func main() {
 	// human-readable text locally.
 	common.SetupLogger(cfg.IsProduction())
 
+	// Refuse to serve on a configuration that cannot be secure. This runs before
+	// anything binds a port or opens a connection, so a misconfigured deploy
+	// fails its health check loudly instead of quietly accepting forged tokens.
+	if err := cfg.Validate(); err != nil {
+		slog.Error("refusing to start", "error", err)
+		os.Exit(1)
+	}
+	for _, w := range cfg.Warnings() {
+		slog.Warn("configuration warning", "detail", w)
+	}
+
 	ctx := context.Background()
 	pool, err := common.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -59,7 +70,7 @@ func main() {
 	// ---- dependency wiring (constructor injection, Go Day 46) ----
 	tokens := auth.NewTokenService(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	authStore := auth.NewStore(pool)
-	authHandler := auth.NewHandler(authStore, tokens)
+	authHandler := auth.NewHandler(authStore, tokens, cfg.BcryptCost)
 
 	llmStore := llm.NewStore(pool)
 	llmHandler := llm.NewHandler(llmStore)
@@ -86,6 +97,7 @@ func main() {
 	}
 	r.Use(common.RequestLogger)
 	r.Use(common.Recover)
+	r.Use(common.SecurityHeaders)
 	// Bound every request before any handler runs, so the deadline reaches the
 	// database driver and a stalled query cannot hold a pooled connection open.
 	r.Use(common.Timeout(cfg.RequestTimeout))

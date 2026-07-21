@@ -116,6 +116,44 @@ func (s *Store) FindValidSessionByHash(ctx context.Context, tokenHash string) (s
 	return sessionID, userID, err
 }
 
+// SessionLookup is the result of resolving a refresh-token hash, including
+// tokens that have already been revoked. Refresh needs to tell "no such token"
+// apart from "a token we retired earlier is being presented again" — the second
+// is evidence of theft and must not look like an ordinary failure.
+type SessionLookup struct {
+	SessionID string
+	UserID    string
+	Revoked   bool
+	Expired   bool
+}
+
+// FindSessionByHashAnyState resolves a refresh-token hash regardless of whether
+// the session is still usable.
+func (s *Store) FindSessionByHashAnyState(ctx context.Context, tokenHash string) (SessionLookup, error) {
+	var out SessionLookup
+	err := s.db.QueryRow(ctx,
+		`SELECT id, user_id, revoked_at IS NOT NULL, expires_at <= now()
+		 FROM sessions WHERE refresh_token_hash = $1`, tokenHash,
+	).Scan(&out.SessionID, &out.UserID, &out.Revoked, &out.Expired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionLookup{}, ErrNoRows
+	}
+	return out, err
+}
+
+// RevokeAllSessionsForUser retires every live session a user has. Used when a
+// password changes and when a retired refresh token resurfaces — both cases
+// where the safe assumption is that someone else holds a valid token.
+func (s *Store) RevokeAllSessionsForUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE sessions SET revoked_at = now()
+		 WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // RevokeSession marks one session as revoked (logout / refresh rotation).
 func (s *Store) RevokeSession(ctx context.Context, sessionID string) error {
 	_, err := s.db.Exec(ctx,

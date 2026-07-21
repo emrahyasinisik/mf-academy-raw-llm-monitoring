@@ -90,7 +90,15 @@ func Decode(r *http.Request, dst any) error {
 		if errors.As(err, &maxErr) {
 			return ErrBadRequest("request body too large")
 		}
-		return ErrBadRequest("invalid JSON body: " + err.Error())
+		// The decoder's message names struct fields and offsets, which maps out
+		// the internal shape of a payload for anyone probing it. Keep the detail
+		// in the logs, where it is still useful for debugging, and tell the
+		// caller only that their JSON was rejected.
+		slog.Warn("request body decode failed",
+			"path", r.URL.Path,
+			"error", err,
+		)
+		return ErrBadRequest("invalid JSON body")
 	}
 	// Reject trailing data so a body like `{...}{...}` fails loudly instead of
 	// having its second half silently ignored.

@@ -47,6 +47,40 @@ func Timeout(d time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
+// SecurityHeaders sets defensive response headers.
+//
+// The API itself returns JSON, which browsers do not render — but /docs serves
+// HTML from this same origin, and anything served there runs with the API's
+// origin privileges. These headers are cheap and apply to both.
+//
+// The CSP deliberately allows cdn.redoc.ly: the docs page loads Redoc from
+// there, so a policy of 'self' alone would silently break it. That the CDN has
+// to be trusted at all is itself a finding — embedding the bundle and
+// tightening this to 'self' is the better end state.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		// Stop browsers second-guessing our Content-Type; a JSON response
+		// sniffed as HTML is the classic route to a stored-XSS surprise.
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Content-Security-Policy",
+			"default-src 'none'; "+
+				"script-src 'self' https://cdn.redoc.ly 'unsafe-inline'; "+
+				"style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "+
+				"font-src 'self' https://fonts.gstatic.com data:; "+
+				"img-src 'self' data: blob:; "+
+				"connect-src 'self'; "+
+				"worker-src 'self' blob:; "+
+				"frame-ancestors 'none'; "+
+				"base-uri 'none'; "+
+				"form-action 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // CORS returns a configured CORS middleware allowing the frontend origins.
 func CORS(origins []string) func(http.Handler) http.Handler {
 	return cors.Handler(cors.Options{
@@ -101,8 +135,7 @@ func RequireAuth(verify TokenVerifier) func(http.Handler) http.Handler {
 				Error(w, ErrUnauthorized("invalid or expired token"))
 				return
 			}
-			ctx := context.WithValue(r.Context(), authClaimsKey, claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(ContextWithClaims(r.Context(), claims)))
 		})
 	}
 }
@@ -112,4 +145,11 @@ func RequireAuth(verify TokenVerifier) func(http.Handler) http.Handler {
 func ClaimsFromContext(ctx context.Context) (AuthClaims, bool) {
 	c, ok := ctx.Value(authClaimsKey).(AuthClaims)
 	return c, ok
+}
+
+// ContextWithClaims attaches claims to a context. RequireAuth uses it on the
+// real path; it is exported so tests in other packages can exercise a protected
+// handler directly, which is otherwise impossible with an unexported key.
+func ContextWithClaims(ctx context.Context, claims AuthClaims) context.Context {
+	return context.WithValue(ctx, authClaimsKey, claims)
 }
