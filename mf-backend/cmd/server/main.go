@@ -103,36 +103,48 @@ func main() {
 	r.Use(common.RequestLogger)
 	r.Use(common.Recover)
 	r.Use(common.SecurityHeaders)
-	// Bound every request before any handler runs, so the deadline reaches the
-	// database driver and a stalled query cannot hold a pooled connection open.
-	r.Use(common.Timeout(cfg.RequestTimeout))
 	r.Use(common.CORS(cfg.CORSOrigins))
 
-	// Config module
-	r.Get("/config", cfgHandler.Config)
-	r.Get("/version", cfgHandler.Version)
+	// Every request is still bounded before any handler runs — the deadline has
+	// to reach the database driver so a stalled query releases its pooled
+	// connection — but the bound is applied per subtree rather than at the root.
+	//
+	// It cannot be applied at the root any more. One route waits on a GPU across
+	// a tunnel and needs tens of seconds, and a child context cannot extend a
+	// parent's deadline: a root-level 5s bound silently won over the longer one
+	// declared on that route, and generation was cut off mid-flight at exactly
+	// 5s with the model still working on it.
+	r.Group(func(pr chi.Router) {
+		pr.Use(common.Timeout(cfg.RequestTimeout))
 
-	// API documentation
-	r.Get("/openapi.yaml", docs.SpecYAML)
-	r.Get("/docs", docs.Reference)
+		// Config module
+		pr.Get("/config", cfgHandler.Config)
+		pr.Get("/version", cfgHandler.Version)
 
-	// Common module — liveness & readiness
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		common.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		// API documentation
+		pr.Get("/openapi.yaml", docs.SpecYAML)
+		pr.Get("/docs", docs.Reference)
+
+		// Common module — liveness & readiness
+		pr.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+			common.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		})
+		pr.Get("/ready", func(w http.ResponseWriter, req *http.Request) {
+			pingCtx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+			defer cancel()
+			if err := pool.Ping(pingCtx); err != nil {
+				common.Error(w, common.ErrInternal("database unavailable"))
+				return
+			}
+			common.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
+		})
+
+		pr.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
 	})
-	r.Get("/ready", func(w http.ResponseWriter, req *http.Request) {
-		pingCtx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
-		defer cancel()
-		if err := pool.Ping(pingCtx); err != nil {
-			common.Error(w, common.ErrInternal("database unavailable"))
-			return
-		}
-		common.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
-	})
 
-	// Feature modules
-	r.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
-	r.Mount("/llm", llmHandler.Routes(tokens.Verify, cfg.LLMTimeout))
+	// Mounted outside that group so its own routes can choose their bounds: the
+	// short default for everything, the long one for generation.
+	r.Mount("/llm", llmHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

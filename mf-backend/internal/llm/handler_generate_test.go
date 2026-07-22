@@ -52,11 +52,17 @@ type fakeGen struct {
 	result     Completion
 	err        error
 	gotReq     CompletionRequest
+	// budget is how long the handler's context still had to run, which is what
+	// decides whether a real generation gets to finish.
+	budget time.Duration
 }
 
 func (g *fakeGen) Configured() bool { return g.configured }
-func (g *fakeGen) Generate(_ context.Context, req CompletionRequest) (Completion, error) {
+func (g *fakeGen) Generate(ctx context.Context, req CompletionRequest) (Completion, error) {
 	g.gotReq = req
+	if dl, ok := ctx.Deadline(); ok {
+		g.budget = time.Until(dl)
+	}
 	return g.result, g.err
 }
 
