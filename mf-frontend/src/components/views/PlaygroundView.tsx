@@ -5,9 +5,9 @@
 // executed against it, recorded to the backend, and scored.
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { generate, loadModel, webgpuSupported, isModelLoaded } from "@/lib/webllm";
-import type { ModelInfo, Run } from "@/lib/types";
+import type { ModelInfo, Run, RunTarget } from "@/lib/types";
 import { ScoreCard } from "../ui/ScoreCard";
 import { SubNav } from "../ui/SubNav";
 
@@ -19,6 +19,22 @@ const SUBS = [
 ];
 
 const isSub = (s: string): s is Sub => SUBS.some((x) => x.id === s);
+
+// The backend distinguishes an inference host that is unreachable from one that
+// was merely slow, because the operator does different things about each. That
+// distinction is only worth making if it reaches the person reading the screen.
+function explainRunFailure(e: unknown, target: RunTarget): string {
+  const status = e instanceof ApiError ? e.status : 0;
+  if (target === "server") {
+    if (status === 503)
+      return "The inference host is not reachable — it is probably switched off. Try the browser runtime instead.";
+    if (status === 504)
+      return "The inference host did not answer in time. It may be busy; try again, or use the browser runtime.";
+    if (status === 502)
+      return "The inference host rejected this request. This is a deployment problem, not something you did wrong.";
+  }
+  return e instanceof Error ? e.message : "Run failed";
+}
 
 export function PlaygroundView({
   sub,
@@ -46,6 +62,15 @@ export function PlaygroundView({
   const [error, setError] = useState<string | null>(null);
   const supported = webgpuSupported();
 
+  // Where the prompt is executed. Defaults to the browser: it needs nothing
+  // switched on anywhere else, and it is what this app did before the server
+  // target existed.
+  const [target, setTarget] = useState<RunTarget>("browser");
+  // Whether this deployment has an inference host wired at all. The host is a
+  // desktop machine, so "no" is an ordinary answer and the option is hidden
+  // rather than offered and then failed.
+  const [serverAvailable, setServerAvailable] = useState(false);
+
   useEffect(() => {
     let active = true;
     api
@@ -53,6 +78,7 @@ export function PlaygroundView({
       .then((r) => {
         if (!active) return;
         setModels(r.models);
+        setServerAvailable(r.server_inference);
         const rec = r.models.find((m) => m.recommended) ?? r.models[0];
         if (rec) {
           setModelId(rec.id);
@@ -66,6 +92,19 @@ export function PlaygroundView({
       active = false;
     };
   }, []);
+
+  // Not every catalogue entry is compiled for the server, so the pairing has to
+  // be checked before it is offered — the backend rejects the rest.
+  const selected = models.find((m) => m.id === modelId);
+  const modelRunsOnServer = !!selected?.targets?.includes("server");
+  const canUseServer = serverAvailable && modelRunsOnServer;
+
+  // Derived rather than corrected: switching to a browser-only model while the
+  // server was selected must not leave an unrunnable combination on screen, and
+  // resolving that during render keeps the invalid state from existing at all.
+  // The stored choice is preserved, so going back to a server-capable model
+  // restores it.
+  const effectiveTarget: RunTarget = canUseServer ? target : "browser";
 
   // Whether the engine is resident is owned by the WebLLM module, not by React,
   // so it is sampled whenever the selection changes rather than derived during
@@ -95,7 +134,32 @@ export function PlaygroundView({
     setError(null);
     setRunning(true);
     setResult(null);
+
+    const expected = keywords
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+
     try {
+      if (effectiveTarget === "server") {
+        // One call: the backend runs the model on the inference host, records
+        // the run and scores it. There is no local progress to report — the
+        // work happens on another machine — so the button state is the only
+        // feedback until it returns.
+        setProgress({ text: "Running on the inference host…", pct: 0 });
+        const run = await api.generateRun({
+          model: modelId,
+          prompt,
+          system_prompt: systemPrompt,
+          temperature,
+          expected_keywords: expected,
+          auto_score: true,
+        });
+        setProgress(null);
+        setResult(run);
+        return;
+      }
+
       const gen = await generate(
         modelId,
         prompt,
@@ -103,10 +167,6 @@ export function PlaygroundView({
         (r) => setProgress({ text: r.text, pct: Math.round(r.progress * 100) }),
       );
       setProgress(null);
-      const expected = keywords
-        .split(",")
-        .map((k) => k.trim())
-        .filter(Boolean);
 
       // Record the run and auto-score it in a single backend call.
       const run = await api.createRun({
@@ -123,7 +183,8 @@ export function PlaygroundView({
       });
       setResult(run);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Run failed");
+      setProgress(null);
+      setError(explainRunFailure(e, effectiveTarget));
     } finally {
       setRunning(false);
     }
@@ -149,6 +210,9 @@ export function PlaygroundView({
           modelId={modelId}
           loaded={loaded}
           supported={supported}
+          target={effectiveTarget}
+          canUseServer={canUseServer}
+          onTarget={setTarget}
           progress={progress}
           running={running}
           result={result}
@@ -316,6 +380,9 @@ function RunSub({
   modelId,
   loaded,
   supported,
+  target,
+  canUseServer,
+  onTarget,
   progress,
   running,
   result,
@@ -334,6 +401,9 @@ function RunSub({
   modelId: string;
   loaded: boolean;
   supported: boolean;
+  target: RunTarget;
+  canUseServer: boolean;
+  onTarget: (t: RunTarget) => void;
   progress: { text: string; pct: number } | null;
   running: boolean;
   result: Run | null;
@@ -349,12 +419,51 @@ function RunSub({
   onRun: () => void;
   onGoToModel: () => void;
 }) {
-  const ready = loaded || isModelLoaded(modelId);
+  const onServer = target === "server";
+  // The server target needs nothing loaded locally — the weights live on the
+  // inference host — so the browser's readiness only gates the browser path.
+  const ready = onServer || loaded || isModelLoaded(modelId);
 
   return (
     <div className="grid lg:grid-cols-2 gap-5">
       {/* Left: controls */}
       <div className="space-y-4">
+        {/* Where the prompt runs. Only shown when there is a real choice: with
+            no inference host wired, or a model that is not compiled for it,
+            offering the option would just be a button that fails. */}
+        {canUseServer && (
+          <div className="card p-3">
+            <div className="label mb-2">Run on</div>
+            <div className="flex gap-2">
+              {(
+                [
+                  ["browser", "This browser", "your GPU, via WebGPU"],
+                  ["server", "Inference host", "self-hosted GPU"],
+                ] as const
+              ).map(([id, label, hint]) => (
+                <button
+                  key={id}
+                  onClick={() => onTarget(id)}
+                  disabled={running}
+                  className="btn flex-1 !py-2 text-left"
+                  style={{
+                    borderColor:
+                      target === id ? "var(--accent)" : "var(--border)",
+                    color: target === id ? "var(--accent)" : "var(--text-dim)",
+                  }}
+                >
+                  <span className="block text-sm">{label}</span>
+                  <span className="block text-xs opacity-70">{hint}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: "var(--text-dim)" }}>
+              Latency is not comparable between the two: a browser run measures
+              your own GPU, a host run measures one fixed card plus the network.
+            </p>
+          </div>
+        )}
+
         {/* Compact runtime strip — the full controls live in the Model subview */}
         <div className="card p-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -371,7 +480,7 @@ function RunSub({
                 borderColor: "var(--border)",
               }}
             >
-              {ready ? "● loaded" : "not loaded"}
+              {onServer ? "● on host" : ready ? "● loaded" : "not loaded"}
             </span>
             <button
               className="btn btn-ghost !py-1 !px-2.5 text-xs"
@@ -433,7 +542,9 @@ function RunSub({
             disabled={running || !prompt.trim() || !ready}
           >
             {running
-              ? "Generating…"
+              ? onServer
+                ? "Running on the host…"
+                : "Generating…"
               : ready
                 ? "Run & score"
                 : supported

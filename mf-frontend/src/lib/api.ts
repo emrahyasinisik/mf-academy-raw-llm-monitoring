@@ -9,6 +9,7 @@ import type {
   Metrics,
   ModelInfo,
   CreateRunPayload,
+  GenerateRunPayload,
   Score,
 } from "./types";
 
@@ -140,9 +141,22 @@ export const api = {
     request<{ sessions: unknown[]; count: number }>("/auth/sessions"),
 
   // ---- llm ----
-  models: () => request<{ models: ModelInfo[] }>("/llm/models"),
+  // server_inference reports whether this deployment has an inference host
+  // wired. It can be false — the host is a desktop machine — so the UI hides
+  // the server option rather than offering a button that can only fail.
+  models: () =>
+    request<{ models: ModelInfo[]; server_inference: boolean }>("/llm/models"),
+  // Records a run the browser already produced, with its own timings.
   createRun: (payload: CreateRunPayload) =>
     request<Run>("/llm/runs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  // Has the backend run the model on the self-hosted host, then record it.
+  // Slower to return than createRun by design: it waits on a GPU across a
+  // tunnel, so callers should show progress rather than assume it is quick.
+  generateRun: (payload: GenerateRunPayload) =>
+    request<Run>("/llm/generate", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

@@ -35,10 +35,16 @@ export interface Score {
   created_at: string;
 }
 
+// Where a run executed. The same model id can run on the visitor's own GPU via
+// WebGPU or on the self-hosted MLC server; their latencies measure different
+// machines, so runs are never compared across targets without saying so.
+export type RunTarget = "browser" | "server";
+
 export interface Run {
   id: string;
   user_id: string;
   model: string;
+  target: RunTarget;
   prompt: string;
   response: string;
   system_prompt: string;
@@ -58,6 +64,7 @@ export interface Run {
 export interface RunSummary {
   id: string;
   model: string;
+  target: RunTarget;
   prompt_preview: string;
   prompt_tokens: number;
   completion_tokens: number;
@@ -79,10 +86,23 @@ export interface Metrics {
   total_runs: number;
   scored_runs: number;
   avg_score: number;
+  // Averaged across every run wherever it ran, so it describes neither target
+  // once both are in use. Prefer by_target for anything about performance.
   avg_latency_ms: number;
   avg_completion_tokens: number;
   runs_by_model: Record<string, number>;
   grade_distribution: Record<string, number>;
+  by_target: Record<string, TargetMetrics>;
+}
+
+// One target's slice of the summary — figures that may be compared within a
+// target but never across one.
+export interface TargetMetrics {
+  runs: number;
+  avg_latency_ms: number;
+  avg_completion_tokens: number;
+  avg_score: number;
+  tokens_per_second: number;
 }
 
 export interface ModelInfo {
@@ -91,6 +111,9 @@ export interface ModelInfo {
   family: string;
   size_hint: string;
   recommended: boolean;
+  // Where this model can run. Not every catalogue entry is compiled for the
+  // server, so the UI must not offer a pairing the backend will reject.
+  targets: RunTarget[];
 }
 
 export interface CreateRunPayload {
@@ -104,5 +127,18 @@ export interface CreateRunPayload {
   temperature?: number;
   expected_keywords?: string[];
   metadata?: Record<string, unknown>;
+  auto_score?: boolean;
+}
+
+// Asks the backend to run the model itself. The mirror of CreateRunPayload: the
+// answer, the token counts and the latency are absent because the server
+// produces them rather than accepting them.
+export interface GenerateRunPayload {
+  model: string;
+  prompt: string;
+  system_prompt?: string;
+  temperature?: number;
+  max_tokens?: number;
+  expected_keywords?: string[];
   auto_score?: boolean;
 }
