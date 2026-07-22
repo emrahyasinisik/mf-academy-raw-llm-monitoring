@@ -54,6 +54,17 @@ function Served-By {
 Write-Host "`n=== replicas ===" -ForegroundColor Cyan
 docker compose ps mlc
 
+# There is nothing to balance across one replica, and reporting "not working"
+# in that case sends you hunting a bug that isn't there. `docker compose up`
+# reconciles the project to the compose file, which declares no replica count —
+# so touching any service quietly scales mlc back to one.
+$replicaCount = @(docker compose ps -q mlc).Count
+if ($replicaCount -lt 2) {
+	Write-Host "`nOnly $replicaCount replica running - nothing to balance." -ForegroundColor Yellow
+	Write-Host "  docker compose up -d --scale mlc=2" -ForegroundColor Yellow
+	Write-Host "Continuing anyway; treat the result as a single-replica baseline." -ForegroundColor Yellow
+}
+
 # Where each replica's log stands before this run, so the counts below describe
 # these six requests rather than everything since the container started.
 $before = @(Served-By).Count
