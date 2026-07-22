@@ -33,13 +33,28 @@ docker compose ps mlc
 # these six requests rather than everything since the container started.
 $before = @(Served-By).Count
 
-Write-Host "`n=== 6 requests ===" -ForegroundColor Cyan
-1..6 | ForEach-Object {
-  curl.exe -s -o NUL -w "$_ -> %{http_code}  %{time_total}s`n" `
-    -X POST http://127.0.0.1:8080/v1/chat/completions `
-    -H "Content-Type: application/json" -H "X-API-Key: $key" `
-    -d "@body.json"
+# Concurrent, not sequential. This is the whole point of the test: least_conn
+# routes to whichever replica has the fewest active connections, so with one
+# request at a time every replica is always at zero, the tie breaks the same way
+# each time, and everything lands on the first upstream. That looks exactly like
+# a broken load balancer and isn't one. Only overlapping requests can show the
+# policy doing its job.
+Write-Host "`n=== 6 concurrent requests ===" -ForegroundColor Cyan
+$jobs = 1..6 | ForEach-Object {
+  Start-Job -ArgumentList $PWD, $key, $_ -ScriptBlock {
+    param($dir, $key, $n)
+    Set-Location $dir
+    curl.exe -s -o NUL -w "$n -> %{http_code}  %{time_total}s`n" `
+      -X POST http://127.0.0.1:8080/v1/chat/completions `
+      -H "Content-Type: application/json" -H "X-API-Key: $key" `
+      -d "@body.json"
+  }
 }
+$jobs | Wait-Job | Receive-Job
+$jobs | Remove-Job
+
+# Give the replicas a moment to flush their access logs before reading them.
+Start-Sleep -Seconds 2
 
 Write-Host "`n=== served by ===" -ForegroundColor Cyan
 $new = @(Served-By) | Select-Object -Skip $before
@@ -50,13 +65,13 @@ if (($new | Sort-Object -Unique).Count -ge 2) {
 }
 else {
   Write-Host "Load balancing: NOT working - one replica took everything." -ForegroundColor Yellow
+  Write-Host "Even under concurrency, so this is not the least_conn tie-break." -ForegroundColor Yellow
   Write-Host "Next: docker compose logs --tail 40 gateway" -ForegroundColor Yellow
 }
 
-# Six short requests will not be evenly split: least_conn sends each one to
-# whichever replica is free, and these finish fast enough that the first is
-# often idle again before the third arrives. Both replicas appearing at all is
-# the result being checked, not a 3/3 split.
+# An even split is not the pass condition and should not be expected: least_conn
+# sends each request to whichever replica is free, so a 4/2 is as correct as a
+# 3/3. Both replicas appearing at all is what is being checked.
 
 Write-Host "`n=== GPU ===" -ForegroundColor Cyan
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
