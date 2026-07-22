@@ -1,12 +1,21 @@
-# Does the gateway actually spread work across the mlc replicas?
+# Does the gateway spread work across the mlc replicas, and does the hardware
+# cope with the load it is given?
 #
-# Run from mf-inference\ on the GPU box after scaling:
-#   docker compose up -d --scale mlc=2 --force-recreate gateway
-#   .\check-lb.ps1
+#   .\check-lb.ps1                        # 3 requests, 150 tokens each
+#   .\check-lb.ps1 -Concurrency 6 -MaxTokens 400
+#   .\check-lb.ps1 -Concurrency 1         # baseline: one request, no contention
 #
-# Worth having as a script rather than a paragraph in the README: a load
-# balancer that isn't balancing looks exactly like one that is, from outside.
-# The only honest check is which replica actually served the work.
+# Parameterised because the two questions need different loads. Balancing only
+# becomes visible when requests overlap; capacity only becomes visible when they
+# overlap enough to hurt. Sweeping the concurrency is how you find where this
+# card stops coping — 6 concurrent 400-token generations across two replicas on
+# one 6 GB GPU did not complete inside three minutes.
+
+param(
+	[int]$Concurrency = 3,
+	[int]$MaxTokens = 150,
+	[int]$TimeoutSeconds = 120
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -24,7 +33,15 @@ Write-Host "key length: $($key.Length)" -ForegroundColor DarkGray
 # every replica is idle at every arrival, the tie never breaks, and everything
 # lands on the first upstream — which reads as a broken load balancer and is
 # not one. Long generations are what create real concurrency.
-Set-Content -Path body.json -NoNewline -Value '{"model":"gemma-2-2b-it-q4f16_1-MLC","max_tokens":400,"messages":[{"role":"user","content":"Write a detailed multi-paragraph explanation of how goroutines, channels and the Go scheduler work together. Be thorough."}]}'
+$body = @{
+	model      = "gemma-2-2b-it-q4f16_1-MLC"
+	max_tokens = $MaxTokens
+	messages   = @(@{
+			role    = "user"
+			content = "Explain how goroutines, channels and the Go scheduler work together."
+		})
+} | ConvertTo-Json -Depth 5 -Compress
+Set-Content -Path body.json -NoNewline -Value $body
 
 function Served-By {
   # The compose log prefix is the container name, so the first field names the
@@ -45,12 +62,13 @@ $before = @(Served-By).Count
 # fraction of a second to spin up, so with millisecond requests the "parallel"
 # jobs would still finish one after another — the reason an earlier version of
 # this script reported a false negative.
-Write-Host "`n=== 6 concurrent long requests (expect seconds each) ===" -ForegroundColor Cyan
-$jobs = 1..6 | ForEach-Object {
-  Start-Job -ArgumentList $PWD, $key, $_ -ScriptBlock {
-    param($dir, $key, $n)
+Write-Host "`n=== $Concurrency concurrent requests, $MaxTokens tokens each ===" -ForegroundColor Cyan
+$started = Get-Date
+$jobs = 1..$Concurrency | ForEach-Object {
+  Start-Job -ArgumentList $PWD, $key, $_, $TimeoutSeconds -ScriptBlock {
+    param($dir, $key, $n, $timeout)
     Set-Location $dir
-    curl.exe -s -o NUL -w "$n -> %{http_code}  %{time_total}s`n" `
+    curl.exe -s -o NUL --max-time $timeout -w "$n -> %{http_code}  %{time_total}s`n" `
       -X POST http://127.0.0.1:8080/v1/chat/completions `
       -H "Content-Type: application/json" -H "X-API-Key: $key" `
       -d "@body.json"
@@ -58,6 +76,8 @@ $jobs = 1..6 | ForEach-Object {
 }
 $jobs | Wait-Job | Receive-Job
 $jobs | Remove-Job
+$wall = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+Write-Host "wall clock for the whole batch: ${wall}s" -ForegroundColor DarkGray
 
 # Give the replicas a moment to flush their access logs before reading them.
 Start-Sleep -Seconds 2
