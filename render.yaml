@@ -51,3 +51,25 @@ services:
       # Vercel frontend origin (no trailing slash).
       - key: CORS_ORIGINS
         value: https://mf-academy-raw-llm-monitoring-ten.vercel.app
+
+      # ---- Server-side inference (mf-inference/) ----
+      #
+      # Points at the self-hosted MLC host, reached through a Cloudflare tunnel.
+      # No trailing /v1: the provider appends the path itself.
+      #
+      # Leaving this unset is a supported state — POST /llm/generate then answers
+      # 503 and the browser path is unaffected — so the API survives the
+      # inference machine being switched off.
+      - key: LLM_BASE_URL
+        value: https://mlc.visevent.com
+      # The shared secret the tunnel's gateway checks. sync: false means the
+      # blueprint declares the variable but never carries its value: the real
+      # one is set in the dashboard and stays out of this repository.
+      - key: LLM_API_KEY
+        sync: false
+      # Generous next to the 5s global REQUEST_TIMEOUT, and applied only to the
+      # generation route. Measured on the inference host: ~107 tok/s warm, so a
+      # 512-token answer lands in about 5s; the rest is headroom for the tunnel
+      # hop and a busy card. Must stay under the server's 30s WriteTimeout.
+      - key: LLM_TIMEOUT
+        value: 25s
