@@ -44,7 +44,7 @@ reach for 7-8B models here.
    here than inside the MLC build:
 
    ```powershell
-   docker run --rm --gpus all nvidia/cuda:12.2.2-base-ubuntu22.04 nvidia-smi
+   docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu22.04 nvidia-smi
    ```
 
    You should see the 1660 Ti listed. If not, stop and fix this first.
@@ -150,11 +150,19 @@ or the endpoint has to stream.
 ## Known adjustment points
 
 - **Wheel tag.** MLC publishes one wheel per CUDA minor version and the set
-  changes over time. If the image build fails on the `pip install`, check
-  <https://mlc.ai/wheels> for the current tags and set `CUDA_TAG` in `.env` plus
-  the matching `nvidia/cuda:<version>-runtime-ubuntu22.04` base in
-  `mlc/Dockerfile`. The host driver does not need to match — it is newer than
-  any of these and backward compatible.
+  changes over time. If the build fails on the `pip install`, check
+  <https://llm.mlc.ai/docs/install/mlc_llm.html> for the currently published
+  tags, then set `CUDA_TAG` in `.env` and the matching
+  `nvidia/cuda:<version>-devel-ubuntu22.04` base in `mlc/Dockerfile`. The host
+  driver does not need to match — it is newer than any of these and backward
+  compatible.
+
+  Read the comments in `mlc/Dockerfile` before changing anything there. Several
+  plausible-looking choices fail in ways that do not announce themselves: the
+  `runtime` base image is missing `nvcc` and the container restart-loops, the
+  `-nightly-` package variant is stale, an unpublished tag silently resolves to
+  an empty PyPI placeholder, and `apache-tvm-ffi` newer than 0.1.11 breaks the
+  compiled extension. Each of those cost a debugging session already.
 - **Out of memory.** Drop to `Llama-3.2-1B-Instruct-q4f16_1-MLC`, or close
   whatever else is using the card.
 - **The box must stay awake.** Sleep drops the tunnel and the backend starts
