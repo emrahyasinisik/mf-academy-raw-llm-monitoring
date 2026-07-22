@@ -38,12 +38,22 @@
 				refresh 10s
 			}
 
-			# least_conn, not the default random. Generation times vary by an
-			# order of magnitude with prompt and answer length, and random or
-			# round-robin will happily queue a short request behind a long one
-			# on a busy replica while another sits idle. least_conn sends work
-			# to whichever replica is actually free.
-			lb_policy least_conn
+			# round_robin, chosen after least_conn measurably failed here.
+			#
+			# least_conn is the better fit on paper: generation times vary by an
+			# order of magnitude, so sending work to whichever replica is free
+			# beats sending it in turn. In practice every request still went to
+			# the first replica, including two that overlapped for three full
+			# seconds — measured, not assumed. The likely reason is that
+			# least_conn needs a per-upstream count of active requests, and the
+			# dynamic-a module rebuilds its upstream list as it resolves, so the
+			# counts it compares are not the ones that accumulated.
+			#
+			# round_robin needs no such state: it advances a position each time.
+			# A short request can land behind a long one, which is the cost of
+			# this choice — but a policy that distributes imperfectly beats one
+			# that leaves half the hardware idle.
+			lb_policy round_robin
 
 			# A replica that is still loading weights answers nothing useful for
 			# the first minute or so. Active checks keep it out of rotation
