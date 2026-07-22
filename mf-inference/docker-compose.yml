@@ -4,14 +4,20 @@
 # Toolkit), not on Render. Three containers, each with one job:
 #
 #   cloudflared  public HTTPS hostname -> gateway, without opening a router port
-#   gateway      rejects anything without the shared secret, then proxies
-#   mlc          mlc_llm serve, OpenAI-compatible API, CUDA
+#   gateway      rejects anything without the shared secret, then load balances
+#   mlc          mlc_llm serve, OpenAI-compatible API, CUDA — scalable
 #
 # Only cloudflared talks to the internet. mlc publishes no host port at all —
 # the sole way in is through the gateway, so the secret cannot be bypassed by
 # anyone who learns the tunnel hostname.
 
 services:
+  # Scaled with `docker compose up -d --scale mlc=N`. Deliberately has no
+  # container_name and publishes no host port — either would make a second
+  # replica collide with the first and the scale would fail on the spot.
+  #
+  # Read the scaling section of the README before reaching for a large N: these
+  # replicas share one 6 GB card, so N buys concurrency, not throughput.
   mlc:
     build:
       context: ./mlc
@@ -29,6 +35,10 @@ services:
       HF_HOME: /cache/huggingface
       MLC_LLM_HOME: /cache/mlc
     volumes:
+      # Shared by every replica. Reading the same weights concurrently is fine,
+      # but MLC writes compiled kernels here on a cold start — so bring one
+      # replica up first, let it answer a request, and scale out after. Starting
+      # several against an empty cache has them all compiling at once.
       - model-cache:/cache
     command:
       # No console-script entry point ships in the wheel; must run as a module.

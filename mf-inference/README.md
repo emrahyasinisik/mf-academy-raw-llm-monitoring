@@ -155,6 +155,47 @@ Record how long the request takes. That number decides the backend's
 `LLM_TIMEOUT`, and whether the synchronous request/response design holds at all
 or the endpoint has to stream.
 
+## Scaling out
+
+The gateway load balances across however many `mlc` replicas exist:
+
+```powershell
+# Warm the cache with one replica first — see below.
+docker compose up -d
+# ...make one request, then:
+docker compose up -d --scale mlc=2
+```
+
+Caddy re-resolves the service name every 10s, so replicas are picked up while
+running; `least_conn` sends each request to whichever replica is free, and a
+replica still loading its weights is kept out of rotation by the health check
+until it can answer.
+
+**What this buys, honestly: concurrency, not throughput.**
+
+All replicas share one GTX 1660 Ti. Each loads its own copy of the weights
+(~1.5 GB) and they contend for the same SMs, so two replicas do not answer twice
+as fast — under sustained load they may be slightly slower than one, because the
+card now context-switches. What changes is that a long request no longer blocks
+a short one behind it in a single queue.
+
+Real throughput scaling for GPU inference needs more GPUs. That is a property of
+the hardware, not of this configuration, and it is worth stating plainly rather
+than presenting a replica count as a performance result.
+
+Practical limits on this box:
+
+- **VRAM is the ceiling.** 6 GB total, some of it already drawing the Windows
+  desktop. Two replicas of Gemma 2 2B q4 fit; three probably do not. If a
+  replica dies on startup with an out-of-memory error, that is the limit found.
+- **Warm the cache first.** MLC compiles CUDA kernels on a cold start and writes
+  them to the shared volume. Starting several replicas against an empty cache
+  has them all compiling simultaneously, which is slow and wasteful.
+- **Watch it in Grafana.** `sum by (target) (rate(llm_generation_tokens_total…))`
+  and the latency histogram in `mf-observability/` are what show whether adding a
+  replica actually changed anything — which is the interesting question, and the
+  answer may well be "no".
+
 ## Known adjustment points
 
 - **Wheel tag.** MLC publishes one wheel per CUDA minor version and the set

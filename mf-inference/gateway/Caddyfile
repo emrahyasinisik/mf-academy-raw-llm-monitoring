@@ -24,7 +24,40 @@
 		@unauthorized not header X-API-Key {env.LLM_API_KEY}
 		respond @unauthorized "unauthorized" 401
 
-		reverse_proxy mlc:8000 {
+		reverse_proxy {
+			# Load balancer across however many mlc replicas are running.
+			#
+			# `dynamic a` rather than a plain `reverse_proxy mlc:8000`: the plain
+			# form resolves DNS once at startup, so `docker compose up --scale
+			# mlc=3` would silently keep sending everything to the one replica
+			# that existed when Caddy booted. This form re-resolves, so replicas
+			# added or removed while running are picked up.
+			dynamic a {
+				name mlc
+				port 8000
+				refresh 10s
+			}
+
+			# least_conn, not the default random. Generation times vary by an
+			# order of magnitude with prompt and answer length, and random or
+			# round-robin will happily queue a short request behind a long one
+			# on a busy replica while another sits idle. least_conn sends work
+			# to whichever replica is actually free.
+			lb_policy least_conn
+
+			# A replica that is still loading weights answers nothing useful for
+			# the first minute or so. Active checks keep it out of rotation
+			# until it can serve, which is what makes `--scale` safe to run
+			# against live traffic rather than a restart everyone notices.
+			health_uri /v1/models
+			health_interval 15s
+			health_timeout 5s
+
+			# Passive checks catch a replica that accepts connections but has
+			# fallen over — two failures parks it for half a minute.
+			fail_duration 30s
+			max_fails 2
+
 			# Generation on a 6 GB card can take far longer than Caddy's default
 			# read timeout. This bound must stay above the Go side's LLM_TIMEOUT,
 			# or the gateway cuts the response before the backend gives up and
