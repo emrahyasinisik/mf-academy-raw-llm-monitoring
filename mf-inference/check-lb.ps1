@@ -73,6 +73,26 @@ $before = @(Served-By).Count
 # fraction of a second to spin up, so with millisecond requests the "parallel"
 # jobs would still finish one after another — the reason an earlier version of
 # this script reported a false negative.
+# Wait for every replica to be able to answer before measuring anything.
+#
+# Caddy's active health checks do not protect against this: they are configured
+# but do not apply to dynamic upstreams, so a replica that started ten seconds
+# ago and is still loading 1.5 GB of weights stays in rotation and answers 502
+# instantly. Measured — a scale-up followed immediately by a test produced two
+# instant 502s and one success.
+Write-Host "`n=== waiting for replicas to be ready ===" -ForegroundColor Cyan
+foreach ($id in (docker compose ps -q mlc)) {
+	$name = (docker inspect -f '{{.Name}}' $id).TrimStart('/')
+	$ready = $false
+	foreach ($attempt in 1..60) {
+		$code = docker exec $id sh -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v1/models" 2>$null
+		if ($code -eq "200") { $ready = $true; break }
+		Start-Sleep -Seconds 2
+	}
+	if ($ready) { Write-Host "  $name ready" -ForegroundColor DarkGray }
+	else { Write-Host "  $name NOT ready after 2 minutes" -ForegroundColor Yellow }
+}
+
 Write-Host "`n=== $Concurrency concurrent requests, $MaxTokens tokens each ===" -ForegroundColor Cyan
 $started = Get-Date
 $jobs = 1..$Concurrency | ForEach-Object {

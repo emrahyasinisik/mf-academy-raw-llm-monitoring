@@ -167,9 +167,25 @@ docker compose up -d --scale mlc=2
 ```
 
 Caddy re-resolves the service name every 10s, so replicas are picked up while
-running; `least_conn` sends each request to whichever replica is free, and a
-replica still loading its weights is kept out of rotation by the health check
-until it can answer.
+running, and `round_robin` sends each request to the next one in turn.
+
+**A replica joins the rotation before it can serve.** The Caddyfile configures
+active health checks, but they do not apply to dynamic upstreams — a replica
+that started seconds ago and is still loading 1.5 GB of weights stays in
+rotation and answers 502 instantly. This was measured: scaling up and testing
+immediately produced two instant 502s and one success.
+
+Passive checks do catch it — two failures park a replica for 30s — so the
+system recovers on its own, at the cost of a few failed requests. Wait for
+`/v1/models` to answer 200 on each replica before sending real traffic;
+`check-lb.ps1` does this before it measures anything.
+
+`least_conn` would be the better policy on paper, since generation times vary by
+an order of magnitude. It was tried first and measurably did not work here:
+every request went to the first replica, including requests that overlapped for
+three seconds. It compares a per-upstream count of in-flight requests, and the
+dynamic-a module rebuilds its upstream list as it resolves, so those counts are
+not the ones that accumulated.
 
 **What this buys, honestly: concurrency, not throughput.**
 
