@@ -137,14 +137,36 @@ type ScoreRequest struct {
 // ---- Aggregate views for the dashboard ----
 
 // Metrics is the aggregate summary shown on the monitoring dashboard.
+//
+// AvgLatencyMs and AvgCompletionTk are computed across every run regardless of
+// where it executed, which makes them meaningless once both targets are in use:
+// browser runs carry whatever GPU the visitor owns, server runs carry one fixed
+// card plus a network hop. They are kept because clients already read them and
+// because they are still correct while only one target has runs — but anything
+// comparing performance should read ByTarget instead.
 type Metrics struct {
-	TotalRuns       int            `json:"total_runs"`
-	ScoredRuns      int            `json:"scored_runs"`
-	AvgScore        float64        `json:"avg_score"`
-	AvgLatencyMs    float64        `json:"avg_latency_ms"`
-	AvgCompletionTk float64        `json:"avg_completion_tokens"`
-	RunsByModel     map[string]int `json:"runs_by_model"`
-	GradeDistrib    map[string]int `json:"grade_distribution"`
+	TotalRuns       int                      `json:"total_runs"`
+	ScoredRuns      int                      `json:"scored_runs"`
+	AvgScore        float64                  `json:"avg_score"`
+	AvgLatencyMs    float64                  `json:"avg_latency_ms"`
+	AvgCompletionTk float64                  `json:"avg_completion_tokens"`
+	RunsByModel     map[string]int           `json:"runs_by_model"`
+	GradeDistrib    map[string]int           `json:"grade_distribution"`
+	ByTarget        map[string]TargetMetrics `json:"by_target"`
+}
+
+// TargetMetrics is one execution target's slice of the summary — the numbers
+// that may only be compared within a target, never across one.
+type TargetMetrics struct {
+	Runs            int     `json:"runs"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms"`
+	AvgCompletionTk float64 `json:"avg_completion_tokens"`
+	AvgScore        float64 `json:"avg_score"`
+	// TokensPerSecond is aggregate throughput: total tokens over total time,
+	// not the mean of each run's rate. The mean of ratios would weight a
+	// 3-token answer the same as a 400-token one and flatter whichever target
+	// happened to get the short prompts.
+	TokensPerSecond float64 `json:"tokens_per_second"`
 }
 
 // ListResult is a page of runs using keyset (seek) pagination.

@@ -244,14 +244,20 @@ func (s *Store) GetScore(ctx context.Context, runID string) (Score, error) {
 // 27-39ms total against 12-13ms here. The pool pressure matters more than the
 // latency: this is the most frequently hit endpoint in the app.
 func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
-	m := Metrics{RunsByModel: map[string]int{}, GradeDistrib: map[string]int{}}
+	m := Metrics{
+		RunsByModel:  map[string]int{},
+		GradeDistrib: map[string]int{},
+		ByTarget:     map[string]TargetMetrics{},
+	}
 
-	// The two distributions come back as jsonb objects so the whole summary
-	// fits in one row.
-	var byModel, byGrade []byte
+	// The three breakdowns come back as jsonb objects so the whole summary
+	// still fits in one row — the per-target split is another aggregate over the
+	// same CTE rather than a second statement, so it costs no extra scan and no
+	// extra pool checkout.
+	var byModel, byGrade, byTarget []byte
 	err := s.db.QueryRow(ctx,
 		`WITH base AS (
-		     SELECT r.model, r.latency_ms, r.completion_tokens, sc.score, sc.grade
+		     SELECT r.model, r.target, r.latency_ms, r.completion_tokens, sc.score, sc.grade
 		     FROM llm_runs r
 		     LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		     WHERE r.user_id = $1
@@ -266,10 +272,28 @@ func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
 		               FROM (SELECT model, count(*) c FROM base GROUP BY model) t), '{}'),
 		     coalesce((SELECT jsonb_object_agg(grade, c)
 		               FROM (SELECT grade, count(*) c FROM base
-		                     WHERE grade IS NOT NULL GROUP BY grade) t), '{}')
+		                     WHERE grade IS NOT NULL GROUP BY grade) t), '{}'),
+		     coalesce((SELECT jsonb_object_agg(target, jsonb_build_object(
+		                   'runs', c,
+		                   'avg_latency_ms', lat,
+		                   'avg_completion_tokens', tok,
+		                   'avg_score', avg_score,
+		                   'tokens_per_second', tps))
+		               FROM (SELECT target,
+		                            count(*) c,
+		                            coalesce(avg(latency_ms), 0) lat,
+		                            coalesce(avg(completion_tokens), 0) tok,
+		                            coalesce(avg(score), 0) avg_score,
+		                            -- Total tokens over total time, not the mean
+		                            -- of per-run rates: see TargetMetrics.
+		                            CASE WHEN coalesce(sum(latency_ms), 0) > 0
+		                                 THEN sum(completion_tokens)::float8 * 1000
+		                                      / sum(latency_ms)
+		                                 ELSE 0 END tps
+		                     FROM base GROUP BY target) t), '{}')
 		 FROM base`, userID,
 	).Scan(&m.TotalRuns, &m.AvgLatencyMs, &m.AvgCompletionTk,
-		&m.ScoredRuns, &m.AvgScore, &byModel, &byGrade)
+		&m.ScoredRuns, &m.AvgScore, &byModel, &byGrade, &byTarget)
 	if err != nil {
 		return Metrics{}, err
 	}
@@ -278,6 +302,9 @@ func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
 		return Metrics{}, err
 	}
 	if err := json.Unmarshal(byGrade, &m.GradeDistrib); err != nil {
+		return Metrics{}, err
+	}
+	if err := json.Unmarshal(byTarget, &m.ByTarget); err != nil {
 		return Metrics{}, err
 	}
 	return m, nil
