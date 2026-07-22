@@ -104,6 +104,16 @@ func main() {
 	r.Use(common.Recover)
 	r.Use(common.SecurityHeaders)
 	r.Use(common.CORS(cfg.CORSOrigins))
+	// Above the timeout groups so every request is counted, including the ones
+	// that time out — those are precisely the ones worth seeing on a dashboard.
+	r.Use(common.Metrics)
+
+	// Prometheus exposition. Outside the timed groups: a scrape is cheap, but
+	// binding it to the same 5s bound as a database call would make the metrics
+	// disappear exactly when the service is unhealthy enough to need them.
+	if cfg.MetricsEnabled() {
+		r.Get("/metrics", common.MetricsHandler(cfg.MetricsToken).ServeHTTP)
+	}
 
 	// Every request is still bounded before any handler runs — the deadline has
 	// to reach the database driver so a stalled query releases its pooled

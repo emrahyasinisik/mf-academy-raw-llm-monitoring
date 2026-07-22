@@ -1,0 +1,60 @@
+# Prometheus pulls. The backend does not know this file exists, and does not
+# push anywhere — it only answers /metrics when asked, which is what makes the
+# application unaffected by the monitoring being down.
+
+global:
+  # 15s is a compromise: fine enough that a minute-long incident is several
+  # points rather than one, coarse enough that a free-tier instance is not
+  # answering scrapes constantly.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    project: mf-capstone
+
+scrape_configs:
+  # The deployed backend on Render. Scraped over the public URL because there is
+  # no private network between this machine and Render — which also means the
+  # token below is the only thing standing between the exposition and the
+  # internet, and why the endpoint refuses to serve without one in production.
+  - job_name: mf-backend
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      # A file, not an inline value: Prometheus does no environment expansion in
+      # this config, so ${VAR} here would be sent literally and every scrape
+      # would quietly 401. The file also keeps the token out of the image and
+      # out of any process listing.
+      credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      - targets: ["mf-backend-zqsa.onrender.com"]
+        labels:
+          env: production
+    # Render's free instance sleeps after inactivity and a cold start can take
+    # the better part of a minute, so a scrape that would otherwise be marked
+    # down is given room to wake it.
+    scrape_timeout: 10s
+
+  # A backend running on this machine, for developing dashboards without
+  # touching production. Absent most of the time, which Prometheus reports as a
+  # target that is simply down — harmless.
+  - job_name: mf-backend-local
+    scheme: http
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      # A file, not an inline value: Prometheus does no environment expansion in
+      # this config, so ${VAR} here would be sent literally and every scrape
+      # would quietly 401. The file also keeps the token out of the image and
+      # out of any process listing.
+      credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          env: local
+
+  # Prometheus scraping itself. Cheap, and the first thing to look at when the
+  # dashboards are empty: if this target is down, nothing else is trustworthy.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

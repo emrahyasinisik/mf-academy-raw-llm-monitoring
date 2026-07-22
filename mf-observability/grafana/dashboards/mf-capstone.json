@@ -1,0 +1,282 @@
+{
+  "uid": "mf-capstone",
+  "title": "MF Capstone — LLM monitoring",
+  "tags": ["mf-capstone"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Generation — browser vs inference host",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Generation latency (p95)",
+      "description": "The two targets are never merged. A browser figure describes whichever GPU the visitor owns; a server figure describes one fixed card plus the network hop to it. Same unit, so one axis — but they answer different questions.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, target) (rate(llm_generation_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{target}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "browser" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "server" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput (completion tokens/sec)",
+      "description": "Total tokens over total time, not the mean of per-run rates — a three-token answer must not weigh as much as a four-hundred-token one.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (target) (rate(llm_generation_tokens_total{kind=\"completion\"}[5m]))",
+          "legendFormat": "{{target}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "browser" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "server" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed server generations",
+      "description": "By reason, because the reasons call for different responses: unavailable means the machine is off, timeout means it is struggling, upstream means it refused us.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (rate(llm_generation_failures_total[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "unavailable" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "timeout" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "upstream" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Runs recorded (last 6h)",
+      "description": "A headline count needs no plot.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (target) (increase(llm_generation_tokens_total{kind=\"completion\"}[6h])) > 0",
+          "legendFormat": "{{target}} tokens",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "text" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value_and_name",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "type": "row",
+      "title": "HTTP surface",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by route",
+      "description": "Labelled by chi route pattern, never the raw path — a path label would mint a series per run id and take the Prometheus server down with it.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(http_requests_total[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request latency (p95) by route",
+      "description": "A percentile, not a mean: a mean hides exactly the tail worth knowing about.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Responses by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(http_requests_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never", "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests in flight",
+      "description": "What separates 'slow' from 'overloaded' when latency rises.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "http_requests_in_flight",
+          "legendFormat": "in flight"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": false },
+        "tooltip": { "mode": "single" }
+      }
+    }
+  ]
+}

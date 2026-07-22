@@ -52,6 +52,12 @@ type Config struct {
 	// LLMMaxTokens caps generated length, bounding both the time a request can
 	// occupy the GPU and the size of the row it writes.
 	LLMMaxTokens int
+
+	// MetricsToken guards GET /metrics. The Prometheus exposition is a map of
+	// the service — every route, its traffic and its latency — so it is not
+	// something to publish. Empty leaves the endpoint open, which is right for
+	// local development and refused in production by Validate.
+	MetricsToken string
 }
 
 // InsecureDefaultSecret is the development JWT secret. It is a known constant —
@@ -97,11 +103,23 @@ func Load() Config {
 		// below the gateway's proxy timeouts in mf-inference/gateway/Caddyfile.
 		LLMTimeout:   getDuration("LLM_TIMEOUT", 25*time.Second),
 		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 512),
+
+		MetricsToken: getEnv("METRICS_TOKEN", ""),
 	}
 }
 
 // ServerInferenceEnabled reports whether a server-side inference host is wired.
 func (c Config) ServerInferenceEnabled() bool { return c.LLMBaseURL != "" }
+
+// MetricsEnabled reports whether GET /metrics should be served at all.
+//
+// Outside production an open endpoint is convenient and harmless. In production
+// it is only served when a token guards it — the endpoint disappears rather
+// than the process refusing to boot, so forgetting the variable degrades
+// observability instead of taking the service down.
+func (c Config) MetricsEnabled() bool {
+	return !c.IsProduction() || c.MetricsToken != ""
+}
 
 // IsProduction reports whether the app runs in a production-like environment.
 func (c Config) IsProduction() bool {
@@ -142,6 +160,11 @@ func (c Config) Validate() error {
 		}
 	}
 
+	if c.MetricsToken != "" && len(c.MetricsToken) < minSecretBytes {
+		problems = append(problems,
+			fmt.Sprintf("METRICS_TOKEN is %d bytes; at least %d are required", len(c.MetricsToken), minSecretBytes))
+	}
+
 	if len(problems) > 0 {
 		return fmt.Errorf("insecure production configuration: %s", strings.Join(problems, "; "))
 	}
@@ -161,6 +184,10 @@ func (c Config) Warnings() []string {
 	}
 	if c.AccessTokenTTL > time.Hour {
 		w = append(w, "ACCESS_TOKEN_TTL exceeds one hour; access tokens cannot be revoked before they expire")
+	}
+	if c.MetricsToken == "" {
+		w = append(w, "METRICS_TOKEN is empty: the metrics endpoint is not served at all in production, "+
+			"because publishing every route, its traffic and its latency is reconnaissance handed out for free")
 	}
 	if c.ServerInferenceEnabled() {
 		if c.LLMAPIKey == "" {

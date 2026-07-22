@@ -1,0 +1,62 @@
+# Prometheus + Grafana, in their own containers, scraping the Go backend.
+#
+# Two containers with one job each, talking over the compose network:
+#
+#   prometheus  scrapes the backend's /metrics on a schedule and stores it
+#   grafana     queries prometheus and draws it
+#
+# Grafana never touches the backend. That is not an implementation detail — a
+# common misreading of this architecture has the application pushing to Grafana,
+# and it does not work that way: Prometheus pulls, Grafana only asks Prometheus.
+#
+#   backend  <--scrape--  prometheus  <--query--  grafana
+#
+# Only Grafana publishes a port. Prometheus is reachable from Grafana over the
+# compose network and from nowhere else.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    expose:
+      - "9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The bearer token, as a file — Prometheus does not expand environment
+      # variables in its config. Create it from .env.example's instructions; it
+      # is gitignored.
+      - ./prometheus/metrics-token:/etc/prometheus/metrics-token:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 15 days is far more than this project needs and keeps the volume small.
+      - --storage.tsdb.retention.time=15d
+    extra_hosts:
+      # Lets the local-backend scrape target resolve on Linux, where
+      # host.docker.internal is not defined by default.
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
+      # Nothing here is meant to be reachable from outside this machine, and the
+      # port binding above already says so; this stops Grafana from inviting
+      # anonymous readers if that ever changes.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+volumes:
+  prometheus-data:
+  grafana-data:

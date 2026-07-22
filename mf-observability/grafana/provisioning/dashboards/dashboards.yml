@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: mf-capstone
+    type: file
+    # Editing in the UI is allowed, but the file on disk is the source of truth
+    # and is reloaded — so a change worth keeping belongs in the JSON, not in
+    # the container's volume.
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

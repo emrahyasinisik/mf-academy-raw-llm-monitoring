@@ -18,3 +18,6 @@ mf-backend/server
 # Misc
 .DS_Store
 *.log
+
+# Prometheus scrape credential (see mf-observability/.env.example)
+mf-observability/prometheus/metrics-token

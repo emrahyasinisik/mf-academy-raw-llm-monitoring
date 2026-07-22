@@ -112,6 +112,11 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrInternal("could not save run"))
 		return
 	}
+	// Recorded from what the client reported rather than measured here — this
+	// generation happened in a browser we do not control. See the note in
+	// metrics_prom.go: it is a claim, not our observation, and the target label
+	// is what keeps the two from being read as the same kind of number.
+	recordRun(run.Target, run.Model, run.LatencyMs, run.PromptTokens, run.CompletionTokens)
 
 	// Optionally score immediately so the dashboard is populated in one call.
 	if req.AutoScore {
@@ -166,9 +171,12 @@ func (h *Handler) GenerateRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Already an *APIError carrying the right status: 503 when the host is
 		// off, 504 when it was too slow, 502 when it answered with a failure.
+		recordFailure(failureReason(err))
 		common.Error(w, err)
 		return
 	}
+	recordRun(TargetServer, req.Model,
+		completion.LatencyMs, completion.PromptTokens, completion.CompletionTokens)
 
 	run, err := h.store.CreateRun(r.Context(), claims.UserID, CreateRunRequest{
 		Model:            req.Model,

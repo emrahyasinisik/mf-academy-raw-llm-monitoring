@@ -1,0 +1,22 @@
+# Provisioned rather than clicked in: a datasource configured through the UI
+# lives only in that container's volume, so the next person to bring this stack
+# up gets empty dashboards and no clue why.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # Pinned, not generated. The dashboard JSON references this uid; letting
+    # Grafana mint a random one leaves every panel pointing at a datasource that
+    # does not exist, and the symptom is empty panels with no error.
+    uid: prometheus
+    access: proxy
+    # Service name on the compose network. Prometheus publishes no host port.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Matches the scrape interval, so Grafana does not draw a line finer than
+      # the data actually is.
+      timeInterval: 15s
