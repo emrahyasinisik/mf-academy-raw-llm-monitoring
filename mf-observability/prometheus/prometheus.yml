@@ -38,6 +38,12 @@ scrape_configs:
   # A backend running on this machine, for developing dashboards without
   # touching production. Absent most of the time, which Prometheus reports as a
   # target that is simply down — harmless.
+  #
+  # Port 8081, not 8080: on the GPU box 8080 is the mf-inference gateway, and
+  # pointing here originally meant Prometheus spent a fortnight scraping Caddy
+  # for metrics it does not have and being refused for lack of an API key —
+  # every 15 seconds, drowning the gateway's own logs. Run a local backend with
+  # PORT=8081 to use this target.
   - job_name: mf-backend-local
     scheme: http
     metrics_path: /metrics
@@ -49,7 +55,7 @@ scrape_configs:
       # out of any process listing.
       credentials_file: /etc/prometheus/metrics-token
     static_configs:
-      - targets: ["host.docker.internal:8080"]
+      - targets: ["host.docker.internal:8081"]
         labels:
           env: local
 
