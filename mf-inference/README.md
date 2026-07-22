@@ -99,10 +99,18 @@ demo; not something to leave running.
 A public hostname must live in a Cloudflare zone, so this path requires a domain
 already added to your Cloudflare account.
 
-1. Zero Trust dashboard → Networks → Tunnels → Create a tunnel → Docker. Copy
-   the token into `TUNNEL_TOKEN` in `.env`.
-2. In the tunnel's **Public Hostname** tab, add a hostname pointing at
-   `http://gateway:8080`. That hostname is what goes into `LLM_BASE_URL`.
+1. Dashboard → **Networking → Tunnels** → Create a tunnel → Cloudflared →
+   Docker. Copy just the `--token` value into `TUNNEL_TOKEN` in `.env`; the rest
+   of the command is what compose already does.
+2. Open the tunnel → **Routes** tab → **Add route** → **Published application**.
+   Set the subdomain and domain, and a Service URL of `http://gateway:8080` —
+   `gateway` resolves because cloudflared shares the compose network. The
+   resulting hostname is what goes into `LLM_BASE_URL`.
+
+   (Cloudflare moved tunnel management into the main dashboard in February 2026
+   and replaced the old "Public Hostname" tab with "Routes". The other route
+   types there — Tunnel CIDR, Tunnel Hostname — are for private network access,
+   not this.)
 3. Start it:
 
    ```powershell
