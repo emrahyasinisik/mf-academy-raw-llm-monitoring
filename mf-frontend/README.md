@@ -16,13 +16,21 @@ and shows its **decision score**.
 ## Architecture (SPA)
 
 One page (`/`) renders `AppShell`, a client-side router that swaps **master
-views** in place with no full-page reload:
+views** in place with no full-page reload. Both navigation levels are mirrored
+into the URL hash as `#master/subview`, so every subview is deep-linkable and
+the browser's back button works:
 
-| Master view | Subviews / content |
+| Master view | Subviews |
 | --- | --- |
-| **Auth** | Login · Register subviews |
-| **LLM Playground** | Load Gemma → prompt → run → auto-score |
-| **Monitoring Dashboard** | Aggregate metrics · run history · score breakdowns |
+| **Auth** (logged out) | Login · Register |
+| **LLM Playground** | Run & score · Model runtime |
+| **Monitoring** | Overview · Run history |
+| **Decision Scoring** | Scoring queue · Rubric analysis · Compare runs |
+
+Monitoring answers *what did the model do*; Decision Scoring answers *how good
+was it* — it owns the unscored backlog (drained through a bounded worker pool),
+the per-dimension rubric across the whole cohort, and side-by-side run
+comparison.
 
 ```
 src/
