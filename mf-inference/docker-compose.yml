@@ -74,6 +74,9 @@ services:
   # the model — that is, once the Render backend calls it. Local development and
   # measurement work entirely without it, so requiring a token to start the
   # stack would block the work that comes first.
+  #
+  # Named tunnel: stable hostname, but it requires a domain already on
+  # Cloudflare, because a public hostname has to live in a zone you control.
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: [tunnel]
@@ -81,6 +84,22 @@ services:
     depends_on:
       - gateway
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set — see README}
+
+  # Opt-in: `docker compose --profile quicktunnel up -d`.
+  #
+  # The no-account, no-domain alternative. Cloudflare hands out a random
+  # *.trycloudflare.com hostname printed in this container's logs.
+  #
+  # The hostname changes on every restart, so LLM_BASE_URL on the backend has to
+  # be updated each time — fine while developing, wrong for anything left
+  # running. Use the named tunnel above once a domain is available.
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    profiles: [quicktunnel]
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    command: tunnel --no-autoupdate --url http://gateway:8080
 
 volumes:
   model-cache:

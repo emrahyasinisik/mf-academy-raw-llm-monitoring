@@ -75,18 +75,48 @@ reach for 7-8B models here.
 Everything above works on this machine alone. The tunnel is what lets the Render
 backend — which is in Oregon and has no route to a home network — reach the card.
 
+Two options, and the choice comes down to whether you already have a domain on
+Cloudflare.
+
+### Quick tunnel — no account, no domain
+
+```powershell
+docker compose --profile quicktunnel up -d
+docker compose logs cloudflared-quick    # prints the assigned hostname
+```
+
+Cloudflare hands out a random `https://<words>.trycloudflare.com`. It works
+immediately, but **the hostname changes every restart**, so `LLM_BASE_URL` on the
+backend has to be updated each time. Good enough for development and a live
+demo; not something to leave running.
+
+### Named tunnel — stable hostname, needs a domain
+
+A public hostname must live in a Cloudflare zone, so this path requires a domain
+already added to your Cloudflare account.
+
 1. Zero Trust dashboard → Networks → Tunnels → Create a tunnel → Docker. Copy
    the token into `TUNNEL_TOKEN` in `.env`.
 2. In the tunnel's **Public Hostname** tab, add a hostname pointing at
-   `http://gateway:8080`. That hostname (plus the shared secret) is what goes
-   into the backend's `LLM_BASE_URL`.
+   `http://gateway:8080`. That hostname is what goes into `LLM_BASE_URL`.
 3. Start it:
 
    ```powershell
    docker compose --profile tunnel up -d
    ```
 
-   The hostname is also visible afterwards in `docker compose logs cloudflared`.
+### Either way, verify before wiring the backend
+
+From a machine that is *not* this one:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://<hostname>/health          # 200
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<hostname>/v1/chat/completions \
+  -H "Content-Type: application/json" -d '{}'                              # 401
+```
+
+The second one must be 401. If a tunnel is up and that request succeeds, the
+card is open to anyone who guesses the hostname.
 
 ## Verify
 
