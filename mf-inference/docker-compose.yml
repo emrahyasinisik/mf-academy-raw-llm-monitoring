@@ -31,6 +31,9 @@ services:
     volumes:
       - model-cache:/cache
     command:
+      # No console-script entry point ships in the wheel; must run as a module.
+      - python3
+      - -m
       - mlc_llm
       - serve
       - ${MLC_MODEL:-HF://mlc-ai/gemma-2-2b-it-q4f16_1-MLC}
