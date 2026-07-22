@@ -16,7 +16,15 @@ if (-not $line) { Write-Error "LLM_API_KEY not found in .env" }
 $key = $line.Line -replace '^LLM_API_KEY=', ''
 Write-Host "key length: $($key.Length)" -ForegroundColor DarkGray
 
-Set-Content -Path body.json -NoNewline -Value '{"model":"gemma-2-2b-it-q4f16_1-MLC","messages":[{"role":"user","content":"Say hello in one sentence."}]}'
+# A prompt that takes seconds, not milliseconds.
+#
+# This matters more than it looks. least_conn routes to the replica with the
+# fewest active connections, so it only has a decision to make while requests
+# actually overlap. A 60ms "say hello" finishes before the next one starts:
+# every replica is idle at every arrival, the tie never breaks, and everything
+# lands on the first upstream — which reads as a broken load balancer and is
+# not one. Long generations are what create real concurrency.
+Set-Content -Path body.json -NoNewline -Value '{"model":"gemma-2-2b-it-q4f16_1-MLC","max_tokens":400,"messages":[{"role":"user","content":"Write a detailed multi-paragraph explanation of how goroutines, channels and the Go scheduler work together. Be thorough."}]}'
 
 function Served-By {
   # The compose log prefix is the container name, so the first field names the
@@ -33,13 +41,11 @@ docker compose ps mlc
 # these six requests rather than everything since the container started.
 $before = @(Served-By).Count
 
-# Concurrent, not sequential. This is the whole point of the test: least_conn
-# routes to whichever replica has the fewest active connections, so with one
-# request at a time every replica is always at zero, the tie breaks the same way
-# each time, and everything lands on the first upstream. That looks exactly like
-# a broken load balancer and isn't one. Only overlapping requests can show the
-# policy doing its job.
-Write-Host "`n=== 6 concurrent requests ===" -ForegroundColor Cyan
+# Concurrent and slow enough to overlap. PowerShell's Start-Job costs a good
+# fraction of a second to spin up, so with millisecond requests the "parallel"
+# jobs would still finish one after another — the reason an earlier version of
+# this script reported a false negative.
+Write-Host "`n=== 6 concurrent long requests (expect seconds each) ===" -ForegroundColor Cyan
 $jobs = 1..6 | ForEach-Object {
   Start-Job -ArgumentList $PWD, $key, $_ -ScriptBlock {
     param($dir, $key, $n)
@@ -64,9 +70,9 @@ if (($new | Sort-Object -Unique).Count -ge 2) {
   Write-Host "Load balancing: WORKING - more than one replica served traffic." -ForegroundColor Green
 }
 else {
-  Write-Host "Load balancing: NOT working - one replica took everything." -ForegroundColor Yellow
-  Write-Host "Even under concurrency, so this is not the least_conn tie-break." -ForegroundColor Yellow
-  Write-Host "Next: docker compose logs --tail 40 gateway" -ForegroundColor Yellow
+  Write-Host "Load balancing: one replica took everything." -ForegroundColor Yellow
+  Write-Host "If the requests above each took well under a second, they did not" -ForegroundColor Yellow
+  Write-Host "overlap and this is not a verdict. Run .\diagnose-lb.ps1 instead." -ForegroundColor Yellow
 }
 
 # An even split is not the pass condition and should not be expected: least_conn
