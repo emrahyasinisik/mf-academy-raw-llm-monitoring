@@ -82,8 +82,12 @@ Cloudflare.
 
 ```powershell
 docker compose --profile quicktunnel up -d
-docker compose logs cloudflared-quick    # prints the assigned hostname
+docker compose --profile quicktunnel logs cloudflared-quick
 ```
+
+The `--profile` flag is needed on *every* command that names the service, not
+just `up`. Without it Compose leaves profiled services out of the model
+entirely and reports "no such service".
 
 Cloudflare hands out a random `https://<words>.trycloudflare.com`. It works
 immediately, but **the hostname changes every restart**, so `LLM_BASE_URL` on the
@@ -103,7 +107,11 @@ already added to your Cloudflare account.
 
    ```powershell
    docker compose --profile tunnel up -d
+   docker compose --profile tunnel logs cloudflared
    ```
+
+   To avoid repeating the flag, set it for the shell instead:
+   `$env:COMPOSE_PROFILES="tunnel"`.
 
 ### Either way, verify before wiring the backend
 
