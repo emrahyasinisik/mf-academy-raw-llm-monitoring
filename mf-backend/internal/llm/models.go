@@ -13,12 +13,24 @@ import (
 // of garbage there is, all to reproduce bytes we already had.
 type Metadata = json.RawMessage
 
+// Target is where a run executed. The same model id can run in the visitor's
+// browser on WebGPU or on the self-hosted MLC server, and the two produce
+// latencies that must never be averaged together: a browser figure describes
+// whatever GPU the visitor happens to own, a server figure describes one fixed
+// card plus a network hop.
+const (
+	TargetBrowser = "browser"
+	TargetServer  = "server"
+)
+
 // Run is a single recorded LLM interaction (the "raw monitoring" record).
-// These are produced in the browser by WebLLM/Gemma and posted here.
+// Produced either in the browser by WebLLM and posted here, or by this service
+// calling the MLC inference host; Target says which.
 type Run struct {
 	ID               string    `json:"id"`
 	UserID           string    `json:"user_id"`
 	Model            string    `json:"model"`
+	Target           string    `json:"target"`
 	Prompt           string    `json:"prompt"`
 	Response         string    `json:"response"`
 	SystemPrompt     string    `json:"system_prompt"`
@@ -40,6 +52,7 @@ type Run struct {
 type RunSummary struct {
 	ID               string    `json:"id"`
 	Model            string    `json:"model"`
+	Target           string    `json:"target"`
 	PromptPreview    string    `json:"prompt_preview"`
 	PromptTokens     int       `json:"prompt_tokens"`
 	CompletionTokens int       `json:"completion_tokens"`
@@ -78,7 +91,13 @@ type Breakdown struct {
 
 // ---- Request payloads ----
 
-// CreateRunRequest is what the frontend posts after Gemma answers.
+// CreateRunRequest is what the frontend posts after the browser's own engine
+// answers. Unchanged by the arrival of server-side inference — the browser path
+// still owns its own timings, so this contract did not have to break.
+//
+// Target is not read from the request: a client posting its own results is by
+// definition the browser path, and letting it claim otherwise would corrupt the
+// comparison this column exists for.
 type CreateRunRequest struct {
 	Model            string   `json:"model"`
 	Prompt           string   `json:"prompt"`
@@ -91,6 +110,23 @@ type CreateRunRequest struct {
 	ExpectedKeywords []string `json:"expected_keywords"`
 	Metadata         Metadata `json:"metadata"`
 	AutoScore        bool     `json:"auto_score"` // score immediately on create
+
+	// Target is set by the server, never decoded from the client. It is
+	// unexported from the JSON contract on purpose.
+	Target string `json:"-"`
+}
+
+// GenerateRunRequest asks this service to run the model itself and record the
+// result. The response fields absent here — the answer, the token counts, the
+// latency — are exactly the ones the server now produces rather than accepts.
+type GenerateRunRequest struct {
+	Model            string   `json:"model"`
+	Prompt           string   `json:"prompt"`
+	SystemPrompt     string   `json:"system_prompt"`
+	Temperature      float64  `json:"temperature"`
+	MaxTokens        int      `json:"max_tokens"`
+	ExpectedKeywords []string `json:"expected_keywords"`
+	AutoScore        bool     `json:"auto_score"`
 }
 
 // ScoreRequest can override the default weights when scoring a run.
@@ -128,11 +164,15 @@ type ListResult struct {
 	HasMore    bool         `json:"has_more"`
 }
 
-// ModelInfo describes a browser-runnable model the frontend can offer.
+// ModelInfo describes a model the frontend can offer, and where it can be run.
+//
+// Targets is additive: clients that predate it simply ignore the field and keep
+// treating every entry as browser-runnable, which is what they already did.
 type ModelInfo struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Family      string `json:"family"`
-	SizeHint    string `json:"size_hint"`
-	Recommended bool   `json:"recommended"`
+	ID          string   `json:"id"`
+	Label       string   `json:"label"`
+	Family      string   `json:"family"`
+	SizeHint    string   `json:"size_hint"`
+	Recommended bool     `json:"recommended"`
+	Targets     []string `json:"targets"`
 }

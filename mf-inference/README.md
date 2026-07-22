@@ -49,18 +49,14 @@ reach for 7-8B models here.
 
    You should see the 1660 Ti listed. If not, stop and fix this first.
 
-3. **Create the Cloudflare tunnel.** Zero Trust dashboard → Networks → Tunnels →
-   Create a tunnel → Docker. Copy the token. Point the tunnel's public hostname
-   at `http://gateway:8080`.
-
-4. **Configure.**
+3. **Configure.**
 
    ```powershell
    copy .env.example .env
-   # fill in LLM_API_KEY and TUNNEL_TOKEN
+   # fill in LLM_API_KEY (TUNNEL_TOKEN can stay empty for now)
    ```
 
-5. **Start.**
+4. **Start.**
 
    ```powershell
    docker compose up -d --build
@@ -69,6 +65,28 @@ reach for 7-8B models here.
 
    The first start downloads ~1.5 GB of weights into the `model-cache` volume.
    Wait for the log line saying the server is listening before testing.
+
+   This brings up `mlc` and `gateway` only. The tunnel is a separate opt-in
+   profile — see below — because nothing outside this machine needs the model
+   until the Render backend starts calling it.
+
+## Exposing it (only when the backend needs to reach it)
+
+Everything above works on this machine alone. The tunnel is what lets the Render
+backend — which is in Oregon and has no route to a home network — reach the card.
+
+1. Zero Trust dashboard → Networks → Tunnels → Create a tunnel → Docker. Copy
+   the token into `TUNNEL_TOKEN` in `.env`.
+2. In the tunnel's **Public Hostname** tab, add a hostname pointing at
+   `http://gateway:8080`. That hostname (plus the shared secret) is what goes
+   into the backend's `LLM_BASE_URL`.
+3. Start it:
+
+   ```powershell
+   docker compose --profile tunnel up -d
+   ```
+
+   The hostname is also visible afterwards in `docker compose logs cloudflared`.
 
 ## Verify
 

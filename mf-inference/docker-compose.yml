@@ -68,8 +68,15 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
 
+  # Opt-in: `docker compose --profile tunnel up -d`.
+  #
+  # The tunnel is only needed once something outside this machine has to reach
+  # the model — that is, once the Render backend calls it. Local development and
+  # measurement work entirely without it, so requiring a token to start the
+  # stack would block the work that comes first.
   cloudflared:
     image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
     restart: unless-stopped
     depends_on:
       - gateway

@@ -26,19 +26,26 @@ func (s *Store) CreateRun(ctx context.Context, userID string, req CreateRunReque
 	if keywords == nil {
 		keywords = []string{}
 	}
+	// An unset target means the browser path, which is the only caller that
+	// posts its own results. Normalised here rather than relying on the column
+	// default, because Go's zero value is "" and would fail the CHECK.
+	target := req.Target
+	if target == "" {
+		target = TargetBrowser
+	}
 
 	var run Run
 	var meta []byte
 	err := s.db.QueryRow(ctx,
 		`INSERT INTO llm_runs
-		   (user_id, model, prompt, response, system_prompt, prompt_tokens,
+		   (user_id, model, target, prompt, response, system_prompt, prompt_tokens,
 		    completion_tokens, latency_ms, temperature, expected_keywords, metadata)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		 RETURNING id, user_id, model, prompt, response, system_prompt, prompt_tokens,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		 RETURNING id, user_id, model, target, prompt, response, system_prompt, prompt_tokens,
 		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at`,
-		userID, req.Model, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
+		userID, req.Model, target, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
 		req.CompletionTokens, req.LatencyMs, req.Temperature, keywords, metaJSON,
-	).Scan(&run.ID, &run.UserID, &run.Model, &run.Prompt, &run.Response, &run.SystemPrompt,
+	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
 		&run.ExpectedKeywords, &meta, &run.CreatedAt)
 	if err != nil {
@@ -62,14 +69,14 @@ func (s *Store) GetRun(ctx context.Context, userID, runID string) (Run, error) {
 	var sCreated *time.Time
 
 	err := s.db.QueryRow(ctx,
-		`SELECT r.id, r.user_id, r.model, r.prompt, r.response, r.system_prompt,
+		`SELECT r.id, r.user_id, r.model, r.target, r.prompt, r.response, r.system_prompt,
 		        r.prompt_tokens, r.completion_tokens, r.latency_ms, r.temperature,
 		        r.expected_keywords, r.metadata, r.created_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		 WHERE r.id = $1 AND r.user_id = $2`, runID, userID,
-	).Scan(&run.ID, &run.UserID, &run.Model, &run.Prompt, &run.Response, &run.SystemPrompt,
+	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
 		&run.ExpectedKeywords, &meta, &run.CreatedAt,
 		&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated)
@@ -115,7 +122,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 	// Fetch one extra row to learn whether another page exists, without paying
 	// for a second COUNT query.
 	rows, err := s.db.Query(ctx,
-		`SELECT r.id, r.model, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
+		`SELECT r.id, r.model, r.target, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
 		        r.latency_ms, r.created_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
@@ -138,7 +145,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 		var sBreakdown []byte
 		var sCreated *time.Time
 
-		if err := rows.Scan(&run.ID, &run.Model, &run.PromptPreview, &run.PromptTokens,
+		if err := rows.Scan(&run.ID, &run.Model, &run.Target, &run.PromptPreview, &run.PromptTokens,
 			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt,
 			&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated); err != nil {
 			return ListResult{}, err
