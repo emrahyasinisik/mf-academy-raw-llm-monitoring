@@ -25,7 +25,7 @@ migrations/               embedded SQL schema (go:embed)
 Layered, dependency-injected, repository pattern — aligned to the MasterFabric
 Go curriculum (Days 36–60: config/middleware → databases/repositories → auth).
 
-## Endpoints (21 total, ≥20 required)
+## Endpoints (23 routes — 21 functional + 2 documentation; ≥20 required)
 
 | Module | Method & path | Auth |
 | --- | --- | :---: |
@@ -33,6 +33,8 @@ Go curriculum (Days 36–60: config/middleware → databases/repositories → au
 | Config | `GET /version` | – |
 | Common | `GET /health` | – |
 | Common | `GET /ready` | – |
+| Docs | `GET /openapi.yaml` | – |
+| Docs | `GET /docs` | – |
 | Auth | `POST /auth/register` | – |
 | Auth | `POST /auth/login` | – |
 | Auth | `POST /auth/refresh` | – |

@@ -1,0 +1,43 @@
+# Gateway in front of mlc_llm serve.
+#
+# mlc_llm has no authentication of its own. Without something in front, anyone
+# who learns the tunnel hostname can run inference on the card for free — so
+# this is not optional hardening, it is the only thing standing between the GPU
+# and the open internet.
+
+{
+	admin off
+	# Cloudflare terminates TLS at the tunnel edge; this hop is plain HTTP
+	# inside the compose network.
+	auto_https off
+}
+
+:8080 {
+	# `route` evaluates directives in written order. Without it Caddy would sort
+	# by matcher specificity and the health check could end up behind the auth
+	# check, which is the opposite of what we want.
+	route {
+		# Unauthenticated: lets cloudflared and the Go backend probe liveness
+		# without holding the secret. Reveals nothing but the word "ok".
+		respond /health "ok" 200
+
+		@unauthorized not header X-API-Key {env.LLM_API_KEY}
+		respond @unauthorized "unauthorized" 401
+
+		reverse_proxy mlc:8000 {
+			# Generation on a 6 GB card can take far longer than Caddy's default
+			# read timeout. This bound must stay above the Go side's LLM_TIMEOUT,
+			# or the gateway cuts the response before the backend gives up and
+			# the user sees a confusing 502 instead of a timeout.
+			transport http {
+				response_header_timeout 180s
+				read_timeout 180s
+			}
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

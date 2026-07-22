@@ -33,6 +33,25 @@ type Config struct {
 	// so a throttled shared vCPU may warrant a lower setting than a dedicated
 	// one. The auth package enforces its own floor regardless of what is set.
 	BcryptCost int
+
+	// ---- Server-side inference (optional) ----
+	//
+	// Empty LLMBaseURL disables the server-side path entirely; the browser path
+	// keeps working. That is deliberate — the inference host is a desktop
+	// machine, and the API must not require it to be switched on.
+
+	// LLMBaseURL is the root of an OpenAI-compatible API (no trailing /v1).
+	LLMBaseURL string
+	// LLMAPIKey is the shared secret the inference gateway checks.
+	LLMAPIKey string
+	// LLMTimeout bounds a single generation. It is far larger than
+	// RequestTimeout and is applied only to the generation route: raising the
+	// global bound to suit the slowest endpoint would strip every other one of
+	// its protection.
+	LLMTimeout time.Duration
+	// LLMMaxTokens caps generated length, bounding both the time a request can
+	// occupy the GPU and the size of the row it writes.
+	LLMMaxTokens int
 }
 
 // InsecureDefaultSecret is the development JWT secret. It is a known constant —
@@ -70,8 +89,19 @@ func Load() Config {
 		TrustProxy:     getBool("TRUST_PROXY", false),
 		RequestTimeout: getDuration("REQUEST_TIMEOUT", 5*time.Second),
 		BcryptCost:     getInt("BCRYPT_COST", defaultBcryptCost),
+
+		LLMBaseURL: getEnv("LLM_BASE_URL", ""),
+		LLMAPIKey:  getEnv("LLM_API_KEY", ""),
+		// Provisional. The real figure comes from measuring the inference host;
+		// it must stay below the server's WriteTimeout in cmd/server/main.go and
+		// below the gateway's proxy timeouts in mf-inference/gateway/Caddyfile.
+		LLMTimeout:   getDuration("LLM_TIMEOUT", 25*time.Second),
+		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 512),
 	}
 }
+
+// ServerInferenceEnabled reports whether a server-side inference host is wired.
+func (c Config) ServerInferenceEnabled() bool { return c.LLMBaseURL != "" }
 
 // IsProduction reports whether the app runs in a production-like environment.
 func (c Config) IsProduction() bool {
@@ -131,6 +161,15 @@ func (c Config) Warnings() []string {
 	}
 	if c.AccessTokenTTL > time.Hour {
 		w = append(w, "ACCESS_TOKEN_TTL exceeds one hour; access tokens cannot be revoked before they expire")
+	}
+	if c.ServerInferenceEnabled() {
+		if c.LLMAPIKey == "" {
+			w = append(w, "LLM_BASE_URL is set without LLM_API_KEY: if the inference host "+
+				"checks a secret this service cannot pass it, and if it does not, the GPU is open to anyone who finds the URL")
+		}
+		if strings.HasPrefix(c.LLMBaseURL, "http://") {
+			w = append(w, "LLM_BASE_URL is plain http: the shared secret and every prompt cross the network in the clear")
+		}
 	}
 	return w
 }

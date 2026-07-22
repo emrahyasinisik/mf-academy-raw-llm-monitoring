@@ -73,7 +73,12 @@ func main() {
 	authHandler := auth.NewHandler(authStore, tokens, cfg.BcryptCost)
 
 	llmStore := llm.NewStore(pool)
-	llmHandler := llm.NewHandler(llmStore)
+	// Server-side inference is optional: with LLM_BASE_URL unset the provider
+	// reports itself unconfigured, POST /llm/generate answers 503, and the
+	// browser path is unaffected. The inference host is someone's desktop, so
+	// "switched off" has to be a supported state, not a boot failure.
+	llmProvider := llm.NewOpenAIProvider(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMTimeout, cfg.LLMMaxTokens)
+	llmHandler := llm.NewHandler(llmStore, llmProvider)
 
 	cfgHandler := config.NewHandler(cfg)
 
@@ -127,7 +132,7 @@ func main() {
 
 	// Feature modules
 	r.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
-	r.Mount("/llm", llmHandler.Routes(tokens.Verify))
+	r.Mount("/llm", llmHandler.Routes(tokens.Verify, cfg.LLMTimeout))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

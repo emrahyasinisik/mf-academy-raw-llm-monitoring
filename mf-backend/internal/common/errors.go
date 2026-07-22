@@ -50,3 +50,34 @@ func ErrTooManyRequests(msg string) *APIError {
 func ErrInternal(msg string) *APIError {
 	return &APIError{Status: http.StatusInternalServerError, Code: "internal_error", Message: msg}
 }
+
+// ErrUnavailable reports that a dependency this request needed could not be
+// reached at all. Kept distinct from ErrUpstreamTimeout because the operator
+// response differs: this one means the machine is off, asleep or the tunnel is
+// down, and no amount of waiting will help.
+func ErrUnavailable(msg string) *APIError {
+	if msg == "" {
+		msg = "a required service is unavailable"
+	}
+	return &APIError{Status: http.StatusServiceUnavailable, Code: "unavailable", Message: msg}
+}
+
+// ErrUpstreamTimeout reports that a dependency was reachable but did not answer
+// in time — the request was accepted and is presumably still being worked on,
+// which is a different situation from the service being down.
+func ErrUpstreamTimeout(msg string) *APIError {
+	if msg == "" {
+		msg = "upstream service timed out"
+	}
+	return &APIError{Status: http.StatusGatewayTimeout, Code: "upstream_timeout", Message: msg}
+}
+
+// ErrUpstreamFailed reports that a dependency answered, but with a failure. The
+// message is written by us, never copied from the upstream body — that body can
+// carry internal detail a client has no business seeing.
+func ErrUpstreamFailed(msg string) *APIError {
+	if msg == "" {
+		msg = "upstream service failed"
+	}
+	return &APIError{Status: http.StatusBadGateway, Code: "upstream_failed", Message: msg}
+}

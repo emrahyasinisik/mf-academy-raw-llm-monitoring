@@ -1,0 +1,108 @@
+# Self-hosted MLC-LLM inference stack.
+#
+# Runs on the GPU box (Windows 11 + WSL2 + Docker Desktop + NVIDIA Container
+# Toolkit), not on Render. Three containers, each with one job:
+#
+#   cloudflared  public HTTPS hostname -> gateway, without opening a router port
+#   gateway      rejects anything without the shared secret, then proxies
+#   mlc          mlc_llm serve, OpenAI-compatible API, CUDA
+#
+# Only cloudflared talks to the internet. mlc publishes no host port at all —
+# the sole way in is through the gateway, so the secret cannot be bypassed by
+# anyone who learns the tunnel hostname.
+
+services:
+  mlc:
+    build:
+      context: ./mlc
+      args:
+        # MLC publishes one wheel per CUDA minor version. This must match the
+        # base image in mlc/Dockerfile; see the README if the build fails here.
+        CUDA_TAG: ${CUDA_TAG:-cu122}
+    restart: unless-stopped
+    # Deliberately no `ports:` — reachable only from the compose network.
+    expose:
+      - "8000"
+    environment:
+      # HF_HOME and the MLC cache share the volume below so the ~1.5 GB of
+      # weights survive a container rebuild.
+      HF_HOME: /cache/huggingface
+      MLC_LLM_HOME: /cache/mlc
+    volumes:
+      - model-cache:/cache
+    command:
+      # No console-script entry point ships in the wheel; must run as a module.
+      - python3
+      - -m
+      - mlc_llm
+      - serve
+      - ${MLC_MODEL:-HF://mlc-ai/gemma-2-2b-it-q4f16_1-MLC}
+      - --device
+      - cuda
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # `local` keeps the KV cache small. The card has 6 GB and Windows is
+      # already drawing the desktop on it, so the server mode's larger cache
+      # would be the first thing to fail.
+      - --mode
+      - local
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - mlc
+    environment:
+      # The shared secret the Go backend must send as X-API-Key.
+      LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY must be set — see .env.example}
+    volumes:
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    # Published on localhost only, so you can curl it from Windows while
+    # developing without exposing it to the LAN.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  # Opt-in: `docker compose --profile tunnel up -d`.
+  #
+  # The tunnel is only needed once something outside this machine has to reach
+  # the model — that is, once the Render backend calls it. Local development and
+  # measurement work entirely without it, so requiring a token to start the
+  # stack would block the work that comes first.
+  #
+  # Named tunnel: stable hostname, but it requires a domain already on
+  # Cloudflare, because a public hostname has to live in a zone you control.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set — see README}
+
+  # Opt-in: `docker compose --profile quicktunnel up -d`.
+  #
+  # The no-account, no-domain alternative. Cloudflare hands out a random
+  # *.trycloudflare.com hostname printed in this container's logs.
+  #
+  # The hostname changes on every restart, so LLM_BASE_URL on the backend has to
+  # be updated each time — fine while developing, wrong for anything left
+  # running. Use the named tunnel above once a domain is available.
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    profiles: [quicktunnel]
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    command: tunnel --no-autoupdate --url http://gateway:8080
+
+volumes:
+  model-cache:

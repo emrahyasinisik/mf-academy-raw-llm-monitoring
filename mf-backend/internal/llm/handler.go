@@ -2,8 +2,10 @@ package llm
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/emrah/mf-backend/internal/common"
@@ -26,26 +28,70 @@ type RunStore interface {
 	Metrics(ctx context.Context, userID string) (Metrics, error)
 }
 
+// Generator runs a prompt on hardware this service controls. Declared here on
+// the consuming side, like RunStore above, so the handlers depend on the one
+// operation they call rather than on a concrete HTTP client — which is what
+// lets the generation endpoint be tested without an inference host running.
+type Generator interface {
+	Generate(ctx context.Context, req CompletionRequest) (Completion, error)
+	Configured() bool
+}
+
 // Handler serves the LLM monitoring & decision-scoring endpoints.
 type Handler struct {
 	store RunStore
+	// gen may be nil: the inference host is a desktop machine, and the browser
+	// path must keep working whether or not it is switched on.
+	gen Generator
 }
 
-func NewHandler(store RunStore) *Handler { return &Handler{store: store} }
-
-// browserModels are the WebLLM/MLC-LLM models the frontend can run in-browser.
-// Gemma is the required model for this capstone; others are offered as options.
-var browserModels = []ModelInfo{
-	{ID: "gemma-2-2b-it-q4f16_1-MLC", Label: "Gemma 2 2B Instruct", Family: "gemma", SizeHint: "~1.4 GB", Recommended: true},
-	{ID: "gemma-2-2b-it-q4f32_1-MLC", Label: "Gemma 2 2B Instruct (f32)", Family: "gemma", SizeHint: "~2.5 GB", Recommended: false},
-	{ID: "Llama-3.2-1B-Instruct-q4f16_1-MLC", Label: "Llama 3.2 1B Instruct", Family: "llama", SizeHint: "~0.9 GB", Recommended: false},
-	{ID: "Phi-3.5-mini-instruct-q4f16_1-MLC", Label: "Phi 3.5 Mini Instruct", Family: "phi", SizeHint: "~2.2 GB", Recommended: false},
+func NewHandler(store RunStore, gen Generator) *Handler {
+	return &Handler{store: store, gen: gen}
 }
 
-// Models lists the browser-runnable models (public — the login screen may
-// preview them). GET /llm/models
+// catalogue is the set of models the frontend can offer, with where each one can
+// run. Gemma is the required model for this capstone; others are options.
+//
+// The ids are MLC's, and they are the same string in both targets — the browser
+// compiles the model to WebGPU, the server to CUDA, from one model definition.
+// That shared id is what makes a browser run and a server run of "the same
+// thing" comparable at all.
+var catalogue = []ModelInfo{
+	{ID: "gemma-2-2b-it-q4f16_1-MLC", Label: "Gemma 2 2B Instruct", Family: "gemma", SizeHint: "~1.4 GB", Recommended: true, Targets: []string{TargetBrowser, TargetServer}},
+	{ID: "gemma-2-2b-it-q4f32_1-MLC", Label: "Gemma 2 2B Instruct (f32)", Family: "gemma", SizeHint: "~2.5 GB", Recommended: false, Targets: []string{TargetBrowser}},
+	{ID: "Llama-3.2-1B-Instruct-q4f16_1-MLC", Label: "Llama 3.2 1B Instruct", Family: "llama", SizeHint: "~0.9 GB", Recommended: false, Targets: []string{TargetBrowser, TargetServer}},
+	{ID: "Phi-3.5-mini-instruct-q4f16_1-MLC", Label: "Phi 3.5 Mini Instruct", Family: "phi", SizeHint: "~2.2 GB", Recommended: false, Targets: []string{TargetBrowser}},
+}
+
+// Models lists the runnable models (public — the login screen may preview
+// them). GET /llm/models
+//
+// server_inference tells the frontend whether to offer the server target at
+// all, so it can hide the option rather than let the user pick something that
+// will fail.
 func (h *Handler) Models(w http.ResponseWriter, r *http.Request) {
-	common.JSON(w, http.StatusOK, map[string]any{"models": browserModels})
+	common.JSON(w, http.StatusOK, map[string]any{
+		"models":           catalogue,
+		"server_inference": h.gen != nil && h.gen.Configured(),
+	})
+}
+
+// modelSupportsTarget reports whether the catalogue allows this pairing. The
+// server can only serve what mf-inference actually has compiled, and a request
+// for anything else should fail here rather than as a confusing upstream error.
+func modelSupportsTarget(id, target string) bool {
+	for _, m := range catalogue {
+		if m.ID != id {
+			continue
+		}
+		for _, t := range m.Targets {
+			if t == target {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // CreateRun records a raw LLM interaction. POST /llm/runs
@@ -68,6 +114,82 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Optionally score immediately so the dashboard is populated in one call.
+	if req.AutoScore {
+		score := ScoreRun(run, DefaultWeights())
+		if saved, err := h.store.UpsertScore(r.Context(), score); err == nil {
+			run.Score = &saved
+		}
+	}
+	common.JSON(w, http.StatusCreated, run)
+}
+
+// GenerateRun runs the model on the self-hosted inference host and records the
+// result. POST /llm/generate
+//
+// This is deliberately a new endpoint rather than a change to POST /llm/runs.
+// That endpoint's contract — the client supplies the answer and its timings — is
+// still exactly right for the browser path, and breaking it would have forced a
+// coordinated release of two services that deploy at different speeds, to buy
+// nothing. Here the same fields travel in the opposite direction, which is a
+// different operation and reads better as one.
+func (h *Handler) GenerateRun(w http.ResponseWriter, r *http.Request) {
+	claims, _ := common.ClaimsFromContext(r.Context())
+
+	if h.gen == nil || !h.gen.Configured() {
+		common.Error(w, common.ErrUnavailable(
+			"server-side inference is not configured on this deployment"))
+		return
+	}
+
+	var req GenerateRunRequest
+	if err := common.Decode(r, &req); err != nil {
+		common.Error(w, err)
+		return
+	}
+	if req.Model == "" || strings.TrimSpace(req.Prompt) == "" {
+		common.Error(w, common.ErrBadRequest("model and prompt are required"))
+		return
+	}
+	if !modelSupportsTarget(req.Model, TargetServer) {
+		common.Error(w, common.ErrBadRequest(
+			"this model is not available for server-side inference"))
+		return
+	}
+
+	completion, err := h.gen.Generate(r.Context(), CompletionRequest{
+		Model:        req.Model,
+		Prompt:       req.Prompt,
+		SystemPrompt: req.SystemPrompt,
+		Temperature:  req.Temperature,
+		MaxTokens:    req.MaxTokens,
+	})
+	if err != nil {
+		// Already an *APIError carrying the right status: 503 when the host is
+		// off, 504 when it was too slow, 502 when it answered with a failure.
+		common.Error(w, err)
+		return
+	}
+
+	run, err := h.store.CreateRun(r.Context(), claims.UserID, CreateRunRequest{
+		Model:            req.Model,
+		Target:           TargetServer,
+		Prompt:           req.Prompt,
+		Response:         completion.Content,
+		SystemPrompt:     req.SystemPrompt,
+		PromptTokens:     completion.PromptTokens,
+		CompletionTokens: completion.CompletionTokens,
+		LatencyMs:        completion.LatencyMs,
+		Temperature:      req.Temperature,
+		ExpectedKeywords: req.ExpectedKeywords,
+	})
+	if err != nil {
+		// The generation itself succeeded and cost real GPU time, so losing it
+		// to a storage failure is worth a log line of its own.
+		slog.Error("generated a run but could not save it", "user_id", claims.UserID, "error", err)
+		common.Error(w, common.ErrInternal("could not save run"))
+		return
+	}
+
 	if req.AutoScore {
 		score := ScoreRun(run, DefaultWeights())
 		if saved, err := h.store.UpsertScore(r.Context(), score); err == nil {

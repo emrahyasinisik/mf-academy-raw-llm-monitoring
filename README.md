@@ -22,8 +22,8 @@ transparent, rule-based **decision scoring** engine.
 ```
 mf-capstone/
 ├── render.yaml        # Render Blueprint (backend web service + Postgres)
-├── mf-backend/        # Go API — 21 endpoints, JWT auth, rule-based scoring
-└── mf-frontend/       # Next.js SPA — 3 master views, WebLLM/Gemma in-browser
+├── mf-backend/        # Go API — 23 routes, JWT auth, rule-based scoring
+└── mf-frontend/       # Next.js SPA — Auth + 3 master views w/ subviews, in-browser Gemma
 ```
 
 See each package's README for details:

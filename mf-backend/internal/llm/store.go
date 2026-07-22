@@ -26,19 +26,26 @@ func (s *Store) CreateRun(ctx context.Context, userID string, req CreateRunReque
 	if keywords == nil {
 		keywords = []string{}
 	}
+	// An unset target means the browser path, which is the only caller that
+	// posts its own results. Normalised here rather than relying on the column
+	// default, because Go's zero value is "" and would fail the CHECK.
+	target := req.Target
+	if target == "" {
+		target = TargetBrowser
+	}
 
 	var run Run
 	var meta []byte
 	err := s.db.QueryRow(ctx,
 		`INSERT INTO llm_runs
-		   (user_id, model, prompt, response, system_prompt, prompt_tokens,
+		   (user_id, model, target, prompt, response, system_prompt, prompt_tokens,
 		    completion_tokens, latency_ms, temperature, expected_keywords, metadata)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		 RETURNING id, user_id, model, prompt, response, system_prompt, prompt_tokens,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		 RETURNING id, user_id, model, target, prompt, response, system_prompt, prompt_tokens,
 		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at`,
-		userID, req.Model, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
+		userID, req.Model, target, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
 		req.CompletionTokens, req.LatencyMs, req.Temperature, keywords, metaJSON,
-	).Scan(&run.ID, &run.UserID, &run.Model, &run.Prompt, &run.Response, &run.SystemPrompt,
+	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
 		&run.ExpectedKeywords, &meta, &run.CreatedAt)
 	if err != nil {
@@ -62,14 +69,14 @@ func (s *Store) GetRun(ctx context.Context, userID, runID string) (Run, error) {
 	var sCreated *time.Time
 
 	err := s.db.QueryRow(ctx,
-		`SELECT r.id, r.user_id, r.model, r.prompt, r.response, r.system_prompt,
+		`SELECT r.id, r.user_id, r.model, r.target, r.prompt, r.response, r.system_prompt,
 		        r.prompt_tokens, r.completion_tokens, r.latency_ms, r.temperature,
 		        r.expected_keywords, r.metadata, r.created_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		 WHERE r.id = $1 AND r.user_id = $2`, runID, userID,
-	).Scan(&run.ID, &run.UserID, &run.Model, &run.Prompt, &run.Response, &run.SystemPrompt,
+	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
 		&run.ExpectedKeywords, &meta, &run.CreatedAt,
 		&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated)
@@ -115,7 +122,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 	// Fetch one extra row to learn whether another page exists, without paying
 	// for a second COUNT query.
 	rows, err := s.db.Query(ctx,
-		`SELECT r.id, r.model, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
+		`SELECT r.id, r.model, r.target, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
 		        r.latency_ms, r.created_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
@@ -138,7 +145,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 		var sBreakdown []byte
 		var sCreated *time.Time
 
-		if err := rows.Scan(&run.ID, &run.Model, &run.PromptPreview, &run.PromptTokens,
+		if err := rows.Scan(&run.ID, &run.Model, &run.Target, &run.PromptPreview, &run.PromptTokens,
 			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt,
 			&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated); err != nil {
 			return ListResult{}, err
@@ -237,14 +244,20 @@ func (s *Store) GetScore(ctx context.Context, runID string) (Score, error) {
 // 27-39ms total against 12-13ms here. The pool pressure matters more than the
 // latency: this is the most frequently hit endpoint in the app.
 func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
-	m := Metrics{RunsByModel: map[string]int{}, GradeDistrib: map[string]int{}}
+	m := Metrics{
+		RunsByModel:  map[string]int{},
+		GradeDistrib: map[string]int{},
+		ByTarget:     map[string]TargetMetrics{},
+	}
 
-	// The two distributions come back as jsonb objects so the whole summary
-	// fits in one row.
-	var byModel, byGrade []byte
+	// The three breakdowns come back as jsonb objects so the whole summary
+	// still fits in one row — the per-target split is another aggregate over the
+	// same CTE rather than a second statement, so it costs no extra scan and no
+	// extra pool checkout.
+	var byModel, byGrade, byTarget []byte
 	err := s.db.QueryRow(ctx,
 		`WITH base AS (
-		     SELECT r.model, r.latency_ms, r.completion_tokens, sc.score, sc.grade
+		     SELECT r.model, r.target, r.latency_ms, r.completion_tokens, sc.score, sc.grade
 		     FROM llm_runs r
 		     LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		     WHERE r.user_id = $1
@@ -259,10 +272,28 @@ func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
 		               FROM (SELECT model, count(*) c FROM base GROUP BY model) t), '{}'),
 		     coalesce((SELECT jsonb_object_agg(grade, c)
 		               FROM (SELECT grade, count(*) c FROM base
-		                     WHERE grade IS NOT NULL GROUP BY grade) t), '{}')
+		                     WHERE grade IS NOT NULL GROUP BY grade) t), '{}'),
+		     coalesce((SELECT jsonb_object_agg(target, jsonb_build_object(
+		                   'runs', c,
+		                   'avg_latency_ms', lat,
+		                   'avg_completion_tokens', tok,
+		                   'avg_score', avg_score,
+		                   'tokens_per_second', tps))
+		               FROM (SELECT target,
+		                            count(*) c,
+		                            coalesce(avg(latency_ms), 0) lat,
+		                            coalesce(avg(completion_tokens), 0) tok,
+		                            coalesce(avg(score), 0) avg_score,
+		                            -- Total tokens over total time, not the mean
+		                            -- of per-run rates: see TargetMetrics.
+		                            CASE WHEN coalesce(sum(latency_ms), 0) > 0
+		                                 THEN sum(completion_tokens)::float8 * 1000
+		                                      / sum(latency_ms)
+		                                 ELSE 0 END tps
+		                     FROM base GROUP BY target) t), '{}')
 		 FROM base`, userID,
 	).Scan(&m.TotalRuns, &m.AvgLatencyMs, &m.AvgCompletionTk,
-		&m.ScoredRuns, &m.AvgScore, &byModel, &byGrade)
+		&m.ScoredRuns, &m.AvgScore, &byModel, &byGrade, &byTarget)
 	if err != nil {
 		return Metrics{}, err
 	}
@@ -271,6 +302,9 @@ func (s *Store) Metrics(ctx context.Context, userID string) (Metrics, error) {
 		return Metrics{}, err
 	}
 	if err := json.Unmarshal(byGrade, &m.GradeDistrib); err != nil {
+		return Metrics{}, err
+	}
+	if err := json.Unmarshal(byTarget, &m.ByTarget); err != nil {
 		return Metrics{}, err
 	}
 	return m, nil
