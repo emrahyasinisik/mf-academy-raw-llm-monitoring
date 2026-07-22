@@ -62,6 +62,11 @@ const defaultMaxTokens = 512
 // how a peer decides how much of our memory it gets to use.
 const maxResponseBytes = 4 << 20 // 4 MiB
 
+// userAgent identifies this service to the inference host. Deliberately names
+// what we are rather than imitating a browser: the point is that whoever reads
+// the host's logs can tell which client called.
+const userAgent = "mf-backend/0.1.0 (+https://github.com/emrahyasinisik/mf-academy-raw-llm-monitoring)"
+
 // NewOpenAIProvider builds a provider. A zero timeout leaves the bound entirely
 // to the request context; the caller is expected to set one.
 func NewOpenAIProvider(baseURL, apiKey string, timeout time.Duration, maxTokens int) *OpenAIProvider {
@@ -152,6 +157,11 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 		return Completion{}, common.ErrInternal("could not build inference request")
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Identify ourselves honestly. Go's default is "Go-http-client/2.0", which
+	// tells an operator reading the inference host's logs nothing about who
+	// called, and is the kind of anonymous client that edge protections in front
+	// of the tunnel treat as suspect.
+	httpReq.Header.Set("User-Agent", userAgent)
 	if p.apiKey != "" {
 		// Two headers for one secret: the Caddy gateway in front of mlc_llm
 		// checks X-API-Key, while hosted OpenAI-compatible providers check the

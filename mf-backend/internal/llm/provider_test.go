@@ -19,12 +19,13 @@ import (
 // failure maps to which status, and whether the shared secret is actually sent.
 
 func TestGenerateParsesAnOpenAICompatibleResponse(t *testing.T) {
-	var gotKey, gotBearer, gotPath string
+	var gotKey, gotBearer, gotPath, gotUA string
 	var gotBody chatRequest
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotKey = r.Header.Get("X-API-Key")
 		gotBearer = r.Header.Get("Authorization")
+		gotUA = r.Header.Get("User-Agent")
 		gotPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 
@@ -67,6 +68,11 @@ func TestGenerateParsesAnOpenAICompatibleResponse(t *testing.T) {
 	}
 	if gotBearer != "Bearer s3cret" {
 		t.Errorf("Authorization = %q", gotBearer)
+	}
+	// Go's default UA is anonymous and is what edge protections in front of the
+	// tunnel treat as suspect; it must not silently come back.
+	if gotUA != userAgent {
+		t.Errorf("User-Agent = %q, want %q", gotUA, userAgent)
 	}
 
 	// A system prompt must precede the user turn, and generation must be bounded.
