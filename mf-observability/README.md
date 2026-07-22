@@ -1,16 +1,37 @@
-# mf-observability — Prometheus + Grafana
+# mf-observability — Prometheus, Loki and Grafana
 
-Metrics for the Go backend, in their own containers.
+Metrics and logs, in their own containers.
 
 ```
-mf-backend  <--scrape--  prometheus  <--query--  grafana
-  /metrics                  :9090                 :3001
+mf-backend      <--scrape--  prometheus  <--query--\
+  /metrics                      :9090               \
+                                                     >--  grafana  :3001
+docker containers --read-->  alloy --push--> loki   /
+  (mlc-1, mlc-2, gateway, …)                :3100  /
 ```
 
-The direction matters and is the thing most often drawn backwards: **the
-application never pushes anywhere.** Prometheus pulls on a schedule; Grafana
-only ever talks to Prometheus. A consequence worth having: if this whole stack
-is down, the backend neither knows nor cares.
+Two directions, and both are worth getting right because they are commonly drawn
+backwards:
+
+- **Metrics are pulled.** The application never pushes anywhere; Prometheus
+  scrapes on a schedule. If this whole stack is down, the backend neither knows
+  nor cares.
+- **Logs are pushed** — but by Alloy, not by the applications. Containers keep
+  writing to stdout exactly as before and know nothing about Loki; Alloy reads
+  their logs off the Docker socket.
+
+Grafana talks only to Prometheus and Loki. It never touches the backend.
+
+Alloy rather than Promtail: Promtail reached end of life on 2 March 2026.
+
+## Why logs as well as metrics
+
+Metrics say a replica is slow. Logs say why.
+
+That matters most since the inference service became scalable: with `mlc-1` and
+`mlc-2` both running, "which replica served this, and what did it do" is a
+question metrics can only answer in aggregate. The `container` label separates
+them, and the `service` label groups them back together.
 
 ## What is measured
 
@@ -83,16 +104,37 @@ docker compose exec prometheus wget -qO- http://localhost:9090/api/v1/targets \
 Empty panels with no error almost always means the datasource uid does not
 match what the dashboard references — both are pinned to `prometheus` here.
 
+## Reading the logs
+
+In Grafana, the dashboard's bottom row has them. To explore, use **Explore** with
+the Loki datasource:
+
+```logql
+{service="mlc"}                            # every inference replica
+{container="mf-inference-mlc-2"}           # one replica
+{service="gateway"} |= "401"               # rejected requests at the gateway
+{project="mf-inference"}                   # the whole inference stack
+sum by (container) (rate({service="mlc"}[1m]))   # which replica is busy
+```
+
+That last one is the cheapest answer to "is the load balancer really using both
+replicas" — a flat line at zero for one container means it is up and idle.
+
 ## Known adjustment points
 
-This stack has not been run yet: it was written on a machine with Docker
-stopped, and only the config files' syntax has been checked. The Go side *has*
-been verified — `/metrics` was exercised locally, including that three different
-run ids collapse to one series and that the token guard returns 401.
+Prometheus and Grafana have been run and verified. **Loki and Alloy have not** —
+they were added on a machine with Docker stopped, so only the config syntax is
+checked.
 
 Most likely to need a fix on first run:
 
-- the scrape of Render over the public internet (TLS, the free instance being
-  asleep and answering slowly, or the token file having a stray newline)
+- **The Docker socket mount.** Alloy needs `/var/run/docker.sock`, which works
+  with Docker Desktop's WSL2 backend on Windows. If Alloy logs a permission or
+  connection error against the socket, that is the cause.
+- **No logs appearing at all.** Check Alloy first (`docker compose logs alloy`);
+  it reports discovery and push failures plainly. Its own UI is not exposed
+  here, so the logs are the diagnostic.
+- The scrape of Render over the public internet (TLS, the free instance being
+  asleep, or the token file having a stray newline).
 - `host.docker.internal` for the local target, which needs the `extra_hosts`
-  entry on Linux and is already set
+  entry on Linux and is already set.

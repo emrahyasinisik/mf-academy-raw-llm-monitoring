@@ -1,0 +1,59 @@
+// Grafana Alloy — collects Docker container logs and ships them to Loki.
+//
+// Alloy, not Promtail: Promtail reached end of life on 2 March 2026 and gets no
+// further updates. Alloy is the supported successor.
+//
+// Alloy reads the Docker socket, so it sees every container on this host
+// regardless of which compose project started it. That is the point — the
+// inference replicas live in the mf-inference project and the monitoring lives
+// here, and the logs of the former are exactly what we want to read.
+
+// Discover containers, refreshing often enough that a replica added by
+// `docker compose up --scale mlc=3` starts being collected without a restart.
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "10s"
+}
+
+// Turn Docker's metadata into labels worth querying by.
+//
+// Label cardinality matters here for the same reason it does in Prometheus: a
+// label per container id would mint a new stream for every container that ever
+// runs. Container *name* and compose service are bounded and are what a person
+// actually filters on — "show me mlc-2" and "show me all the mlc replicas".
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// Docker prefixes names with a slash; strip it so the label reads
+	// "mf-inference-mlc-1" rather than "/mf-inference-mlc-1".
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	// The compose service, shared by every replica of it — this is what makes
+	// "all mlc replicas" a single query.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	// Which stack the container belongs to: mf-inference or mf-observability.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		target_label  = "project"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

@@ -1,0 +1,49 @@
+# Single-binary Loki, filesystem storage. Sized for one machine's container
+# logs, not a cluster — no object store, no ring beyond a single member.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # Log lines from a model server can be long; the default is generous enough
+  # but the limit is stated rather than inherited.
+  grpc_server_max_recv_msg_size: 8388608
+  grpc_server_max_send_msg_size: 8388608
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Seven days. Container logs on a laptop-class machine are not an archive.
+  retention_period: 168h
+  # Containers that have been running a while replay old lines on first scrape;
+  # rejecting them would silently lose the history that is most interesting
+  # right after this stack is first brought up.
+  reject_old_samples: false
+  # One replica of a model server can be chatty during startup.
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem

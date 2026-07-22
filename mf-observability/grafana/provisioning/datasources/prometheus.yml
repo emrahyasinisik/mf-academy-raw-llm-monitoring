@@ -20,3 +20,10 @@ datasources:
       # Matches the scrape interval, so Grafana does not draw a line finer than
       # the data actually is.
       timeInterval: 15s
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

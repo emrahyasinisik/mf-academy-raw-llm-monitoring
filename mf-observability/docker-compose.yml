@@ -37,11 +37,45 @@ services:
       # host.docker.internal is not defined by default.
       - "host.docker.internal:host-gateway"
 
+  # Log storage. Metrics say a replica is slow; logs say why — and with the
+  # inference service scaled out, "which replica" is a question only the logs
+  # can answer.
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    expose:
+      - "3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  # Reads container logs off the Docker socket and ships them to Loki.
+  #
+  # Alloy rather than Promtail: Promtail reached end of life on 2 March 2026.
+  alloy:
+    image: grafana/alloy:v1.7.1
+    restart: unless-stopped
+    depends_on:
+      - loki
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only, and this is the whole reason Alloy can see containers from
+      # the other compose project. A writable socket would be handing this
+      # container control of the Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+
   grafana:
     image: grafana/grafana:11.5.0
     restart: unless-stopped
     depends_on:
       - prometheus
+      - loki
     ports:
       - "127.0.0.1:3001:3000"
     volumes:
@@ -60,3 +94,5 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:
