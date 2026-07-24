@@ -144,6 +144,14 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, ans)
 }
 
+// Lookup is the retrieval service surface, used by the MCP tool. Named
+// differently from the Search HTTP handler because they are different things —
+// one speaks JSON over a socket, the other returns passages — and giving both
+// the obvious name would mean neither could be called from the other.
+func (h *Handler) Lookup(ctx context.Context, query string, limit int) ([]Hit, error) {
+	return h.store.Search(ctx, query, limit)
+}
+
 // Answer is the exported service surface, used by both the HTTP handler and the
 // MCP tool. One implementation, deliberately: an agent and a browser asking the
 // same question must get the same answer, and two code paths would drift on the

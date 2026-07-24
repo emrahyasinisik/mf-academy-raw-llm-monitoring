@@ -26,12 +26,26 @@ const maxBodyBytes = 1 << 20 // 1 MiB
 // idle connection held open for its own sake.
 type Server struct {
 	analyzer Analyzer
-	name     string
-	version  string
+	// wiki is optional. A deployment with no knowledge base advertises no wiki
+	// tools at all, rather than advertising tools that always answer "empty" —
+	// a model shown a tool will call it, and a tool that can never succeed
+	// wastes a turn every time.
+	wiki    Librarian
+	name    string
+	version string
 }
 
-func NewServer(analyzer Analyzer, name, version string) *Server {
-	return &Server{analyzer: analyzer, name: name, version: version}
+func NewServer(analyzer Analyzer, librarian Librarian, name, version string) *Server {
+	return &Server{analyzer: analyzer, wiki: librarian, name: name, version: version}
+}
+
+// serverInstructions is what the client's model is told about this server.
+// The knowledge-base half is only included when there is one.
+func (s *Server) serverInstructions() string {
+	if s.wiki == nil {
+		return instructions
+	}
+	return instructions + wikiInstructions
 }
 
 // Handler serves POST /mcp.
@@ -155,7 +169,7 @@ func (s *Server) initialize(req request) response {
 		ProtocolVersion: version,
 		ServerInfo:      serverInfo{Name: s.name, Version: s.version},
 		Capabilities:    capabilities{Tools: &toolsCapability{ListChanged: false}},
-		Instructions:    instructions,
+		Instructions:    s.serverInstructions(),
 	})
 }
 

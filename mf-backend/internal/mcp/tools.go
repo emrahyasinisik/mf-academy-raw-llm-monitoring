@@ -49,7 +49,7 @@ verir.`
 // entries makes that choice worse, not better — every tool here answers a
 // question somebody would actually ask.
 func (s *Server) tools() []Tool {
-	return []Tool{
+	out := []Tool{
 		{
 			Name:        "list_analysis_domains",
 			Title:       "Kullanılabilir rubrikleri listele",
@@ -110,6 +110,13 @@ func (s *Server) tools() []Tool {
 			},
 		},
 	}
+
+	// Appended rather than declared inline so a deployment without a knowledge
+	// base advertises exactly the four analysis tools, unchanged.
+	if s.wiki != nil {
+		out = append(out, wikiTools()...)
+	}
+	return out
 }
 
 // call dispatches one tool invocation.
@@ -129,6 +136,18 @@ func (s *Server) call(ctx context.Context, userID, name string, args json.RawMes
 		return s.getReport(ctx, userID, args)
 	case "list_reports":
 		return s.listReports(ctx, userID, args)
+	case "search_wiki", "ask_wiki":
+		// Guarded rather than assumed reachable. These names are only ever
+		// advertised when a knowledge base is wired, but a client may call a
+		// tool it remembers from an earlier session, and the honest answer is a
+		// message rather than a nil dereference.
+		if s.wiki == nil {
+			return errorResult("bu dağıtımda bilgi tabanı yapılandırılmamış")
+		}
+		if name == "search_wiki" {
+			return s.searchWiki(ctx, args)
+		}
+		return s.askWiki(ctx, args)
 	default:
 		return errorResult(fmt.Sprintf("bilinmeyen araç: %q", name))
 	}

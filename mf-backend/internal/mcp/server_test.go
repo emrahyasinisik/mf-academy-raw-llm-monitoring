@@ -40,7 +40,7 @@ func (f *fakeAnalyzer) Reports(context.Context, string, string, int) (analysis.L
 }
 
 func newTestServer(a Analyzer) http.Handler {
-	s := NewServer(a, "test", "0.0.1")
+	s := NewServer(a, nil, "test", "0.0.1")
 	// Claims are injected directly: RequireAuth is the router's job and is
 	// tested where it lives.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +279,7 @@ func TestRepairedReportCarriesAWarning(t *testing.T) {
 }
 
 func TestUnauthenticatedRequestIsRejected(t *testing.T) {
-	s := NewServer(&fakeAnalyzer{}, "test", "0.0.1")
+	s := NewServer(&fakeAnalyzer{}, nil, "test", "0.0.1")
 	req := httptest.NewRequest(http.MethodPost, "/mcp",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
 	rec := httptest.NewRecorder()

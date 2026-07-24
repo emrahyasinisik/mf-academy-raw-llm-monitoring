@@ -135,7 +135,7 @@ func main() {
 	// does rather than a parallel implementation: an MCP client and a browser
 	// must get identical reports from identical input, and two implementations
 	// would drift on the first change to the prompt, parser or scoring.
-	mcpServer := mcp.NewServer(analysisHandler, cfg.AppName, cfg.AppVersion)
+	mcpServer := mcp.NewServer(analysisHandler, wikiHandler, cfg.AppName, cfg.AppVersion)
 
 	cfgHandler := config.NewHandler(cfg)
 
