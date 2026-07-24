@@ -22,6 +22,7 @@ import (
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/mcp"
 	"github.com/emrah/mf-backend/internal/settings"
+	"github.com/emrah/mf-backend/internal/wiki"
 	"github.com/emrah/mf-backend/migrations"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -124,6 +125,12 @@ func main() {
 	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
+	// DeepKwiki: the searchable knowledge base and the grounded answers over it.
+	// Shares the provider and the settings with the analysis engine so both
+	// features follow the operator's model choice rather than each holding an
+	// opinion about which model to use.
+	wikiHandler := wiki.NewHandler(wiki.NewStore(pool), llmProvider, settingsStore)
+
 	// The analysis engine's second caller. It runs the same code the HTTP path
 	// does rather than a parallel implementation: an MCP client and a browser
 	// must get identical reports from identical input, and two implementations
@@ -220,6 +227,11 @@ func main() {
 	// Likewise: reads are short, one analysis waits on the GPU, and a trial
 	// waits on it repeatedly. See analysis.Handler.Routes for the three bounds.
 	r.Mount("/analysis", analysisHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// Same reason as analysis: /wiki/ask waits on the GPU, /wiki/search does
+	// not, so the router picks its own bounds per route rather than inheriting
+	// one that would have to be wrong for one of them.
+	r.Mount("/wiki", wikiHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
 
 	// Model Context Protocol. Outside the short-bound group for the same reason
 	// as the two above: a tools/call can run an analysis and wait on the GPU.
