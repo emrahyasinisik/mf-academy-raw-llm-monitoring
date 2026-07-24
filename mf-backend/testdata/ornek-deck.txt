@@ -1,0 +1,54 @@
+FiloTakip — Küçük filolar için yakıt israfı önleme
+
+PROBLEM
+Türkiye'de 5-50 araçlık filoya sahip yaklaşık 180.000 KOBİ var. Bu işletmelerin
+akaryakıt gideri toplam işletme maliyetinin %38'ini oluşturuyor. Yaptığımız 42
+saha görüşmesinde, filo sahiplerinin 38'i yakıt kaçağını "biliyorum ama
+ispatlayamıyorum" diye tanımladı. Mevcut çözümler ya kurumsal filo yazılımları
+(araç başına aylık 400 TL, 100 araç altına satılmıyor) ya da sadece konum
+gösteren ucuz GPS takipçileri.
+
+ÇÖZÜM
+Araca takılan OBD-II cihazı ile yakıt tüketimini motor verisinden okuyoruz ve
+akaryakıt fişleriyle otomatik eşleştiriyoruz. Fark %8'i geçtiğinde işletme
+sahibine bildirim gidiyor. Kurulum sürücü müdahalesi gerektirmiyor, cihaz
+takılınca çalışıyor.
+
+Rakip GPS ürünleri depo seviyesi sensörüne dayanıyor; bu sensör araç başına
+2.400 TL ek donanım ve yarım günlük montaj demek. Biz motorun kendi tükettiği
+yakıt verisini kullandığımız için ek donanım yok. Bu yaklaşımın patent
+başvurusunu Mart 2026'da yaptık, başvuru numarası 2026/003812.
+
+ÇEKİŞ
+- Ocak 2026'da 3 pilot müşteri, 47 araç
+- Temmuz 2026 itibarıyla 28 ödeyen müşteri, 611 araç
+- Aylık yinelenen gelir: 214.000 TL
+- Son 6 ayda aylık ortalama büyüme: %31
+- Aylık müşteri kaybı: %2,1
+- Pilot müşterilerin 3'ü de hâlâ müşterimiz, araç sayılarını 47'den 156'ya
+  çıkardılar
+
+İŞ MODELİ
+Araç başına aylık 95 TL abonelik. Cihaz maliyeti 780 TL, ücretsiz veriyoruz ve
+24 ayda amorti ediyoruz. Brüt marj cihaz amortismanı sonrası %61.
+Müşteri edinme maliyeti 3.900 TL, ortalama müşteri ömrü 26 ay, müşteri yaşam
+boyu değeri 21.400 TL. Geri ödeme süresi 4,2 ay.
+
+EKİP
+Mert Arıkan (CEO) — 9 yıl Ford Otosan filo operasyonları, son 3 yıl 1.200
+araçlık filonun operasyon müdürü. Problemi bizzat yaşadı.
+Deniz Yalçın (CTO) — 11 yıl gömülü sistem, 2 yıl OBD protokolleri üzerine
+çalıştı, önceki girişimi 2023'te satıldı.
+İkisi de tam zamanlı. 2019'dan beri tanışıyorlar, önceki bir projede birlikte
+çalıştılar.
+4 kişilik teknik ekip, 2 kişilik saha satış ekibi.
+
+PAZAR
+Türkiye'de 5-50 araçlık filo sahibi 180.000 KOBİ, toplam yaklaşık 2,1 milyon
+araç. Araç başına yıllık 1.140 TL abonelik ile ulaşılabilir pazar 2,4 milyar TL.
+İlk 3 yılda hedeflediğimiz pazar payı %4, yani yaklaşık 96 milyon TL yıllık
+gelir. Rakam TÜİK 2025 ticari araç kayıt verisi ve TOBB filo büyüklüğü
+dağılımından hesaplandı.
+
+Sonraki aşamada Balkanlar ve Kuzey Afrika'ya açılmayı planlıyoruz; bu pazarlarda
+benzer araç yaşı ve benzer yakıt maliyeti oranı var.
