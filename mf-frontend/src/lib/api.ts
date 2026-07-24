@@ -20,6 +20,9 @@ import type {
   MCPServer,
   AdminOverview,
   AdminLogEntry,
+  WikiDocument,
+  WikiHit,
+  WikiAnswer,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -210,6 +213,40 @@ export const api = {
     return request<AssessmentList>(`/analysis?${params}`);
   },
   analysisGet: (id: string) => request<Assessment>(`/analysis/${id}`),
+
+  // ---- DeepKwiki ----
+  //
+  // wikiSearch is a database query and returns in milliseconds. wikiAsk waits
+  // on the same GPU the analysis does — so the two are never called together
+  // behind one spinner, and search results are shown as soon as they arrive
+  // rather than held back until the answer is ready.
+  wikiSearch: (q: string, limit = 8) =>
+    request<{ query: string; hits: WikiHit[]; count: number }>(
+      `/wiki/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  wikiAsk: (query: string) =>
+    request<WikiAnswer>("/wiki/ask", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    }),
+  wikiDocuments: () =>
+    request<{ documents: WikiDocument[]; count: number }>("/wiki/documents"),
+  wikiDocument: (slug: string) => request<WikiDocument>(`/wiki/documents/${slug}`),
+  // Admin-only; a non-admin gets 403 and the view says so rather than hiding
+  // the control with no explanation.
+  wikiIngest: (payload: {
+    slug: string;
+    title: string;
+    body: string;
+    source_url?: string;
+    tags?: string[];
+  }) =>
+    request<WikiDocument>("/wiki/documents", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  wikiDelete: (slug: string) =>
+    request<void>(`/wiki/documents/${slug}`, { method: "DELETE" }),
 
   // Which MCP servers this browser is allowed to connect to. Answered by the
   // server rather than bundled, so switching one off actually switches it off.

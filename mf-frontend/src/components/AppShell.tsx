@@ -12,10 +12,12 @@ import { PlaygroundView } from "./views/PlaygroundView";
 import { DashboardView } from "./views/DashboardView";
 import { ScoringView } from "./views/ScoringView";
 import { AnalysisView } from "./views/AnalysisView";
+import { WikiView } from "./views/WikiView";
 import { AdminView } from "./views/AdminView";
 
 export type MasterView =
   | "analysis"
+  | "wiki"
   | "playground"
   | "dashboard"
   | "scoring"
@@ -27,6 +29,10 @@ export type MasterView =
 // which is friendlier than a nav item that vanishes with no explanation.
 const NAV: { id: MasterView; label: string; icon: string }[] = [
   { id: "analysis", label: "Analiz", icon: "◈" },
+  // Second, next to the product it supports: a report is judged against a
+  // rubric, and the knowledge base is where the reasoning behind that rubric
+  // is written down and can be checked.
+  { id: "wiki", label: "DeepKwiki", icon: "▣" },
   { id: "playground", label: "LLM Playground", icon: "◑" },
   { id: "dashboard", label: "Monitoring", icon: "▤" },
   { id: "scoring", label: "Decision Scoring", icon: "◆" },
@@ -150,6 +156,7 @@ export function AppShell() {
 
       <main className="flex-1 min-h-0">
         {view === "analysis" && <AnalysisView />}
+        {view === "wiki" && <WikiView sub={sub} onSub={goSub} />}
         {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
         {view === "playground" && <PlaygroundView sub={sub} onSub={goSub} />}
         {view === "dashboard" && <DashboardView sub={sub} onSub={goSub} />}

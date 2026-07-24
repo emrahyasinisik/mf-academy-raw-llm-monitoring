@@ -308,3 +308,62 @@ export interface AdminLogEntry {
   grade: string;
   created_at: string;
 }
+
+// ---- DeepKwiki ----
+
+export interface WikiDocument {
+  id: string;
+  slug: string;
+  title: string;
+  source_url: string;
+  tags: string[];
+  chunks: number;
+  /** Only present when a single document is fetched; the listing omits it. */
+  body?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * How a passage was found. The three differ enough in precision that the UI
+ * labels them: "all" means every query term is in the passage, "fuzzy" means it
+ * merely resembles the query and may be irrelevant.
+ */
+export type WikiMatch = "all" | "any" | "fuzzy";
+
+export interface WikiHit {
+  document_slug: string;
+  title: string;
+  source_url: string;
+  ordinal: number;
+  heading: string;
+  /** Verbatim. This is what a claim is checked against. */
+  body: string;
+  /** The same passage with matches wrapped in « », for display only. */
+  snippet: string;
+  rank: number;
+  matched: WikiMatch;
+}
+
+export interface WikiSource {
+  n: number;
+  document_slug: string;
+  title: string;
+  source_url: string;
+  heading: string;
+  body: string;
+  /** Whether the answer actually referred to this passage. */
+  cited: boolean;
+}
+
+export interface WikiAnswer {
+  query: string;
+  text: string;
+  sources: WikiSource[];
+  /** False when the answer cited nothing supplied — must not be shown as a result. */
+  grounded: boolean;
+  /** True when the corpus does not cover the question. Not a failure. */
+  no_results: boolean;
+  model: string;
+  latency_ms: number;
+}

@@ -18,7 +18,13 @@
 // this way so the surface exists and is testable the day an implementation
 // arrives, without holding the product hostage to a proposal.
 
-import type { AnalysisDomain, Assessment, MCPServer } from "./types";
+import type {
+  AnalysisDomain,
+  Assessment,
+  MCPServer,
+  WikiAnswer,
+  WikiMatch,
+} from "./types";
 
 const ACCESS_KEY = "mf_access";
 
@@ -191,6 +197,37 @@ export class McpClient {
 
   getReport(id: string): Promise<Assessment> {
     return this.callTool("get_report", { id });
+  }
+
+  // ---- DeepKwiki ----
+  //
+  // The passage shape here is the tool's, not the REST endpoint's: the tool
+  // drops the highlighted snippet (its « » markers are display markup that a
+  // model must never see) and renames document_slug to document. Typed as what
+  // actually arrives rather than coerced into WikiHit, so the difference is
+  // visible at the call site instead of surfacing as an undefined field.
+  searchWiki(
+    query: string,
+    limit = 8,
+  ): Promise<{
+    query: string;
+    count: number;
+    passages: {
+      document: string;
+      title: string;
+      heading: string;
+      ordinal: number;
+      body: string;
+      rank: number;
+      matched: WikiMatch;
+    }[];
+    note?: string;
+  }> {
+    return this.callTool("search_wiki", { query, limit });
+  }
+
+  askWiki(query: string): Promise<WikiAnswer> {
+    return this.callTool("ask_wiki", { query });
   }
 }
 
