@@ -41,7 +41,17 @@ type Completion struct {
 	PromptTokens     int
 	CompletionTokens int
 	LatencyMs        int
+	// Truncated reports that generation stopped at the token limit rather than
+	// because the model was finished. Callers that parse structured output must
+	// check it: a cut-off answer is indistinguishable from a malformed one by
+	// inspection, and blaming the model for a budget we set is how a bad
+	// baseline gets recorded as fact.
+	Truncated bool
 }
+
+// finishLength is the OpenAI-dialect finish_reason meaning the token limit was
+// reached. mlc_llm serve speaks the same dialect.
+const finishLength = "length"
 
 // OpenAIProvider calls an OpenAI-compatible /v1/chat/completions endpoint.
 type OpenAIProvider struct {
@@ -110,6 +120,12 @@ type chatRequest struct {
 type chatResponse struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
+		// FinishReason is "stop" when the model ended on its own and "length"
+		// when it hit the token limit. Decoded because the difference is not
+		// otherwise visible: a truncated answer is a well-formed HTTP 200 whose
+		// body simply stops, and a caller parsing it sees malformed content
+		// with no way to tell whether the model or the limit was at fault.
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
@@ -135,8 +151,23 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: req.Prompt})
 
+	// Three cases, distinguished deliberately. Collapsing them into one clamp
+	// cost a whole measurement run: the analysis path computes the budget its
+	// rubric needs, that number was silently reduced to the chat default, every
+	// answer stopped mid-JSON, and the conclusion drawn was "the model cannot
+	// hold the schema" when the truth was "we cut it off".
 	maxTokens := req.MaxTokens
-	if maxTokens <= 0 || maxTokens > p.maxTokens {
+	switch {
+	case maxTokens <= 0:
+		// No opinion from the caller: a modest default, since most callers are
+		// conversational and a long answer costs GPU time nobody asked for.
+		maxTokens = defaultMaxTokens
+	case maxTokens > p.maxTokens:
+		// A real ceiling, so a caller cannot occupy the card indefinitely — but
+		// never again silently. Anything that asked for more than it got has to
+		// be able to find out why from the logs.
+		slog.Warn("requested max_tokens exceeds the configured ceiling; clamping",
+			"requested", maxTokens, "ceiling", p.maxTokens, "model", req.Model)
 		maxTokens = p.maxTokens
 	}
 
@@ -207,11 +238,22 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 		return Completion{}, common.ErrUpstreamFailed("inference host returned no choices")
 	}
 
+	finish := parsed.Choices[0].FinishReason
+	if finish == finishLength {
+		// Worth a log line of its own: a truncated answer is a 200 whose body
+		// merely stops, so without this the only symptom is a downstream parse
+		// failure that looks like the model's fault rather than the budget's.
+		slog.Warn("inference answer was cut off by the token limit",
+			"model", req.Model, "max_tokens", maxTokens,
+			"completion_tokens", parsed.Usage.CompletionTokens)
+	}
+
 	return Completion{
 		Content:          parsed.Choices[0].Message.Content,
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		LatencyMs:        latencyMs,
+		Truncated:        finish == finishLength,
 	}, nil
 }
 

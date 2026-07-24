@@ -40,12 +40,31 @@ services:
       # replica up first, let it answer a request, and scale out after. Starting
       # several against an empty cache has them all compiling at once.
       - model-cache:/cache
+      # Locally built models: the output of the PEFT pipeline lands here, so a
+      # merged-and-quantised adapter build can be served without being published
+      # to Hugging Face first.
+      #
+      # A bind mount rather than a named volume, deliberately. The build runs
+      # outside the container (merge needs transformers, which this image does
+      # not carry) and the result has to be visible to both sides; a named
+      # volume would be reachable only from inside Docker, which is where the
+      # build is not.
+      #
+      # Read-only: the server has no business writing to a build artefact, and
+      # the one thing it does write on a cold start — compiled kernels — belongs
+      # in the cache volume above, which is writable.
+      - ./models:/models:ro
     command:
       # No console-script entry point ships in the wheel; must run as a module.
       - python3
       - -m
       - mlc_llm
       - serve
+      # An HF:// id downloads and caches; a /models/... path serves a build the
+      # PEFT pipeline produced. Switching between them is what "activating an
+      # adapter" does at the container level — see the panel's activate button,
+      # which changes the model id the backend asks for, and this variable,
+      # which changes what is actually loaded.
       - ${MLC_MODEL:-HF://mlc-ai/gemma-2-2b-it-q4f16_1-MLC}
       - --device
       - cuda
@@ -66,11 +85,59 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # The hot-swap runtime, alongside mlc rather than instead of it.
+  #
+  # Both engines are here on purpose, because they are good at opposite things:
+  #
+  #   mlc       compiles the model ahead of time. That is what makes it fast,
+  #             and it is exactly why it has no runtime LoRA slot — the kernels
+  #             are generated before the adapter exists. Serving a tuned model
+  #             means merging the adapter and recompiling.
+  #
+  #   llamacpp  keeps adapters as separate tensors and adds their contribution
+  #             during inference, so the active adapter is a number that can be
+  #             changed on a running process. Slower per token; swappable.
+  #
+  # So: mlc serves the production path, llamacpp serves the path where an
+  # operator is comparing adapters and needs the answer to change now. Deleting
+  # either one loses a requirement.
+  #
+  # Both reserve the same card. A 2B Q4 is ~1.7 GB here and ~1.5 GB in mlc, and
+  # with the KV caches the pair fits in 6 GB — but only just, and only because
+  # both are kept small. Scaling mlc past 2 replicas while this is up will run
+  # the card out of memory.
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    # on-failure rather than unless-stopped: the entrypoint exits non-zero with
+    # instructions when the base GGUF has not been built yet, and a permanently
+    # restarting container would bury that message under its own restarts.
+    restart: on-failure:3
+    expose:
+      - "8000"
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    environment:
+      LLAMA_MODEL: /models/gguf/base.gguf
+      LLAMA_ADAPTER_DIR: /models/gguf/adapters
+      LLAMA_ALIAS: ${LLAMA_ALIAS:-gemma-2-2b-it-gguf}
+    volumes:
+      - ./llamacpp/entrypoint.sh:/entrypoint.sh:ro
+      # Same bind mount as mlc, same reasoning: the PEFT pipeline writes here
+      # from outside Docker and the server has no business writing back.
+      - ./models:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   gateway:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       - mlc
+      - llamacpp
     environment:
       # The shared secret the Go backend must send as X-API-Key.
       LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY must be set — see .env.example}

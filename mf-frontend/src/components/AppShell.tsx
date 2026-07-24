@@ -11,13 +11,32 @@ import { AuthView } from "./views/AuthView";
 import { PlaygroundView } from "./views/PlaygroundView";
 import { DashboardView } from "./views/DashboardView";
 import { ScoringView } from "./views/ScoringView";
+import { AnalysisView } from "./views/AnalysisView";
+import { WikiView } from "./views/WikiView";
+import { AdminView } from "./views/AdminView";
 
-export type MasterView = "playground" | "dashboard" | "scoring";
+export type MasterView =
+  | "analysis"
+  | "wiki"
+  | "playground"
+  | "dashboard"
+  | "scoring"
+  | "admin";
 
+// Analysis leads because it is the product; the three below it are the
+// infrastructure that produced it and remain useful for operating the system.
+// Admin is listed for everyone: the view itself explains the role requirement,
+// which is friendlier than a nav item that vanishes with no explanation.
 const NAV: { id: MasterView; label: string; icon: string }[] = [
+  { id: "analysis", label: "Analiz", icon: "◈" },
+  // Second, next to the product it supports: a report is judged against a
+  // rubric, and the knowledge base is where the reasoning behind that rubric
+  // is written down and can be checked.
+  { id: "wiki", label: "DeepKwiki", icon: "▣" },
   { id: "playground", label: "LLM Playground", icon: "◑" },
   { id: "dashboard", label: "Monitoring", icon: "▤" },
   { id: "scoring", label: "Decision Scoring", icon: "◆" },
+  { id: "admin", label: "Yönetim", icon: "⚙" },
 ];
 
 const isMaster = (v: string): v is MasterView => NAV.some((n) => n.id === v);
@@ -35,7 +54,7 @@ function parseHash(): { view: MasterView; sub: string } | null {
 // the server and the client agree on the first paint.
 function initialRoute(): { view: MasterView; sub: string } {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? { view: "playground", sub: "" };
+  return parsed ?? { view: "analysis", sub: "" };
 }
 
 export function AppShell() {
@@ -136,6 +155,9 @@ export function AppShell() {
       </header>
 
       <main className="flex-1 min-h-0">
+        {view === "analysis" && <AnalysisView />}
+        {view === "wiki" && <WikiView sub={sub} onSub={goSub} />}
+        {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
         {view === "playground" && <PlaygroundView sub={sub} onSub={goSub} />}
         {view === "dashboard" && <DashboardView sub={sub} onSub={goSub} />}
         {view === "scoring" && <ScoringView sub={sub} onSub={goSub} />}

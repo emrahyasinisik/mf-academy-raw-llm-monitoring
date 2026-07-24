@@ -11,6 +11,19 @@ import type {
   CreateRunPayload,
   GenerateRunPayload,
   Score,
+  AnalysisDomain,
+  Assessment,
+  AssessmentList,
+  LLMSettings,
+  ModelChoice,
+  Adapter,
+  MCPServer,
+  AdminOverview,
+  AdminLogEntry,
+  WikiDocument,
+  WikiHit,
+  WikiAnswer,
+  ActivationResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -175,4 +188,125 @@ export const api = {
   scoreRun: (id: string) =>
     request<Score>(`/llm/runs/${id}/score`, { method: "POST" }),
   metrics: () => request<Metrics>("/llm/metrics"),
+
+  // ---- analysis (the product) ----
+  //
+  // analysisRun is slow by design: it waits on a GPU across a tunnel and can
+  // take a minute. Callers must show progress rather than a spinner that looks
+  // stuck, and must not retry on timeout — a retry doubles the queue on a card
+  // that serves one request at a time.
+  analysisDomains: () =>
+    request<{ domains: AnalysisDomain[]; count: number }>("/analysis/domains"),
+  analysisRun: (payload: {
+    domain: string;
+    subject: string;
+    subject_title?: string;
+    model?: string;
+  }) =>
+    request<Assessment>("/analysis/run", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  analysisList: (limit = 20, domain = "", before?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (domain) params.set("domain", domain);
+    if (before) params.set("before", before);
+    return request<AssessmentList>(`/analysis?${params}`);
+  },
+  analysisGet: (id: string) => request<Assessment>(`/analysis/${id}`),
+
+  // ---- DeepKwiki ----
+  //
+  // wikiSearch is a database query and returns in milliseconds. wikiAsk waits
+  // on the same GPU the analysis does — so the two are never called together
+  // behind one spinner, and search results are shown as soon as they arrive
+  // rather than held back until the answer is ready.
+  wikiSearch: (q: string, limit = 8) =>
+    request<{ query: string; hits: WikiHit[]; count: number }>(
+      `/wiki/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  wikiAsk: (query: string) =>
+    request<WikiAnswer>("/wiki/ask", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    }),
+  wikiDocuments: () =>
+    request<{ documents: WikiDocument[]; count: number }>("/wiki/documents"),
+  wikiDocument: (slug: string) => request<WikiDocument>(`/wiki/documents/${slug}`),
+  // Admin-only; a non-admin gets 403 and the view says so rather than hiding
+  // the control with no explanation.
+  wikiIngest: (payload: {
+    slug: string;
+    title: string;
+    body: string;
+    source_url?: string;
+    tags?: string[];
+  }) =>
+    request<WikiDocument>("/wiki/documents", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  wikiDelete: (slug: string) =>
+    request<void>(`/wiki/documents/${slug}`, { method: "DELETE" }),
+
+  // Which MCP servers this browser is allowed to connect to. Answered by the
+  // server rather than bundled, so switching one off actually switches it off.
+  mcpServers: () =>
+    request<{ servers: MCPServer[]; count: number }>("/mcp-servers"),
+
+  // ---- admin (403 for anyone without the role) ----
+  admin: {
+    overview: () => request<AdminOverview>("/admin/overview"),
+    logs: (limit = 50, target = "") => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (target) params.set("target", target);
+      return request<{ entries: AdminLogEntry[]; has_more: boolean }>(
+        `/admin/logs?${params}`,
+      );
+    },
+    settings: () => request<LLMSettings>("/admin/settings"),
+    // Partial by design: the panel has separate forms over one row, and saving
+    // one must not clobber the other with whatever the browser last rendered.
+    updateSettings: (patch: Partial<Omit<LLMSettings, "updated_at">>) =>
+      request<LLMSettings>("/admin/settings", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    models: () =>
+      request<{
+        models: ModelChoice[];
+        selected: {
+          default_model: string;
+          active_adapter_id: string | null;
+          active_adapter_name: string;
+          effective: string;
+        };
+      }>("/admin/models"),
+    adapters: () =>
+      request<{ adapters: Adapter[]; count: number }>("/admin/adapters"),
+    // Returns the swap outcome, not just the settings: whether a running
+    // engine actually changed adapter, and how long it took. The panel shows
+    // both because a settings write that took effect and a swap that did not
+    // is a real, reachable state.
+    activateAdapter: (id: string) =>
+      request<ActivationResult>(`/admin/adapters/${id}/activate`, { method: "POST" }),
+    deactivateAdapter: () =>
+      request<ActivationResult>("/admin/adapters/deactivate", { method: "POST" }),
+    mcpServers: () =>
+      request<{ servers: MCPServer[]; count: number }>("/admin/mcp-servers"),
+    createMcpServer: (payload: Partial<MCPServer>) =>
+      request<MCPServer>("/admin/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateMcpServer: (id: string, patch: Partial<MCPServer>) =>
+      request<MCPServer>(`/admin/mcp-servers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    deleteMcpServer: (id: string) =>
+      request<{ status: string }>(`/admin/mcp-servers/${id}`, {
+        method: "DELETE",
+      }),
+  },
 };

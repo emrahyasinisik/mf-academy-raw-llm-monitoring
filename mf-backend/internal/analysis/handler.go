@@ -108,6 +108,41 @@ func (h *Handler) Domains(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, map[string]any{"domains": items, "count": len(items)})
 }
 
+// Prompt returns the exact instruction a domain generates.
+// GET /analysis/domains/{slug}/prompt
+//
+// Exists for the fine-tuning pipeline, and it is not a convenience. A LoRA
+// adapter learns to satisfy one specific prompt; if the trainer reproduces that
+// prompt from its own copy of the template, the two drift the first time either
+// is edited, and the adapter is then tuned for an instruction nothing sends.
+// The failure is silent — training completes, the loss looks fine, and the
+// model is simply worse at the job than the base it replaced.
+//
+// Serving it from the same function the inference path calls makes drift
+// impossible rather than merely unlikely.
+func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
+	domain, err := h.store.GetDomain(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, ErrNoRows) {
+		common.Error(w, common.ErrNotFound("no such analysis domain"))
+		return
+	}
+	if err != nil {
+		common.Error(w, common.ErrInternal("could not load the rubric"))
+		return
+	}
+	common.JSON(w, http.StatusOK, map[string]any{
+		"domain":        domain.Slug,
+		"version":       domain.Version,
+		"system_prompt": SystemPrompt(domain),
+		// The user-message template, with a placeholder where the case goes.
+		// Returned alongside because the trainer has to reproduce both halves,
+		// and the quote neutralisation in particular is invisible from outside.
+		"user_prompt_example": UserPrompt("{{title}}", "{{subject}}"),
+		"criteria":            domain.Criteria,
+		"temperature":         analysisTemperature,
+	})
+}
+
 // Analyze produces one report. POST /analysis/run
 func (h *Handler) Analyze(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())
@@ -230,6 +265,47 @@ func (h *Handler) Trial(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, result)
 }
 
+// ---- service surface ----
+//
+// The methods below are the same work the HTTP handlers do, minus the request
+// and response plumbing. They exist because the analysis engine now has a
+// second caller — the MCP server — and that caller is not a browser.
+//
+// Deliberately thin wrappers rather than a duplicated pipeline. An MCP client
+// and a browser must get identical reports from identical input, and the only
+// way to be sure of that is for both to run the same code. A second
+// implementation would drift on the first change to the prompt, the parser or
+// the scoring, and the drift would show up as two customers disagreeing about
+// what the same case scored.
+
+// ExecuteAnalysis validates, runs and stores one analysis.
+func (h *Handler) ExecuteAnalysis(
+	ctx context.Context, userID string, req AnalyzeRequest,
+) (Assessment, error) {
+	domain, apiErr := h.prepare(ctx, &req)
+	if apiErr != nil {
+		return Assessment{}, apiErr
+	}
+	return h.runOne(ctx, userID, domain, req, nil)
+}
+
+// Catalogue returns the rubrics on offer.
+func (h *Handler) Catalogue(ctx context.Context) ([]Domain, error) {
+	return h.store.ListDomains(ctx)
+}
+
+// Report returns one stored report, scoped to its owner.
+func (h *Handler) Report(ctx context.Context, userID, id string) (Assessment, error) {
+	return h.store.GetAssessment(ctx, userID, id)
+}
+
+// Reports returns a page of the user's reports.
+func (h *Handler) Reports(
+	ctx context.Context, userID, domainSlug string, limit int,
+) (ListResult, error) {
+	return h.store.ListAssessments(ctx, userID, domainSlug, limit, time.Time{})
+}
+
 // prepare validates a request and resolves its rubric.
 func (h *Handler) prepare(ctx context.Context, req *AnalyzeRequest) (Domain, *common.APIError) {
 	if h.gen == nil || !h.gen.Configured() {
@@ -273,11 +349,18 @@ func (h *Handler) runOne(
 		return Assessment{}, common.ErrInternal("could not read settings")
 	}
 
-	// Precedence: an explicitly named model wins, then the active adapter's
-	// build, then the deployment default. The explicit case is what makes a
-	// base-model-versus-adapter comparison possible without an operator having
-	// to flip the global setting between runs.
+	// Precedence, most specific first: the request, then the operator's explicit
+	// choice, then the active adapter's build, then the compiled default.
+	//
+	// The request wins so a base-versus-adapter comparison can run without an
+	// operator flipping a global setting between the two halves — compare.py
+	// depends on that. The operator's explicit choice sits *above* the active
+	// adapter so the untuned base can be served deliberately while a tuned build
+	// exists, which is the normal state during an evaluation.
 	model := req.Model
+	if model == "" {
+		model = cfg.DefaultModel
+	}
 	if model == "" {
 		model = cfg.ActiveModelID
 	}
@@ -305,8 +388,22 @@ func (h *Handler) runOne(
 		// The generation cost real GPU time, so the failure is recorded rather
 		// than discarded: a stored row with schema_valid=false and the raw
 		// response is exactly the evidence needed to justify fine-tuning.
+		//
+		// Truncation is called out separately because it is not the model's
+		// failure and must never be counted as one. A run cut off by the budget
+		// says nothing about whether the model can hold the schema, and folding
+		// the two together produces a baseline that argues for fine-tuning a
+		// problem fine-tuning would not fix.
 		slog.Warn("model output did not parse",
-			"domain", domain.Slug, "model", model, "error", parseErr)
+			"domain", domain.Slug, "model", model,
+			"truncated", completion.Truncated, "error", parseErr)
+	}
+	if completion.Truncated {
+		slog.Warn("answer hit the token budget; this run does not measure the model",
+			"domain", domain.Slug, "criteria", len(domain.Criteria),
+			"completion_tokens", completion.CompletionTokens)
+		parsed.Problems = append(parsed.Problems, "answer was truncated by the token budget")
+		parsed.SchemaValid = false
 	}
 	if len(parsed.Problems) > 0 {
 		slog.Info("schema problems", "domain", domain.Slug, "model", model,
@@ -469,22 +566,28 @@ func summarise(group string, items []Assessment) TrialResult {
 // independent, and the failure when they disagree is silent and badly
 // misleading.
 //
-// A finding costs roughly 100 output tokens — the key and scaffolding, a quote
-// or two of verbatim evidence, and a sentence of rationale. Nine criteria is
-// therefore ~900 tokens, well past the 512 that is a sensible default for
-// chat. Generation stops at the limit mid-object, the JSON never closes, every
-// report comes back schema_valid=false, and the conclusion drawn would be "the
-// base model cannot hold the schema" when the truth is "we cut it off". That
-// bogus baseline would then be the number a fine-tuning decision is made
-// against, so the mistake compounds rather than staying local.
+// Generation stops at the limit mid-object, the JSON never closes, every report
+// comes back schema_valid=false, and the conclusion drawn would be "the base
+// model cannot hold the schema" when the truth is "we cut it off". That bogus
+// baseline would then be the number a fine-tuning decision is made against, so
+// the mistake compounds rather than staying local.
+//
+// perCriterion was 110 on the first pass and that was measured wrong: with the
+// prompt now capping quotes at 200 characters, a finding still costs roughly
+// 260 output tokens — two short quotes in Turkish, a sentence of rationale, and
+// the JSON scaffolding around them. Turkish is the reason the figure is not
+// smaller; its agglutinative forms tokenise poorly under a mostly-English
+// vocabulary, so the same sentence costs noticeably more tokens than its
+// English equivalent. The estimate is deliberately generous: overshooting wastes
+// nothing, because generation stops when the model closes the object.
 //
 // Capped because the ceiling is real: these replicas share one 6 GB card in
 // `--mode local`, whose KV cache is small, and an unbounded budget buys a
 // timeout rather than a longer answer.
 func tokenBudget(criteria, configured int) int {
 	const (
-		perCriterion = 110
-		overhead     = 120
+		perCriterion = 260
+		overhead     = 200
 		ceiling      = 4096
 	)
 	need := criteria*perCriterion + overhead

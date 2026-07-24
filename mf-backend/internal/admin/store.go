@@ -27,14 +27,14 @@ func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
 const adapterColumns = `
 	id, name, base_model, status, lora_rank, lora_alpha, target_modules,
-	mlc_model_id, metrics, notes, last_error, created_by, created_at,
+	mlc_model_id, gguf_adapter, metrics, notes, last_error, created_by, created_at,
 	updated_at, activated_at`
 
 func scanAdapter(row pgx.Row) (Adapter, error) {
 	var a Adapter
 	var metrics []byte
 	err := row.Scan(&a.ID, &a.Name, &a.BaseModel, &a.Status, &a.LoRARank, &a.LoRAAlpha,
-		&a.TargetModules, &a.MLCModelID, &metrics, &a.Notes, &a.LastError,
+		&a.TargetModules, &a.MLCModelID, &a.GGUFAdapter, &metrics, &a.Notes, &a.LastError,
 		&a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.ActivatedAt)
 	if err != nil {
 		return Adapter{}, err
@@ -124,15 +124,20 @@ func (s *Store) UpdateStatus(ctx context.Context, id string, req UpdateStatusReq
 	}
 
 	a, err := scanAdapter(tx.QueryRow(ctx,
+		// Both artefact columns follow the same "only if non-empty" rule: the two
+		// build scripts run independently and each reports only what it produced,
+		// so a gguf publish must not blank out the compiled model id that a
+		// previous mlc build recorded, or vice versa.
 		`UPDATE llm_adapters SET
 		     status       = $2,
 		     mlc_model_id = CASE WHEN $3::text <> '' THEN $3 ELSE mlc_model_id END,
+		     gguf_adapter = CASE WHEN $6::text <> '' THEN $6 ELSE gguf_adapter END,
 		     metrics      = CASE WHEN $4::jsonb IS NOT NULL THEN metrics || $4::jsonb ELSE metrics END,
 		     last_error   = CASE WHEN $2 = 'failed' THEN $5 ELSE '' END,
 		     updated_at   = now()
 		 WHERE id = $1
 		 RETURNING`+adapterColumns,
-		id, req.Status, req.MLCModelID, metrics, req.Error))
+		id, req.Status, req.MLCModelID, metrics, req.Error, req.GGUFAdapter))
 	if err != nil {
 		return Adapter{}, err
 	}

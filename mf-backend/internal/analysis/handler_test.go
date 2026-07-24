@@ -39,14 +39,14 @@ func TestTokenBudgetIsCapped(t *testing.T) {
 // roughly the first generation and reports a spread built from one sample.
 func TestTrialTimeoutCoversEveryRun(t *testing.T) {
 	gen := time.Second * 25
-	got := trialTimeout(gen)
+	got := TrialTimeout(gen)
 	if got < gen*maxTrials {
-		t.Errorf("trialTimeout(%v) = %v; too short for %d sequential runs", gen, got, maxTrials)
+		t.Errorf("TrialTimeout(%v) = %v; too short for %d sequential runs", gen, got, maxTrials)
 	}
 }
 
 func TestTrialTimeoutIsCapped(t *testing.T) {
-	if got := trialTimeout(time.Second * 600); got > time.Minute*30 {
+	if got := TrialTimeout(time.Second * 600); got > time.Minute*30 {
 		t.Errorf("trialTimeout = %v, want capping at 30m", got)
 	}
 }

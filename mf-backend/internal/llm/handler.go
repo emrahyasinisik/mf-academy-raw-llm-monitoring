@@ -49,6 +49,17 @@ func NewHandler(store RunStore, gen Generator) *Handler {
 	return &Handler{store: store, gen: gen}
 }
 
+// Catalogue returns the built-in models, for callers that need to present a
+// choice — the admin panel's model picker, which lists these alongside whatever
+// adapter builds exist. Returns a copy: the package-level slice is shared by
+// every request and a caller that sorted or filtered it in place would change
+// what everybody else sees.
+func Catalogue() []ModelInfo {
+	out := make([]ModelInfo, len(catalogue))
+	copy(out, catalogue)
+	return out
+}
+
 // catalogue is the set of models the frontend can offer, with where each one can
 // run. Gemma is the required model for this capstone; others are options.
 //

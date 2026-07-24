@@ -20,7 +20,9 @@ import (
 	"github.com/emrah/mf-backend/internal/config"
 	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
+	"github.com/emrah/mf-backend/internal/mcp"
 	"github.com/emrah/mf-backend/internal/settings"
+	"github.com/emrah/mf-backend/internal/wiki"
 	"github.com/emrah/mf-backend/migrations"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -111,8 +113,29 @@ func main() {
 	// other; see internal/settings.
 	settingsStore := settings.NewStore(pool)
 
-	adminHandler := admin.NewHandler(admin.NewStore(pool), settingsStore)
+	adminStore := admin.NewStore(pool)
+	// The live-adapter control plane. Optional in the same way the provider is:
+	// with no inference host there is nothing to swap on, the handler reports it
+	// plainly, and activation still switches the compiled model id.
+	//
+	// Given its own short timeout rather than LLMTimeout, which is sized for
+	// generation. These calls move no tokens; if one takes 25 seconds the engine
+	// is wedged, and making the operator wait that long to learn it is not help.
+	adapterRuntime := llm.NewAdapterRuntime(cfg.HotSwapURL(), cfg.LLMAPIKey, 15*time.Second)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
+
+	// DeepKwiki: the searchable knowledge base and the grounded answers over it.
+	// Shares the provider and the settings with the analysis engine so both
+	// features follow the operator's model choice rather than each holding an
+	// opinion about which model to use.
+	wikiHandler := wiki.NewHandler(wiki.NewStore(pool), llmProvider, settingsStore)
+
+	// The analysis engine's second caller. It runs the same code the HTTP path
+	// does rather than a parallel implementation: an MCP client and a browser
+	// must get identical reports from identical input, and two implementations
+	// would drift on the first change to the prompt, parser or scoring.
+	mcpServer := mcp.NewServer(analysisHandler, wikiHandler, cfg.AppName, cfg.AppVersion)
 
 	cfgHandler := config.NewHandler(cfg)
 
@@ -189,6 +212,12 @@ func main() {
 		// subtree's own middleware, so mounting it here — inside the short
 		// default bound — is safe: nothing in it waits on the GPU.
 		pr.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout))
+
+		// Which MCP servers this client may connect to. Outside the admin gate
+		// because an ordinary user's browser needs the answer, and deliberately
+		// a different handler from the admin listing: that one carries config
+		// blobs which can hold upstream credentials.
+		pr.With(common.RequireAuth(tokens.Verify)).Get("/mcp-servers", adminHandler.ClientServers)
 	})
 
 	// Mounted outside that group so its own routes can choose their bounds: the
@@ -198,6 +227,32 @@ func main() {
 	// Likewise: reads are short, one analysis waits on the GPU, and a trial
 	// waits on it repeatedly. See analysis.Handler.Routes for the three bounds.
 	r.Mount("/analysis", analysisHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// Same reason as analysis: /wiki/ask waits on the GPU, /wiki/search does
+	// not, so the router picks its own bounds per route rather than inheriting
+	// one that would have to be wrong for one of them.
+	r.Mount("/wiki", wikiHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// Model Context Protocol. Outside the short-bound group for the same reason
+	// as the two above: a tools/call can run an analysis and wait on the GPU.
+	r.Mount("/mcp", mcpServer.Routes(tokens.Verify, cfg.LLMTimeout))
+
+	// WriteTimeout has to clear the longest legitimate handler, and one route
+	// now runs ten generations back to back.
+	//
+	// This bit three trial runs before it was found, and the failure gives no
+	// clue: the handler completes normally and logs its result, but the
+	// connection was already cut, so the client sees an empty reply and the
+	// server logs a success. Nothing anywhere says "write deadline". Deriving
+	// the value from the route's own bound is what keeps the two from drifting
+	// apart again the next time LLM_TIMEOUT is tuned.
+	//
+	// The precise per-route bounds come from common.Timeout; this is only the
+	// coarse backstop that stops a stalled client holding a connection forever.
+	writeTimeout := 30 * time.Second
+	if longest := analysis.TrialTimeout(cfg.LLMTimeout) + time.Minute; longest > writeTimeout {
+		writeTimeout = longest
+	}
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
@@ -210,7 +265,7 @@ func main() {
 		// rather than having the connection cut from under them.
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}

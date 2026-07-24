@@ -32,6 +32,7 @@ func (h *Handler) Routes(
 		pr.Group(func(sr chi.Router) {
 			sr.Use(common.Timeout(defaultTimeout))
 			sr.Get("/domains", h.Domains)
+			sr.Get("/domains/{slug}/prompt", h.Prompt)
 			sr.Get("/", h.List)
 			sr.Get("/trials/{group}", h.TrialGroup)
 		})
@@ -41,7 +42,7 @@ func (h *Handler) Routes(
 		// maxTrials generations back to back, plus room for the database work
 		// between them. Bounded rather than unbounded so a stuck inference host
 		// cannot pin a connection for the rest of the process's life.
-		pr.With(common.Timeout(trialTimeout(genTimeout))).Post("/trial", h.Trial)
+		pr.With(common.Timeout(TrialTimeout(genTimeout))).Post("/trial", h.Trial)
 
 		// Registered last: a literal path must be matched before the wildcard,
 		// or "/trials/{group}" would be swallowed by "/{id}".
@@ -51,11 +52,20 @@ func (h *Handler) Routes(
 	return r
 }
 
-// trialTimeout scales the single-generation bound to cover a full trial run.
-func trialTimeout(gen time.Duration) time.Duration {
+// TrialTimeout scales the single-generation bound to cover a full trial run.
+//
+// Exported because cmd/server has to know it. http.Server.WriteTimeout applies
+// to the whole exchange, so a value below this cuts the connection while the
+// handler is still working — the caller then sees an empty reply with no error
+// logged anywhere, because on the server's side nothing failed. Three trial
+// runs were lost to exactly that before the two numbers were reconciled.
+func TrialTimeout(gen time.Duration) time.Duration {
 	// A little headroom over maxTrials × gen for the per-run database writes.
-	// Capped so a generous LLM_TIMEOUT cannot produce an hours-long deadline.
-	const ceiling = 30 * time.Minute
+	// Capped so a generous LLM_TIMEOUT cannot produce an hours-long deadline —
+	// and the cap matters more than it looks, because WriteTimeout is derived
+	// from this, and a half-hour write bound would leave a stalled client
+	// holding a connection and its database handle for a half hour.
+	const ceiling = 15 * time.Minute
 	d := gen*time.Duration(maxTrials) + time.Minute
 	if d > ceiling {
 		return ceiling

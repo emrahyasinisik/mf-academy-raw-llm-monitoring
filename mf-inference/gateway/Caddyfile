@@ -24,7 +24,42 @@
 		@unauthorized not header X-API-Key {env.LLM_API_KEY}
 		respond @unauthorized "unauthorized" 401
 
-		reverse_proxy {
+		# The hot-swap runtime, reached under /rt/*. Placed after the auth check
+		# so the adapter control plane is behind the same secret as inference —
+		# an unauthenticated POST here could switch which adapter every user is
+		# being served by, which is a larger hole than free tokens.
+		#
+		# Routed by path rather than by the request's `model` field, which would
+		# be the tidier API: Caddy matches on headers and paths, not on JSON
+		# bodies, and a body-inspection layer to save one path segment is not
+		# worth the component. handle_path strips /rt before proxying, so the
+		# upstream sees ordinary /v1/... and /lora-adapters URLs.
+		#
+		# Deliberately not load balanced. Adapter scale is per-process state:
+		# with two replicas behind this, a POST /lora-adapters would land on one
+		# of them and half of all later requests would be served by the other,
+		# still on the old adapter — an intermittent wrongness far worse than
+		# the throughput is worth.
+		handle_path /rt/* {
+			reverse_proxy llamacpp:8000 {
+				health_uri /health
+				health_interval 15s
+				health_timeout 5s
+				transport http {
+					response_header_timeout 180s
+					read_timeout 180s
+				}
+			}
+		}
+
+		# Wrapped in `handle` (not a bare reverse_proxy) so Caddy compiles it
+		# with an automatic exclusion against the handle_path block above. A
+		# bare reverse_proxy has no matcher of its own, so inside an explicit
+		# route{} every request that matched handle_path above was *also*
+		# matching this one and got proxied to mlc right after — the
+		# second, unwanted response is the one that reached the client.
+		handle {
+			reverse_proxy {
 			# Load balancer across however many mlc replicas are running.
 			#
 			# `dynamic a` rather than a plain `reverse_proxy mlc:8000`: the plain
@@ -76,6 +111,7 @@
 				response_header_timeout 180s
 				read_timeout 180s
 			}
+		}
 		}
 	}
 
