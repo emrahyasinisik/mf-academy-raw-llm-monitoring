@@ -52,7 +52,14 @@
 			}
 		}
 
-		reverse_proxy {
+		# Wrapped in `handle` (not a bare reverse_proxy) so Caddy compiles it
+		# with an automatic exclusion against the handle_path block above. A
+		# bare reverse_proxy has no matcher of its own, so inside an explicit
+		# route{} every request that matched handle_path above was *also*
+		# matching this one and got proxied to mlc right after — the
+		# second, unwanted response is the one that reached the client.
+		handle {
+			reverse_proxy {
 			# Load balancer across however many mlc replicas are running.
 			#
 			# `dynamic a` rather than a plain `reverse_proxy mlc:8000`: the plain
@@ -104,6 +111,7 @@
 				response_header_timeout 180s
 				read_timeout 180s
 			}
+		}
 		}
 	}
 
