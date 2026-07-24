@@ -57,3 +57,29 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, statements ...string
 	}
 	return nil
 }
+
+// PromoteAdmin grants the admin role to one account, identified by email.
+//
+// It reports whether a row actually changed. False covers both "already an
+// admin" and "no such account" — deliberately not distinguished, because the
+// caller logs either as "no change" and telling them apart would require a
+// second query to answer a question nothing acts on.
+//
+// The comparison is case-insensitive on both sides: email addresses are
+// case-insensitive in practice, and an operator who types Emrah@example.com
+// into a deployment variable should not silently get an unprivileged system
+// with no indication of why.
+//
+// This is the only place in the service that writes users.role. Granting admin
+// over HTTP would turn any authentication flaw into full control of the
+// inference host's settings; requiring a deployment variable and a restart
+// keeps the blast radius of such a flaw at ordinary user access.
+func PromoteAdmin(ctx context.Context, pool *pgxpool.Pool, email string) (bool, error) {
+	tag, err := pool.Exec(ctx,
+		`UPDATE users SET role = 'admin', updated_at = now()
+		  WHERE lower(email) = lower($1) AND role <> 'admin'`, email)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}

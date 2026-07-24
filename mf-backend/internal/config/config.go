@@ -53,6 +53,16 @@ type Config struct {
 	// occupy the GPU and the size of the row it writes.
 	LLMMaxTokens int
 
+	// AdminEmail names the one account promoted to the admin role at boot.
+	//
+	// Deliberately an environment variable and not an API call. Granting admin
+	// over HTTP would mean any authentication flaw, anywhere, escalates to full
+	// control of the inference host's settings; requiring a deployment variable
+	// plus a restart caps the damage of such a flaw at ordinary user access.
+	// Empty leaves every account unprivileged, which is the correct default for
+	// a fresh database.
+	AdminEmail string
+
 	// MetricsToken guards GET /metrics. The Prometheus exposition is a map of
 	// the service — every route, its traffic and its latency — so it is not
 	// something to publish. Empty leaves the endpoint open, which is right for
@@ -104,6 +114,7 @@ func Load() Config {
 		LLMTimeout:   getDuration("LLM_TIMEOUT", 25*time.Second),
 		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 512),
 
+		AdminEmail:   getEnv("ADMIN_EMAIL", ""),
 		MetricsToken: getEnv("METRICS_TOKEN", ""),
 	}
 }
