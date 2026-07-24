@@ -20,6 +20,7 @@ import (
 	"github.com/emrah/mf-backend/internal/config"
 	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
+	"github.com/emrah/mf-backend/internal/mcp"
 	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/emrah/mf-backend/migrations"
 	"github.com/go-chi/chi/v5"
@@ -114,6 +115,12 @@ func main() {
 	adminHandler := admin.NewHandler(admin.NewStore(pool), settingsStore)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
+	// The analysis engine's second caller. It runs the same code the HTTP path
+	// does rather than a parallel implementation: an MCP client and a browser
+	// must get identical reports from identical input, and two implementations
+	// would drift on the first change to the prompt, parser or scoring.
+	mcpServer := mcp.NewServer(analysisHandler, cfg.AppName, cfg.AppVersion)
+
 	cfgHandler := config.NewHandler(cfg)
 
 	// Background workers share one context so shutdown stops all of them.
@@ -198,6 +205,10 @@ func main() {
 	// Likewise: reads are short, one analysis waits on the GPU, and a trial
 	// waits on it repeatedly. See analysis.Handler.Routes for the three bounds.
 	r.Mount("/analysis", analysisHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// Model Context Protocol. Outside the short-bound group for the same reason
+	// as the two above: a tools/call can run an analysis and wait on the GPU.
+	r.Mount("/mcp", mcpServer.Routes(tokens.Verify, cfg.LLMTimeout))
 
 	// WriteTimeout has to clear the longest legitimate handler, and one route
 	// now runs ten generations back to back.

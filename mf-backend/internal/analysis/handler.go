@@ -265,6 +265,47 @@ func (h *Handler) Trial(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, result)
 }
 
+// ---- service surface ----
+//
+// The methods below are the same work the HTTP handlers do, minus the request
+// and response plumbing. They exist because the analysis engine now has a
+// second caller — the MCP server — and that caller is not a browser.
+//
+// Deliberately thin wrappers rather than a duplicated pipeline. An MCP client
+// and a browser must get identical reports from identical input, and the only
+// way to be sure of that is for both to run the same code. A second
+// implementation would drift on the first change to the prompt, the parser or
+// the scoring, and the drift would show up as two customers disagreeing about
+// what the same case scored.
+
+// ExecuteAnalysis validates, runs and stores one analysis.
+func (h *Handler) ExecuteAnalysis(
+	ctx context.Context, userID string, req AnalyzeRequest,
+) (Assessment, error) {
+	domain, apiErr := h.prepare(ctx, &req)
+	if apiErr != nil {
+		return Assessment{}, apiErr
+	}
+	return h.runOne(ctx, userID, domain, req, nil)
+}
+
+// Catalogue returns the rubrics on offer.
+func (h *Handler) Catalogue(ctx context.Context) ([]Domain, error) {
+	return h.store.ListDomains(ctx)
+}
+
+// Report returns one stored report, scoped to its owner.
+func (h *Handler) Report(ctx context.Context, userID, id string) (Assessment, error) {
+	return h.store.GetAssessment(ctx, userID, id)
+}
+
+// Reports returns a page of the user's reports.
+func (h *Handler) Reports(
+	ctx context.Context, userID, domainSlug string, limit int,
+) (ListResult, error) {
+	return h.store.ListAssessments(ctx, userID, domainSlug, limit, time.Time{})
+}
+
 // prepare validates a request and resolves its rubric.
 func (h *Handler) prepare(ctx context.Context, req *AnalyzeRequest) (Domain, *common.APIError) {
 	if h.gen == nil || !h.gen.Configured() {
