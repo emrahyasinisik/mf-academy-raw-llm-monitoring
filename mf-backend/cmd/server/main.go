@@ -113,7 +113,15 @@ func main() {
 	settingsStore := settings.NewStore(pool)
 
 	adminStore := admin.NewStore(pool)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore)
+	// The live-adapter control plane. Optional in the same way the provider is:
+	// with no inference host there is nothing to swap on, the handler reports it
+	// plainly, and activation still switches the compiled model id.
+	//
+	// Given its own short timeout rather than LLMTimeout, which is sized for
+	// generation. These calls move no tokens; if one takes 25 seconds the engine
+	// is wedged, and making the operator wait that long to learn it is not help.
+	adapterRuntime := llm.NewAdapterRuntime(cfg.HotSwapURL(), cfg.LLMAPIKey, 15*time.Second)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path

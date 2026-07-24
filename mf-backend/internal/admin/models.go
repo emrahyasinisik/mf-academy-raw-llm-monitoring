@@ -85,7 +85,12 @@ type Adapter struct {
 	LoRAAlpha     int             `json:"lora_alpha"`
 	TargetModules []string        `json:"target_modules"`
 	MLCModelID    string          `json:"mlc_model_id"`
-	Metrics       json.RawMessage `json:"metrics"`
+	// GGUFAdapter is the bare file name published to the hot-swap runtime.
+	// Independent of MLCModelID rather than an alternative to it: the same
+	// training run can produce both artefacts, and which of them exists decides
+	// whether activating this build is instant or needs a rebuild.
+	GGUFAdapter string          `json:"gguf_adapter"`
+	Metrics     json.RawMessage `json:"metrics"`
 	Notes         string          `json:"notes"`
 	LastError     string          `json:"last_error"`
 	CreatedBy     *string         `json:"created_by"`
@@ -168,10 +173,11 @@ func (r *CreateAdapterRequest) Normalize() error {
 
 // UpdateStatusRequest is what the build pipeline posts back as it progresses.
 type UpdateStatusRequest struct {
-	Status     string          `json:"status"`
-	MLCModelID string          `json:"mlc_model_id"`
-	Metrics    json.RawMessage `json:"metrics"`
-	Error      string          `json:"error"`
+	Status      string          `json:"status"`
+	MLCModelID  string          `json:"mlc_model_id"`
+	GGUFAdapter string          `json:"gguf_adapter"`
+	Metrics     json.RawMessage `json:"metrics"`
+	Error       string          `json:"error"`
 }
 
 // LogEntry is one row of the operator's log monitor: a run, with the identity

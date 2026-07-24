@@ -60,6 +60,16 @@ type Settings struct {
 	ActiveAdapterName string  `json:"active_adapter_name"`
 	ActiveModelID     string  `json:"active_model_id"`
 
+	// Runtime selects which engine serves generation: "mlc" (compiled, fast,
+	// adapter changes need a rebuild) or "hotswap" (llama.cpp, slower per
+	// token, adapter changes are instant).
+	Runtime string `json:"runtime"`
+	// ActiveGGUFAdapter is the adapter the hot-swap runtime is *meant* to be
+	// applying. Recorded because the engine forgets every scale when it
+	// restarts, so without this an activation would silently revert to the base
+	// model while the panel still showed it as active.
+	ActiveGGUFAdapter string `json:"active_gguf_adapter"`
+
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy *string   `json:"updated_by"`
 }
@@ -130,6 +140,7 @@ const selectSQL = `
 	SELECT s.system_prompt, s.temperature, s.top_p, s.max_tokens,
 	       s.default_model, s.active_adapter_id,
 	       coalesce(a.name, ''), coalesce(a.mlc_model_id, ''),
+	       s.runtime, s.active_gguf_adapter,
 	       s.updated_at, s.updated_by
 	  FROM llm_settings s
 	  LEFT JOIN llm_adapters a ON a.id = s.active_adapter_id
@@ -139,6 +150,7 @@ func scan(row pgx.Row) (Settings, error) {
 	var s Settings
 	err := row.Scan(&s.SystemPrompt, &s.Temperature, &s.TopP, &s.MaxTokens,
 		&s.DefaultModel, &s.ActiveAdapterID, &s.ActiveAdapterName, &s.ActiveModelID,
+		&s.Runtime, &s.ActiveGGUFAdapter,
 		&s.UpdatedAt, &s.UpdatedBy)
 	return s, err
 }
@@ -185,8 +197,13 @@ func (s *Store) Update(ctx context.Context, p Patch, userID string) (Settings, e
 // surfaces as ErrNotReady.
 func (s *Store) SetActiveAdapter(ctx context.Context, id *string, userID string) (Settings, error) {
 	if id == nil {
+		// active_gguf_adapter is cleared alongside the id. Leaving it set would
+		// make the restart-recovery path re-apply the adapter that was just
+		// rolled back, which is the one moment where getting this wrong is
+		// worst.
 		const q = `UPDATE llm_settings
-		              SET active_adapter_id = NULL, updated_at = now(), updated_by = $1
+		              SET active_adapter_id = NULL, active_gguf_adapter = '',
+		                  updated_at = now(), updated_by = $1
 		            WHERE id = 1`
 		if _, err := s.db.Exec(ctx, q, userID); err != nil {
 			return Settings{}, err
@@ -194,15 +211,27 @@ func (s *Store) SetActiveAdapter(ctx context.Context, id *string, userID string)
 		return s.Get(ctx)
 	}
 
+	// A build is servable once it has *either* artefact: a compiled model id for
+	// the compiled engine, or a GGUF file for the hot-swap one. The original
+	// condition required mlc_model_id, which predates the second runtime and
+	// made a GGUF-only build permanently unactivatable — it reported "has not
+	// finished building" about a build that was finished.
+	//
+	// active_gguf_adapter is copied from the adapter row in the same statement
+	// rather than passed in by the caller, so it cannot disagree with the id
+	// beside it.
 	const q = `
 		UPDATE llm_settings SET
-		    active_adapter_id = $1,
+		    active_adapter_id   = $1,
+		    active_gguf_adapter = coalesce(
+		        (SELECT gguf_adapter FROM llm_adapters WHERE id = $1), ''),
 		    updated_at = now(),
 		    updated_by = $2
 		 WHERE id = 1
 		   AND EXISTS (
 		       SELECT 1 FROM llm_adapters
-		        WHERE id = $1 AND status IN ('ready', 'active') AND mlc_model_id <> ''
+		        WHERE id = $1 AND status IN ('ready', 'active')
+		          AND (mlc_model_id <> '' OR gguf_adapter <> '')
 		   )`
 	tag, err := s.db.Exec(ctx, q, *id, userID)
 	if err != nil {

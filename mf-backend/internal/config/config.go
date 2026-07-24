@@ -44,6 +44,14 @@ type Config struct {
 	LLMBaseURL string
 	// LLMAPIKey is the shared secret the inference gateway checks.
 	LLMAPIKey string
+	// LLMHotSwapURL is the root of the runtime that can change LoRA adapters on
+	// a live server (llama.cpp's /lora-adapters). Empty disables live swapping;
+	// activation then only switches which compiled model is requested.
+	//
+	// Defaults to LLMBaseURL + "/rt", which is where the gateway routes it, so
+	// the common deployment needs no extra variable. It is still overridable
+	// because the two engines do not have to live behind the same gateway.
+	LLMHotSwapURL string
 	// LLMTimeout bounds a single generation. It is far larger than
 	// RequestTimeout and is applied only to the generation route: raising the
 	// global bound to suit the slowest endpoint would strip every other one of
@@ -106,8 +114,9 @@ func Load() Config {
 		RequestTimeout: getDuration("REQUEST_TIMEOUT", 5*time.Second),
 		BcryptCost:     getInt("BCRYPT_COST", defaultBcryptCost),
 
-		LLMBaseURL: getEnv("LLM_BASE_URL", ""),
-		LLMAPIKey:  getEnv("LLM_API_KEY", ""),
+		LLMBaseURL:    getEnv("LLM_BASE_URL", ""),
+		LLMAPIKey:     getEnv("LLM_API_KEY", ""),
+		LLMHotSwapURL: getEnv("LLM_HOTSWAP_URL", ""),
 		// Provisional. The real figure comes from measuring the inference host;
 		// it must stay below the server's WriteTimeout in cmd/server/main.go and
 		// below the gateway's proxy timeouts in mf-inference/gateway/Caddyfile.
@@ -126,6 +135,23 @@ func Load() Config {
 
 // ServerInferenceEnabled reports whether a server-side inference host is wired.
 func (c Config) ServerInferenceEnabled() bool { return c.LLMBaseURL != "" }
+
+// HotSwapURL is the effective address of the live-adapter runtime.
+//
+// Derived rather than required, because the gateway already routes /rt to it —
+// so the ordinary deployment gets hot-swap by setting nothing, and an operator
+// who has never heard of the variable still gets the feature. Returning ""
+// when there is no inference host at all keeps the degradation consistent: no
+// engine means no swapping, not a client pointed at "/rt".
+func (c Config) HotSwapURL() string {
+	if c.LLMHotSwapURL != "" {
+		return c.LLMHotSwapURL
+	}
+	if c.LLMBaseURL == "" {
+		return ""
+	}
+	return strings.TrimRight(c.LLMBaseURL, "/") + "/rt"
+}
 
 // MetricsEnabled reports whether GET /metrics should be served at all.
 //
