@@ -40,12 +40,31 @@ services:
       # replica up first, let it answer a request, and scale out after. Starting
       # several against an empty cache has them all compiling at once.
       - model-cache:/cache
+      # Locally built models: the output of the PEFT pipeline lands here, so a
+      # merged-and-quantised adapter build can be served without being published
+      # to Hugging Face first.
+      #
+      # A bind mount rather than a named volume, deliberately. The build runs
+      # outside the container (merge needs transformers, which this image does
+      # not carry) and the result has to be visible to both sides; a named
+      # volume would be reachable only from inside Docker, which is where the
+      # build is not.
+      #
+      # Read-only: the server has no business writing to a build artefact, and
+      # the one thing it does write on a cold start — compiled kernels — belongs
+      # in the cache volume above, which is writable.
+      - ./models:/models:ro
     command:
       # No console-script entry point ships in the wheel; must run as a module.
       - python3
       - -m
       - mlc_llm
       - serve
+      # An HF:// id downloads and caches; a /models/... path serves a build the
+      # PEFT pipeline produced. Switching between them is what "activating an
+      # adapter" does at the container level — see the panel's activate button,
+      # which changes the model id the backend asks for, and this variable,
+      # which changes what is actually loaded.
       - ${MLC_MODEL:-HF://mlc-ai/gemma-2-2b-it-q4f16_1-MLC}
       - --device
       - cuda
