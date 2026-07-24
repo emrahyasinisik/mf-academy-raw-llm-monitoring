@@ -140,6 +140,52 @@ func RequireAuth(verify TokenVerifier) func(http.Handler) http.Handler {
 	}
 }
 
+// RoleAdmin is the only privileged role. See migration 004 for why the set is
+// deliberately this small, and why nothing in the API can grant it.
+const RoleAdmin = "admin"
+
+// RequireRole rejects an authenticated request whose role is not in the allowed
+// set. It must be mounted *after* RequireAuth: it reads claims that RequireAuth
+// puts on the context, and a request that never passed through it has no claims
+// at all.
+//
+// That ordering dependency is enforced rather than documented. Missing claims
+// are treated as a denial, not as "no restriction" — the failure mode of a
+// mis-wired router then becomes a 401 that someone notices immediately, instead
+// of an admin endpoint quietly serving the public.
+//
+// The response is 403, not 404. Hiding the existence of the admin surface would
+// be worth something if the frontend did not already ship the route names to
+// every visitor, which it does; all a 404 would buy here is a caller who cannot
+// tell "wrong account" from "wrong URL".
+func RequireRole(allowed ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok {
+				Error(w, ErrUnauthorized("authentication required"))
+				return
+			}
+			for _, role := range allowed {
+				if claims.Role == role {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			// Logged because in a working system this should essentially never
+			// fire: the UI does not show a user controls they cannot use, so a
+			// run of these is somebody probing by hand.
+			slog.Warn("role check denied",
+				"request_id", middleware.GetReqID(r.Context()),
+				"user_id", claims.UserID,
+				"role", claims.Role,
+				"path", r.URL.Path,
+			)
+			Error(w, ErrForbidden("this endpoint requires an elevated role"))
+		})
+	}
+}
+
 // ClaimsFromContext returns the authenticated user's claims. The bool is false
 // when the request did not pass through RequireAuth.
 func ClaimsFromContext(ctx context.Context) (AuthClaims, bool) {
