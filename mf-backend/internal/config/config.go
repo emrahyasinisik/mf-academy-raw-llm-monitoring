@@ -111,8 +111,13 @@ func Load() Config {
 		// Provisional. The real figure comes from measuring the inference host;
 		// it must stay below the server's WriteTimeout in cmd/server/main.go and
 		// below the gateway's proxy timeouts in mf-inference/gateway/Caddyfile.
-		LLMTimeout:   getDuration("LLM_TIMEOUT", 25*time.Second),
-		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 512),
+		LLMTimeout: getDuration("LLM_TIMEOUT", 25*time.Second),
+		// A ceiling, not a default — the provider still falls back to a modest
+		// 512 when a caller expresses no preference. Raised from 512 because
+		// rubric analysis legitimately needs a few thousand output tokens
+		// (roughly 260 per criterion), and the old ceiling silently truncated
+		// every one of them.
+		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 4096),
 
 		AdminEmail:   getEnv("ADMIN_EMAIL", ""),
 		MetricsToken: getEnv("METRICS_TOKEN", ""),

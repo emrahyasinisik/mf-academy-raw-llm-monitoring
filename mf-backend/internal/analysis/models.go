@@ -208,7 +208,12 @@ type rawFindings struct {
 		Key           string          `json:"key"`
 		EvidenceFound *bool           `json:"evidence_found"`
 		Score         json.RawMessage `json:"score"`
-		Evidence      []string        `json:"evidence"`
-		Rationale     string          `json:"rationale"`
+		// Raw because the model emits either a list of quotes or a single
+		// string, and a []string here would fail the whole document's decode on
+		// the string form — losing eight good findings to one field's shape.
+		// Normalised by parseEvidence, which counts the string form against
+		// strict schema validity while still keeping the quote.
+		Evidence  json.RawMessage `json:"evidence"`
+		Rationale string          `json:"rationale"`
 	} `json:"findings"`
 }

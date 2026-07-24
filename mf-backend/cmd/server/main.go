@@ -199,6 +199,23 @@ func main() {
 	// waits on it repeatedly. See analysis.Handler.Routes for the three bounds.
 	r.Mount("/analysis", analysisHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
 
+	// WriteTimeout has to clear the longest legitimate handler, and one route
+	// now runs ten generations back to back.
+	//
+	// This bit three trial runs before it was found, and the failure gives no
+	// clue: the handler completes normally and logs its result, but the
+	// connection was already cut, so the client sees an empty reply and the
+	// server logs a success. Nothing anywhere says "write deadline". Deriving
+	// the value from the route's own bound is what keeps the two from drifting
+	// apart again the next time LLM_TIMEOUT is tuned.
+	//
+	// The precise per-route bounds come from common.Timeout; this is only the
+	// coarse backstop that stops a stalled client holding a connection forever.
+	writeTimeout := 30 * time.Second
+	if longest := analysis.TrialTimeout(cfg.LLMTimeout) + time.Minute; longest > writeTimeout {
+		writeTimeout = longest
+	}
+
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: r,
@@ -210,7 +227,7 @@ func main() {
 		// rather than having the connection cut from under them.
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}

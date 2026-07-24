@@ -305,8 +305,22 @@ func (h *Handler) runOne(
 		// The generation cost real GPU time, so the failure is recorded rather
 		// than discarded: a stored row with schema_valid=false and the raw
 		// response is exactly the evidence needed to justify fine-tuning.
+		//
+		// Truncation is called out separately because it is not the model's
+		// failure and must never be counted as one. A run cut off by the budget
+		// says nothing about whether the model can hold the schema, and folding
+		// the two together produces a baseline that argues for fine-tuning a
+		// problem fine-tuning would not fix.
 		slog.Warn("model output did not parse",
-			"domain", domain.Slug, "model", model, "error", parseErr)
+			"domain", domain.Slug, "model", model,
+			"truncated", completion.Truncated, "error", parseErr)
+	}
+	if completion.Truncated {
+		slog.Warn("answer hit the token budget; this run does not measure the model",
+			"domain", domain.Slug, "criteria", len(domain.Criteria),
+			"completion_tokens", completion.CompletionTokens)
+		parsed.Problems = append(parsed.Problems, "answer was truncated by the token budget")
+		parsed.SchemaValid = false
 	}
 	if len(parsed.Problems) > 0 {
 		slog.Info("schema problems", "domain", domain.Slug, "model", model,
@@ -469,22 +483,28 @@ func summarise(group string, items []Assessment) TrialResult {
 // independent, and the failure when they disagree is silent and badly
 // misleading.
 //
-// A finding costs roughly 100 output tokens — the key and scaffolding, a quote
-// or two of verbatim evidence, and a sentence of rationale. Nine criteria is
-// therefore ~900 tokens, well past the 512 that is a sensible default for
-// chat. Generation stops at the limit mid-object, the JSON never closes, every
-// report comes back schema_valid=false, and the conclusion drawn would be "the
-// base model cannot hold the schema" when the truth is "we cut it off". That
-// bogus baseline would then be the number a fine-tuning decision is made
-// against, so the mistake compounds rather than staying local.
+// Generation stops at the limit mid-object, the JSON never closes, every report
+// comes back schema_valid=false, and the conclusion drawn would be "the base
+// model cannot hold the schema" when the truth is "we cut it off". That bogus
+// baseline would then be the number a fine-tuning decision is made against, so
+// the mistake compounds rather than staying local.
+//
+// perCriterion was 110 on the first pass and that was measured wrong: with the
+// prompt now capping quotes at 200 characters, a finding still costs roughly
+// 260 output tokens — two short quotes in Turkish, a sentence of rationale, and
+// the JSON scaffolding around them. Turkish is the reason the figure is not
+// smaller; its agglutinative forms tokenise poorly under a mostly-English
+// vocabulary, so the same sentence costs noticeably more tokens than its
+// English equivalent. The estimate is deliberately generous: overshooting wastes
+// nothing, because generation stops when the model closes the object.
 //
 // Capped because the ceiling is real: these replicas share one 6 GB card in
 // `--mode local`, whose KV cache is small, and an unbounded budget buys a
 // timeout rather than a longer answer.
 func tokenBudget(criteria, configured int) int {
 	const (
-		perCriterion = 110
-		overhead     = 120
+		perCriterion = 260
+		overhead     = 200
 		ceiling      = 4096
 	)
 	need := criteria*perCriterion + overhead
