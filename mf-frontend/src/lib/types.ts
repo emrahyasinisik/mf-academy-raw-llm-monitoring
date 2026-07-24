@@ -242,7 +242,30 @@ export interface LLMSettings {
   active_adapter_id: string | null;
   active_adapter_name: string;
   active_model_id: string;
+  /** Which engine serves generation: compiled, or the one that can hot-swap. */
+  runtime: "mlc" | "hotswap";
+  /**
+   * The adapter the hot-swap runtime is *meant* to be applying. Recorded
+   * because the engine forgets every scale when it restarts — without it an
+   * activation would silently revert to the base model while the panel still
+   * showed it as active.
+   */
+  active_gguf_adapter: string;
   updated_at: string;
+}
+
+/**
+ * What activation returns. The settings write and the live swap are reported
+ * separately because they can disagree: settings always succeeds, while the
+ * swap fails if the runtime never loaded that adapter. One green tick over both
+ * would claim an engine changed when it did not.
+ */
+export interface ActivationResult {
+  settings: LLMSettings;
+  hot_swapped: boolean;
+  /** Measured duration of the swap. "Instant" is the claim; this is the proof. */
+  swap_ms: number;
+  note: string;
 }
 
 export interface ModelChoice {
@@ -263,6 +286,12 @@ export interface Adapter {
   lora_alpha: number;
   target_modules: string[];
   mlc_model_id: string;
+  /**
+   * The GGUF file published to the hot-swap runtime. Independent of
+   * mlc_model_id: which artefacts exist decides whether activating this build
+   * is instant or needs a rebuild.
+   */
+  gguf_adapter: string;
   notes: string;
   last_error: string;
   created_at: string;

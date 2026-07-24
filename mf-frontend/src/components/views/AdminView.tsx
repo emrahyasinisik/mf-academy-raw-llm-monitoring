@@ -18,6 +18,7 @@ import type {
   LLMSettings,
   MCPServer,
   ModelChoice,
+  ActivationResult,
 } from "@/lib/types";
 
 type Tab = "overview" | "model" | "mcp" | "logs";
@@ -144,6 +145,7 @@ function ModelPanel() {
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [swap, setSwap] = useState<ActivationResult | null>(null);
 
   const reload = useCallback(() => {
     api.admin.models().then((r) => {
@@ -153,6 +155,18 @@ function ModelPanel() {
     api.admin.settings().then(setSettings);
     api.admin.adapters().then((r) => setAdapters(r.adapters));
   }, []);
+
+  // Keeps the swap outcome and refreshes the panel in one step. The result is
+  // held in state rather than folded into `status`, because it is not a
+  // transient toast — an operator comparing adapters reads the millisecond
+  // figure, and it has to stay on screen while they do.
+  const announce = useCallback(
+    (res: ActivationResult) => {
+      setSwap(res);
+      reload();
+    },
+    [reload],
+  );
 
   useEffect(reload, [reload]);
 
@@ -225,19 +239,36 @@ function ModelPanel() {
                     {a.last_error && ` · ${a.last_error}`}
                   </span>
                 </span>
+                {/* Which artefacts exist decides what activation means, so it
+                    is shown on the row rather than discovered by clicking. */}
+                <span className="flex gap-1 shrink-0">
+                  {a.gguf_adapter && (
+                    <span className="pill text-xs" style={{ color: "var(--good)", borderColor: "var(--border)" }}
+                          title={`GGUF: ${a.gguf_adapter} — anında geçiş`}>
+                      hot-swap
+                    </span>
+                  )}
+                  {a.mlc_model_id && (
+                    <span className="pill text-xs" style={{ color: "var(--text-faint)", borderColor: "var(--border)" }}
+                          title={`Derlenmiş model: ${a.mlc_model_id}`}>
+                      derlenmiş
+                    </span>
+                  )}
+                </span>
                 {a.status === "active" ? (
-                  <button className="btn btn-ghost !py-1 !px-2.5 text-xs" onClick={() => api.admin.deactivateAdapter().then(reload)}>
+                  <button className="btn btn-ghost !py-1 !px-2.5 text-xs"
+                          onClick={() => api.admin.deactivateAdapter().then(announce)}>
                     devre dışı bırak
                   </button>
                 ) : (
                   <button
                     className="btn btn-ghost !py-1 !px-2.5 text-xs"
                     disabled={a.status !== "ready"}
-                    title={a.status !== "ready" ? "Yalnızca derlenmiş bir build aktive edilebilir" : ""}
+                    title={a.status !== "ready" ? "Yalnızca tamamlanmış bir build aktive edilebilir" : ""}
                     onClick={() =>
                       api.admin
                         .activateAdapter(a.id)
-                        .then(reload)
+                        .then(announce)
                         .catch((e: ApiError) => setStatus(e.message))
                     }
                   >
@@ -248,10 +279,40 @@ function ModelPanel() {
             ))}
           </ul>
         )}
+        {/* The measured outcome of the last activation. Reported rather than
+            assumed, because the settings write and the live swap can disagree:
+            a build published but not yet picked up by the runtime activates
+            fine and swaps nothing. */}
+        {swap && (
+          <p
+            className="text-xs mt-3 p-2.5 rounded leading-relaxed"
+            style={{
+              background: "var(--accent-soft)",
+              color: swap.hot_swapped ? "var(--good)" : "var(--warn)",
+            }}
+          >
+            {swap.hot_swapped ? (
+              <>
+                <strong>Canlı geçiş yapıldı — {swap.swap_ms} ms.</strong> Yeniden başlatma
+                yok, yeniden derleme yok.
+              </>
+            ) : (
+              swap.note
+            )}
+          </p>
+        )}
+
         <p className="text-xs mt-3 leading-relaxed" style={{ color: "var(--text-dim)" }}>
-          Aktive etmek çalışan modele ağırlık takmaz. MLC modeli önceden derler, çalışma
-          zamanında LoRA yuvası yoktur — burada değişen, çıkarım sunucusundan hangi
-          <em> derlenmiş </em> modelin isteneceğidir.
+          İki yol var. <strong style={{ color: "var(--text)" }}>hot-swap</strong>{" "}
+          etiketli bir
+          build&apos;in ağırlıkları llama.cpp&apos;de zaten yüklüdür; aktive etmek bir ölçeği
+          0&apos;dan 1&apos;e çeker ve milisaniyeler sürer.{" "}
+          <strong style={{ color: "var(--text)" }}>derlenmiş</strong>{" "}
+          etiketli bir build&apos;de
+          MLC kernelleri adapter var olmadan önce üretilmiştir, dolayısıyla çalışma zamanında
+          LoRA yuvası yoktur — orada değişen, sunucudan hangi derlenmiş modelin isteneceğidir.
+          Yeni bir GGUF yayınlamak yine de llamacpp konteynerinin yeniden başlatılmasını ister;
+          yüklü adapter&apos;lar arasında geçiş istemez.
         </p>
       </div>
 

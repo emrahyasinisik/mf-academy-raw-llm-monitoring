@@ -222,7 +222,91 @@ panelin ilerleme sütunu başka makinede koşan build'i takip eder.
 - **Eğitim verisi sentetik.** Gerçek deck'lerin dil çeşitliliğini tam
   yansıtmıyor. `compare.py` bilerek üretecin hiç görmediği gerçek deck üzerinde
   ölçüyor; asıl doğrulama o.
-- **Hot-swap yok ve olmayacak.** MLC modeli önceden derliyor
+- **MLC'de hot-swap yok.** MLC modeli önceden derliyor
   ([#2625](https://github.com/mlc-ai/mlc-llm/issues/2625) 2024'ten beri açık,
   [#3281](https://github.com/mlc-ai/mlc-llm/pull/3281) merge edilmeden kapandı).
-  "Adapter yükle" demek yeni model derlemek demek — dakikalar, milisaniye değil.
+  Bu motorda "adapter yükle" demek yeni model derlemek demek — dakikalar,
+  milisaniye değil. Çözüm motoru değiştirmek oldu; aşağıya bak.
+
+---
+
+## Hot-swap yolu — llama.cpp
+
+MLC'nin yapamadığı şeyi yapan ikinci bir motor duruyor. MLC'nin *yerine* değil,
+*yanında*: MLC derlenmiş olduğu için hızlı, llama.cpp adapter'ı ayrı tensörler
+olarak tuttuğu için değiştirilebilir. İkisi de aynı kartta, ikisi de aynı
+gateway'in arkasında.
+
+Fark, tek bir cümlede: **merge yok, derleme yok, yeniden başlatma yok.**
+
+| | `build_mlc.sh` | `build_gguf.sh` |
+|---|---|---|
+| ne üretir | tam model (~1.5 GB) | sadece adapter (~30 MB) |
+| süre | ~20 dakika | saniyeler |
+| aktive etmek | başka model istemek | çalışan sunucuda bir ölçeği 0→1 |
+
+### 0. Taban modeli bir kereye mahsus GGUF'a çevir
+
+```bash
+cd ~/mf-capstone/mf-inference
+peft/build_gguf.sh --base
+```
+
+Bu, eğitimin zaten indirdiği `google/gemma-2-2b-it`'i HF önbelleğinden bulur,
+GGUF'a çevirir ve Q4_K_M'e sıkıştırır (~1.7 GB). İkinci bir kopya indirmez.
+
+Sonra motoru kaldır:
+
+```bash
+docker compose up -d llamacpp
+docker compose logs llamacpp | tail -5      # "base=... adapters=0" görmelisin
+```
+
+### 1. Eğittiğin adapter'ı yayınla
+
+Merge etmeden, doğrudan adapter dizininden:
+
+```bash
+peft/build_gguf.sh --adapter ../models/adapter-v1 --name tuned-v1
+docker compose restart llamacpp
+```
+
+Yükleneni doğrula:
+
+```bash
+curl -s -H "X-API-Key: $LLM_API_KEY" http://localhost:8080/rt/lora-adapters | jq
+# [{"id":0,"path":"/models/gguf/adapters/tuned-v1.gguf","scale":0.0}]
+```
+
+`scale: 0.0` doğru. Konteyner adapter'ı **yüklü ama uygulanmamış** olarak
+açılıyor — aksi hâlde her yayınladığın adapter üst üste binerdi.
+
+### 2. Panelden aktive et
+
+Panelde build'in yanında `hot-swap` rozeti belirir. **aktive et**'e bas; panel
+ölçülen süreyi yazar:
+
+> Canlı geçiş yapıldı — 8 ms. Yeniden başlatma yok, yeniden derleme yok.
+
+Geçiş başarısız olursa panel bunu **söyler**, başarılı gibi göstermez. En olası
+sebep: dosyayı yayınladın ama `docker compose restart llamacpp` yapmadın.
+
+### Sınırın tam yeri
+
+llama-server adapter'ları yalnızca **başlangıç bayrağı** olarak alıyor. Yani:
+
+- yüklü adapter'lar arasında geçiş → anlık, yeniden başlatma yok
+- **yeni** bir adapter eklemek → o konteynerin yeniden başlatılması gerekir
+
+Yeniden başlatma birkaç saniye (taban model mmap'li), ama yeniden başlatmadır ve
+panel bunu gizlemiyor.
+
+### Hangi motor ne zaman
+
+`llm_settings.runtime` bunu seçiyor:
+
+- `mlc` — üretim. Token başına daha hızlı, adapter değişikliği yeniden derleme ister.
+- `hotswap` — değerlendirme. Daha yavaş, adapter değişikliği anlık.
+
+İki adapter'ı karşılaştırırken `hotswap`, karar verdikten sonra `mlc`'ye derleyip
+oraya geç.

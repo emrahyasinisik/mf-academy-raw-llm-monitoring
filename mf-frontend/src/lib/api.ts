@@ -23,6 +23,7 @@ import type {
   WikiDocument,
   WikiHit,
   WikiAnswer,
+  ActivationResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -283,10 +284,14 @@ export const api = {
       }>("/admin/models"),
     adapters: () =>
       request<{ adapters: Adapter[]; count: number }>("/admin/adapters"),
+    // Returns the swap outcome, not just the settings: whether a running
+    // engine actually changed adapter, and how long it took. The panel shows
+    // both because a settings write that took effect and a swap that did not
+    // is a real, reachable state.
     activateAdapter: (id: string) =>
-      request<LLMSettings>(`/admin/adapters/${id}/activate`, { method: "POST" }),
+      request<ActivationResult>(`/admin/adapters/${id}/activate`, { method: "POST" }),
     deactivateAdapter: () =>
-      request<LLMSettings>("/admin/adapters/deactivate", { method: "POST" }),
+      request<ActivationResult>("/admin/adapters/deactivate", { method: "POST" }),
     mcpServers: () =>
       request<{ servers: MCPServer[]; count: number }>("/admin/mcp-servers"),
     createMcpServer: (payload: Partial<MCPServer>) =>

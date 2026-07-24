@@ -327,6 +327,9 @@ func (h *Handler) DeactivateAdapter(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) swap(ctx context.Context, gguf string, s any) ActivationResult {
 	res := ActivationResult{Settings: s}
 
+	// The notes are Turkish because they are shown verbatim in the operator's
+	// panel, which is Turkish. An English sentence in the middle of it reads as
+	// a leaked internal string, and the operator stops trusting the rest.
 	switch {
 	case gguf == "" && h.hotSwapReady():
 		// Deactivation, or a build that only has a compiled artefact. Either
@@ -334,29 +337,29 @@ func (h *Handler) swap(ctx context.Context, gguf string, s any) ActivationResult
 		// whatever was active before.
 		d, err := h.runtime.Activate(ctx, "")
 		if err != nil {
-			res.Note = "compiled model switched; the hot-swap runtime could not be reset: " + err.Error()
+			res.Note = "Derlenmiş model değişti; hot-swap motoru temel modele döndürülemedi: " + err.Error()
 			return res
 		}
 		res.HotSwapped, res.SwapMs = true, d.Milliseconds()
-		res.Note = "hot-swap runtime returned to the untuned base model"
+		res.Note = "Hot-swap motoru ayarsız temel modele döndürüldü."
 	case gguf == "":
-		res.Note = "compiled model switched. This build has no GGUF artefact, so it " +
-			"cannot be hot-swapped — publish one with peft/build_gguf.sh to make " +
-			"activation take effect on a running engine."
+		res.Note = "Derlenmiş model değişti. Bu build'in GGUF çıktısı yok, bu yüzden canlı " +
+			"geçiş yapılamaz — peft/build_gguf.sh ile yayınlarsan aktivasyon çalışan " +
+			"motorda anında etkili olur."
 	case !h.hotSwapReady():
-		res.Note = "compiled model switched. The hot-swap runtime is not configured, " +
-			"so the GGUF artefact was not applied."
+		res.Note = "Derlenmiş model değişti. Hot-swap motoru yapılandırılmamış, " +
+			"bu yüzden GGUF adapter uygulanmadı."
 	default:
 		d, err := h.runtime.Activate(ctx, gguf)
 		if err != nil {
 			// The overwhelmingly likely cause, and the one worth spelling out:
 			// llama-server takes adapters as startup flags, so a file published
 			// after it booted is invisible until it restarts.
-			res.Note = "compiled model switched, but the live swap failed: " + err.Error()
+			res.Note = "Derlenmiş model değişti, ancak canlı geçiş başarısız oldu: " + err.Error()
 			return res
 		}
 		res.HotSwapped, res.SwapMs = true, d.Milliseconds()
-		res.Note = "adapter applied to the running engine; no restart, no rebuild"
+		res.Note = "Adapter çalışan motora uygulandı; yeniden başlatma yok, yeniden derleme yok."
 	}
 	return res
 }

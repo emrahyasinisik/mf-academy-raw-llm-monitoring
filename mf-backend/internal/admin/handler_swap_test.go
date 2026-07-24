@@ -69,7 +69,7 @@ func TestSwapFailureIsNotReportedAsSuccess(t *testing.T) {
 	}
 	// The compiled path did take effect, and saying otherwise would send the
 	// operator looking for a problem that is not there.
-	if !strings.Contains(res.Note, "compiled model switched") {
+	if !strings.Contains(res.Note, "Derlenmiş model değişti") {
 		t.Errorf("the note should still confirm what did work, got: %s", res.Note)
 	}
 }
@@ -117,7 +117,7 @@ func TestUnconfiguredRuntimeDoesNotClaimAHotSwap(t *testing.T) {
 	if len(f.calls) != 0 {
 		t.Errorf("an unconfigured runtime must not be called, got %v", f.calls)
 	}
-	if !strings.Contains(res.Note, "not configured") {
+	if !strings.Contains(res.Note, "yapılandırılmamış") {
 		t.Errorf("got: %s", res.Note)
 	}
 }
