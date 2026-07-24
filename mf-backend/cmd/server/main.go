@@ -13,11 +13,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/emrah/mf-backend/internal/admin"
+	"github.com/emrah/mf-backend/internal/analysis"
 	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
 	"github.com/emrah/mf-backend/internal/config"
 	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
+	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/emrah/mf-backend/migrations"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -72,6 +75,29 @@ func main() {
 	authStore := auth.NewStore(pool)
 	authHandler := auth.NewHandler(authStore, tokens, cfg.BcryptCost)
 
+	// Promotes the account named by ADMIN_EMAIL, if it exists. Runs after
+	// migrations so the role CHECK constraint is already in place, and does
+	// nothing when the variable is unset — the normal state locally.
+	//
+	// Deliberately the only code path in the service that writes this column.
+	// An HTTP route that grants admin is a privilege-escalation bug waiting for
+	// its first authentication flaw; requiring a deployment variable plus a
+	// restart means the blast radius of any such flaw stops at ordinary users.
+	if cfg.AdminEmail != "" {
+		promoted, err := common.PromoteAdmin(ctx, pool, cfg.AdminEmail)
+		switch {
+		case err != nil:
+			slog.Error("admin bootstrap failed", "email", cfg.AdminEmail, "error", err)
+		case promoted:
+			slog.Info("admin bootstrap: account promoted", "email", cfg.AdminEmail)
+		default:
+			// Covers both "already admin" and "no such account". Logged either
+			// way, because a typo in ADMIN_EMAIL is otherwise completely silent
+			// and only discovered when the panel returns 403.
+			slog.Info("admin bootstrap: no change", "email", cfg.AdminEmail)
+		}
+	}
+
 	llmStore := llm.NewStore(pool)
 	// Server-side inference is optional: with LLM_BASE_URL unset the provider
 	// reports itself unconfigured, POST /llm/generate answers 503, and the
@@ -79,6 +105,14 @@ func main() {
 	// "switched off" has to be a supported state, not a boot failure.
 	llmProvider := llm.NewOpenAIProvider(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMTimeout, cfg.LLMMaxTokens)
 	llmHandler := llm.NewHandler(llmStore, llmProvider)
+
+	// Runtime settings the admin panel edits and the analysis path reads on
+	// every request. Its own package so neither of those two has to import the
+	// other; see internal/settings.
+	settingsStore := settings.NewStore(pool)
+
+	adminHandler := admin.NewHandler(admin.NewStore(pool), settingsStore)
+	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
 	cfgHandler := config.NewHandler(cfg)
 
@@ -150,11 +184,20 @@ func main() {
 		})
 
 		pr.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
+
+		// Control plane. Every route inside is gated on the admin role by the
+		// subtree's own middleware, so mounting it here — inside the short
+		// default bound — is safe: nothing in it waits on the GPU.
+		pr.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout))
 	})
 
 	// Mounted outside that group so its own routes can choose their bounds: the
 	// short default for everything, the long one for generation.
 	r.Mount("/llm", llmHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// Likewise: reads are short, one analysis waits on the GPU, and a trial
+	// waits on it repeatedly. See analysis.Handler.Routes for the three bounds.
+	r.Mount("/analysis", analysisHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
