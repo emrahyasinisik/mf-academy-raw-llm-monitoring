@@ -19,7 +19,7 @@ NAME="tuned-v1"
 QUANT="q4f16_1"
 MERGED="models/merged-fp16"
 ADAPTER_ID=""
-BASE_URL="${BASE_URL:-http://localhost:8080}"
+BASE_URL="${BASE_URL:-http://localhost:8090}"
 TOKEN="${TOKEN:-}"
 
 while [ $# -gt 0 ]; do

@@ -79,7 +79,7 @@ Veri üreteci prompt'u backend'den okuyor, o yüzden açık olmalı.
 cd ~/mf-capstone/mf-backend
 go run ./cmd/server &          # migration'lar açılışta koşar
 
-export TOKEN=$(curl -s -X POST http://localhost:8080/auth/login \
+export TOKEN=$(curl -s -X POST http://localhost:8090/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"baseline@example.com","password":"baseline-pass-12345"}' | jq -r .access_token)
 echo "${TOKEN:0:20}..."        # boş çıkarsa önce /auth/register ile hesap aç
@@ -189,17 +189,17 @@ raporu kendinden emin şekilde üretir.
 
 ```bash
 # Adapter'ı kaydet (bir kez)
-curl -s -X POST http://localhost:8080/admin/adapters \
+curl -s -X POST http://localhost:8090/admin/adapters \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"tuned-v1","base_model":"google/gemma-2-2b-it","lora_rank":16,"notes":"ilk build"}'
 
 # Hazır olarak işaretle ve aktive et
 ADAPTER_ID=<yukarıdaki id>
-curl -s -X PATCH "http://localhost:8080/admin/adapters/$ADAPTER_ID/status" \
+curl -s -X PATCH "http://localhost:8090/admin/adapters/$ADAPTER_ID/status" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"status":"ready","mlc_model_id":"tuned-v1-q4f16_1-MLC"}'
 
-curl -s -X POST "http://localhost:8080/admin/adapters/$ADAPTER_ID/activate" \
+curl -s -X POST "http://localhost:8090/admin/adapters/$ADAPTER_ID/activate" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

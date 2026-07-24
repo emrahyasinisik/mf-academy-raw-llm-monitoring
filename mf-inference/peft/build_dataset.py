@@ -344,7 +344,7 @@ def render_user_message(template: str, title: str, subject: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
+    ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8090"))
     ap.add_argument("--token", default=os.environ.get("TOKEN", ""),
                     help="access token; or set TOKEN")
     ap.add_argument("--domain", default="startup-investability")

@@ -134,7 +134,7 @@ def delta(before, after, higher_is_better=True) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
+    ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8090"))
     ap.add_argument("--token", default=os.environ.get("TOKEN", ""))
     ap.add_argument("--domain", default="startup-investability")
     ap.add_argument("--before", default="gemma-2-2b-it-q4f16_1-MLC",
