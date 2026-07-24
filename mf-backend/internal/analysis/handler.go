@@ -108,6 +108,41 @@ func (h *Handler) Domains(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, map[string]any{"domains": items, "count": len(items)})
 }
 
+// Prompt returns the exact instruction a domain generates.
+// GET /analysis/domains/{slug}/prompt
+//
+// Exists for the fine-tuning pipeline, and it is not a convenience. A LoRA
+// adapter learns to satisfy one specific prompt; if the trainer reproduces that
+// prompt from its own copy of the template, the two drift the first time either
+// is edited, and the adapter is then tuned for an instruction nothing sends.
+// The failure is silent — training completes, the loss looks fine, and the
+// model is simply worse at the job than the base it replaced.
+//
+// Serving it from the same function the inference path calls makes drift
+// impossible rather than merely unlikely.
+func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
+	domain, err := h.store.GetDomain(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, ErrNoRows) {
+		common.Error(w, common.ErrNotFound("no such analysis domain"))
+		return
+	}
+	if err != nil {
+		common.Error(w, common.ErrInternal("could not load the rubric"))
+		return
+	}
+	common.JSON(w, http.StatusOK, map[string]any{
+		"domain":        domain.Slug,
+		"version":       domain.Version,
+		"system_prompt": SystemPrompt(domain),
+		// The user-message template, with a placeholder where the case goes.
+		// Returned alongside because the trainer has to reproduce both halves,
+		// and the quote neutralisation in particular is invisible from outside.
+		"user_prompt_example": UserPrompt("{{title}}", "{{subject}}"),
+		"criteria":            domain.Criteria,
+		"temperature":         analysisTemperature,
+	})
+}
+
 // Analyze produces one report. POST /analysis/run
 func (h *Handler) Analyze(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())

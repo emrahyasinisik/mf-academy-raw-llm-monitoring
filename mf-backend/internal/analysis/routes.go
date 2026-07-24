@@ -32,6 +32,7 @@ func (h *Handler) Routes(
 		pr.Group(func(sr chi.Router) {
 			sr.Use(common.Timeout(defaultTimeout))
 			sr.Get("/domains", h.Domains)
+			sr.Get("/domains/{slug}/prompt", h.Prompt)
 			sr.Get("/", h.List)
 			sr.Get("/trials/{group}", h.TrialGroup)
 		})

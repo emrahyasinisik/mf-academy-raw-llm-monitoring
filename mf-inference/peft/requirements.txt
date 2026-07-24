@@ -1,0 +1,29 @@
+# QLoRA training dependencies for the GPU host (Windows + WSL2, GTX 1660 Ti).
+#
+# Install into a *separate* environment from the mlc container's. MLC pins
+# apache-tvm-ffi and its own torch build; this stack wants a stock torch, and
+# resolving both in one environment is how the mlc install broke the first time.
+#
+# torch must be a CUDA build. The default PyPI wheel on Linux is CUDA-enabled,
+# but pin the index explicitly if pip resolves a CPU-only one:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+torch>=2.3,<3.0
+
+# 4-bit NF4 quantisation. Turing (sm_75) is supported; 0.43 is the floor for
+# reliable double-quantisation on this architecture.
+bitsandbytes>=0.43
+
+# Gemma-2 support, including the eager attention path that implements logit
+# soft-capping. Earlier releases load the model but compute a different
+# attention function without saying so.
+transformers>=4.42
+
+peft>=0.11
+accelerate>=0.30
+datasets>=2.19
+
+# sentencepiece is Gemma's tokenizer; protobuf is its serialisation format and
+# is not always pulled in transitively.
+sentencepiece>=0.2
+protobuf>=4.25
