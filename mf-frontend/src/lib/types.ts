@@ -142,3 +142,169 @@ export interface GenerateRunPayload {
   expected_keywords?: string[];
   auto_score?: boolean;
 }
+
+// ---- Rubric analysis ----
+//
+// The product's core shapes. Two rules the UI must honour and the types are
+// arranged to make hard to break:
+//
+//   * `score` is nullable per finding and `overall_score` is nullable overall.
+//     Null is not zero — it means the case could not be assessed on that point.
+//     Rendering a null as 0 would turn "the deck never mentions the team" into
+//     "the team scored nothing", which is the exact conflation the backend's
+//     scoring is built to avoid.
+//
+//   * `overall_score` is meaningless without `coverage`. 75 at 0.9 coverage and
+//     75 at 0.3 coverage are different findings. Never display one alone.
+
+export interface Criterion {
+  key: string;
+  label: string;
+  description: string;
+  guidance?: string;
+  weight: number;
+  scale_max: number;
+}
+
+export interface AnalysisDomain {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  version: number;
+  criteria: Criterion[];
+  is_active: boolean;
+}
+
+export interface Finding {
+  key: string;
+  evidence_found: boolean;
+  /** Null when the case gave nothing to rate. Never render as 0. */
+  score: number | null;
+  /** Verbatim quotes from the case, so a claim can be checked against source. */
+  evidence: string[];
+  rationale: string;
+}
+
+export interface Assessment {
+  id: string;
+  domain_id: string;
+  domain_slug?: string;
+  domain_name?: string;
+  domain_version: number;
+  /** The rubric as it stood when this ran; an old report is only readable against it. */
+  criteria_snapshot: Criterion[];
+  subject_title: string;
+  subject?: string;
+  findings: Finding[];
+  /** Null when nothing could be assessed. Not zero. */
+  overall_score: number | null;
+  /** Share of rubric weight that had evidence. Always shown beside the score. */
+  coverage: number;
+  schema_valid: boolean;
+  repair_attempts: number;
+  model: string;
+  target: RunTarget;
+  latency_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  created_at: string;
+}
+
+export interface AssessmentSummary {
+  id: string;
+  domain_slug: string;
+  domain_name: string;
+  subject_title: string;
+  overall_score: number | null;
+  coverage: number;
+  schema_valid: boolean;
+  model: string;
+  latency_ms: number;
+  created_at: string;
+}
+
+export interface AssessmentList {
+  assessments: AssessmentSummary[];
+  limit: number;
+  next_cursor?: string;
+  has_more: boolean;
+}
+
+// ---- Admin ----
+
+export interface LLMSettings {
+  system_prompt: string;
+  temperature: number;
+  top_p: number;
+  max_tokens: number;
+  default_model: string;
+  active_adapter_id: string | null;
+  active_adapter_name: string;
+  active_model_id: string;
+  updated_at: string;
+}
+
+export interface ModelChoice {
+  id: string;
+  label: string;
+  source: "builtin" | "adapter";
+  available: boolean;
+  status?: string;
+  note?: string;
+}
+
+export interface Adapter {
+  id: string;
+  name: string;
+  base_model: string;
+  status: string;
+  lora_rank: number;
+  lora_alpha: number;
+  target_modules: string[];
+  mlc_model_id: string;
+  notes: string;
+  last_error: string;
+  created_at: string;
+  activated_at: string | null;
+}
+
+export interface MCPServer {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  kind: "internal" | "external";
+  url: string;
+  transport: string;
+  side: "frontend" | "backend" | "both";
+  enabled: boolean;
+}
+
+export interface AdminOverview {
+  total_users: number;
+  total_runs: number;
+  runs_last_24h: number;
+  avg_latency_ms_24h: number;
+  p95_latency_ms_24h: number;
+  adapters_total: number;
+  adapters_ready: number;
+  assessments: number;
+  assessments_last_24h: number;
+  /** Operating health: a drop after activating an adapter is the rollback signal. */
+  schema_valid_rate_24h: number;
+  active_adapter_id: string | null;
+}
+
+export interface AdminLogEntry {
+  id: string;
+  user_email: string;
+  model: string;
+  target: RunTarget;
+  prompt_tokens: number;
+  completion_tokens: number;
+  latency_ms: number;
+  score: number | null;
+  grade: string;
+  created_at: string;
+}

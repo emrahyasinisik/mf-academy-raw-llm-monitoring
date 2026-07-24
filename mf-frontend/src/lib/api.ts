@@ -11,6 +11,15 @@ import type {
   CreateRunPayload,
   GenerateRunPayload,
   Score,
+  AnalysisDomain,
+  Assessment,
+  AssessmentList,
+  LLMSettings,
+  ModelChoice,
+  Adapter,
+  MCPServer,
+  AdminOverview,
+  AdminLogEntry,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -175,4 +184,87 @@ export const api = {
   scoreRun: (id: string) =>
     request<Score>(`/llm/runs/${id}/score`, { method: "POST" }),
   metrics: () => request<Metrics>("/llm/metrics"),
+
+  // ---- analysis (the product) ----
+  //
+  // analysisRun is slow by design: it waits on a GPU across a tunnel and can
+  // take a minute. Callers must show progress rather than a spinner that looks
+  // stuck, and must not retry on timeout — a retry doubles the queue on a card
+  // that serves one request at a time.
+  analysisDomains: () =>
+    request<{ domains: AnalysisDomain[]; count: number }>("/analysis/domains"),
+  analysisRun: (payload: {
+    domain: string;
+    subject: string;
+    subject_title?: string;
+    model?: string;
+  }) =>
+    request<Assessment>("/analysis/run", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  analysisList: (limit = 20, domain = "", before?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (domain) params.set("domain", domain);
+    if (before) params.set("before", before);
+    return request<AssessmentList>(`/analysis?${params}`);
+  },
+  analysisGet: (id: string) => request<Assessment>(`/analysis/${id}`),
+
+  // Which MCP servers this browser is allowed to connect to. Answered by the
+  // server rather than bundled, so switching one off actually switches it off.
+  mcpServers: () =>
+    request<{ servers: MCPServer[]; count: number }>("/mcp-servers"),
+
+  // ---- admin (403 for anyone without the role) ----
+  admin: {
+    overview: () => request<AdminOverview>("/admin/overview"),
+    logs: (limit = 50, target = "") => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (target) params.set("target", target);
+      return request<{ entries: AdminLogEntry[]; has_more: boolean }>(
+        `/admin/logs?${params}`,
+      );
+    },
+    settings: () => request<LLMSettings>("/admin/settings"),
+    // Partial by design: the panel has separate forms over one row, and saving
+    // one must not clobber the other with whatever the browser last rendered.
+    updateSettings: (patch: Partial<Omit<LLMSettings, "updated_at">>) =>
+      request<LLMSettings>("/admin/settings", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    models: () =>
+      request<{
+        models: ModelChoice[];
+        selected: {
+          default_model: string;
+          active_adapter_id: string | null;
+          active_adapter_name: string;
+          effective: string;
+        };
+      }>("/admin/models"),
+    adapters: () =>
+      request<{ adapters: Adapter[]; count: number }>("/admin/adapters"),
+    activateAdapter: (id: string) =>
+      request<LLMSettings>(`/admin/adapters/${id}/activate`, { method: "POST" }),
+    deactivateAdapter: () =>
+      request<LLMSettings>("/admin/adapters/deactivate", { method: "POST" }),
+    mcpServers: () =>
+      request<{ servers: MCPServer[]; count: number }>("/admin/mcp-servers"),
+    createMcpServer: (payload: Partial<MCPServer>) =>
+      request<MCPServer>("/admin/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateMcpServer: (id: string, patch: Partial<MCPServer>) =>
+      request<MCPServer>(`/admin/mcp-servers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    deleteMcpServer: (id: string) =>
+      request<{ status: string }>(`/admin/mcp-servers/${id}`, {
+        method: "DELETE",
+      }),
+  },
 };
