@@ -34,6 +34,17 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) htt
 	r.Get("/settings", h.Settings)
 	r.Patch("/settings", h.UpdateSettings)
 
+	// What can be served, built-in models and adapter builds merged into one
+	// list. The distinction matters to the operator; the choice does not.
+	r.Get("/models", h.Models)
+
+	r.Route("/mcp-servers", func(mr chi.Router) {
+		mr.Get("/", h.ListMCPServers)
+		mr.Post("/", h.CreateMCPServer)
+		mr.Patch("/{id}", h.UpdateMCPServer)
+		mr.Delete("/{id}", h.DeleteMCPServer)
+	})
+
 	r.Route("/adapters", func(ar chi.Router) {
 		ar.Get("/", h.ListAdapters)
 		ar.Post("/", h.CreateAdapter)

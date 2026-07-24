@@ -112,7 +112,8 @@ func main() {
 	// other; see internal/settings.
 	settingsStore := settings.NewStore(pool)
 
-	adminHandler := admin.NewHandler(admin.NewStore(pool), settingsStore)
+	adminStore := admin.NewStore(pool)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
@@ -196,6 +197,12 @@ func main() {
 		// subtree's own middleware, so mounting it here — inside the short
 		// default bound — is safe: nothing in it waits on the GPU.
 		pr.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout))
+
+		// Which MCP servers this client may connect to. Outside the admin gate
+		// because an ordinary user's browser needs the answer, and deliberately
+		// a different handler from the admin listing: that one carries config
+		// blobs which can hold upstream credentials.
+		pr.With(common.RequireAuth(tokens.Verify)).Get("/mcp-servers", adminHandler.ClientServers)
 	})
 
 	// Mounted outside that group so its own routes can choose their bounds: the

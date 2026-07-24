@@ -27,6 +27,18 @@ type AdapterStore interface {
 	Overview(ctx context.Context) (Overview, error)
 }
 
+// MCPStore is the MCP register. Separate from AdapterStore rather than folded
+// into it because the two describe unrelated things — one is builds of a model,
+// the other is which servers may be reached — and a single fat interface would
+// force every test double to implement both.
+type MCPStore interface {
+	ListMCPServers(ctx context.Context) ([]MCPServer, error)
+	EnabledMCPServers(ctx context.Context, side string) ([]MCPServer, error)
+	CreateMCPServer(ctx context.Context, userID string, req CreateMCPServerRequest) (MCPServer, error)
+	UpdateMCPServer(ctx context.Context, id string, req UpdateMCPServerRequest) (MCPServer, error)
+	DeleteMCPServer(ctx context.Context, id string) error
+}
+
 // SettingsStore is the settings behaviour the panel drives.
 type SettingsStore interface {
 	Get(ctx context.Context) (settings.Settings, error)
@@ -38,10 +50,11 @@ type SettingsStore interface {
 type Handler struct {
 	store    AdapterStore
 	settings SettingsStore
+	mcp      MCPStore
 }
 
-func NewHandler(store AdapterStore, set SettingsStore) *Handler {
-	return &Handler{store: store, settings: set}
+func NewHandler(store AdapterStore, set SettingsStore, mcp MCPStore) *Handler {
+	return &Handler{store: store, settings: set, mcp: mcp}
 }
 
 // ---- settings ----

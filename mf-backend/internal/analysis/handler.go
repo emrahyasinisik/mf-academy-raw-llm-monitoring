@@ -349,11 +349,18 @@ func (h *Handler) runOne(
 		return Assessment{}, common.ErrInternal("could not read settings")
 	}
 
-	// Precedence: an explicitly named model wins, then the active adapter's
-	// build, then the deployment default. The explicit case is what makes a
-	// base-model-versus-adapter comparison possible without an operator having
-	// to flip the global setting between runs.
+	// Precedence, most specific first: the request, then the operator's explicit
+	// choice, then the active adapter's build, then the compiled default.
+	//
+	// The request wins so a base-versus-adapter comparison can run without an
+	// operator flipping a global setting between the two halves — compare.py
+	// depends on that. The operator's explicit choice sits *above* the active
+	// adapter so the untuned base can be served deliberately while a tuned build
+	// exists, which is the normal state during an evaluation.
 	model := req.Model
+	if model == "" {
+		model = cfg.DefaultModel
+	}
 	if model == "" {
 		model = cfg.ActiveModelID
 	}

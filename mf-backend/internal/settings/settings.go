@@ -49,6 +49,13 @@ type Settings struct {
 	TopP         float64 `json:"top_p"`
 	MaxTokens    int     `json:"max_tokens"`
 
+	// DefaultModel is the operator's explicit model choice, independent of any
+	// adapter. Empty means "no explicit choice", which falls through to the
+	// active adapter and then to the compiled-in default. Separating the two
+	// is what lets an operator run the untuned base deliberately while a tuned
+	// build exists — the single most common thing to want during an evaluation.
+	DefaultModel string `json:"default_model"`
+
 	ActiveAdapterID   *string `json:"active_adapter_id"`
 	ActiveAdapterName string  `json:"active_adapter_name"`
 	ActiveModelID     string  `json:"active_model_id"`
@@ -62,6 +69,7 @@ type Settings struct {
 // client sending only a new system prompt would silently reset temperature to
 // 0, which is a real behaviour change and not one anybody asked for.
 type Patch struct {
+	DefaultModel *string  `json:"default_model"`
 	SystemPrompt *string  `json:"system_prompt"`
 	Temperature  *float64 `json:"temperature"`
 	TopP         *float64 `json:"top_p"`
@@ -82,6 +90,9 @@ func (e *ValidationError) Error() string { return e.Field + " " + e.Message }
 
 // Validate reports the first field that is out of range.
 func (p Patch) Validate() error {
+	if p.DefaultModel != nil && len(*p.DefaultModel) > 200 {
+		return &ValidationError{"default_model", "is too long to be a model id"}
+	}
 	if p.SystemPrompt != nil && len(*p.SystemPrompt) > MaxSystemPromptBytes {
 		return &ValidationError{"system_prompt", fmt.Sprintf(
 			"is %d bytes; the maximum is %d", len(*p.SystemPrompt), MaxSystemPromptBytes)}
@@ -117,7 +128,7 @@ func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 // must still return the settings rather than nothing.
 const selectSQL = `
 	SELECT s.system_prompt, s.temperature, s.top_p, s.max_tokens,
-	       s.active_adapter_id,
+	       s.default_model, s.active_adapter_id,
 	       coalesce(a.name, ''), coalesce(a.mlc_model_id, ''),
 	       s.updated_at, s.updated_by
 	  FROM llm_settings s
@@ -127,7 +138,7 @@ const selectSQL = `
 func scan(row pgx.Row) (Settings, error) {
 	var s Settings
 	err := row.Scan(&s.SystemPrompt, &s.Temperature, &s.TopP, &s.MaxTokens,
-		&s.ActiveAdapterID, &s.ActiveAdapterName, &s.ActiveModelID,
+		&s.DefaultModel, &s.ActiveAdapterID, &s.ActiveAdapterName, &s.ActiveModelID,
 		&s.UpdatedAt, &s.UpdatedBy)
 	return s, err
 }
@@ -153,10 +164,12 @@ func (s *Store) Update(ctx context.Context, p Patch, userID string) (Settings, e
 		    temperature   = COALESCE($2, temperature),
 		    top_p         = COALESCE($3, top_p),
 		    max_tokens    = COALESCE($4, max_tokens),
+		    default_model = COALESCE($5, default_model),
 		    updated_at    = now(),
-		    updated_by    = $5
+		    updated_by    = $6
 		 WHERE id = 1`
-	if _, err := s.db.Exec(ctx, q, p.SystemPrompt, p.Temperature, p.TopP, p.MaxTokens, userID); err != nil {
+	if _, err := s.db.Exec(ctx, q, p.SystemPrompt, p.Temperature, p.TopP, p.MaxTokens,
+		p.DefaultModel, userID); err != nil {
 		return Settings{}, err
 	}
 	return s.Get(ctx)
