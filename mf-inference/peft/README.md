@@ -53,7 +53,9 @@ açık olmalı.
 ```bash
 cd ~/mf-capstone            # repo nerede duruyorsa
 git fetch origin
-git checkout feat/rubric-analysis-engine
+# Rubrik hattı main'de. Persona hattı henüz merge edilmediyse
+# feat/investment-persona'ya geç — hangisini eğiteceğine göre.
+git checkout main
 git pull
 
 # Eğitim ortamı, mlc container'ından AYRI olmalı.
