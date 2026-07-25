@@ -35,6 +35,15 @@ type CompletionRequest struct {
 	MaxTokens    int
 }
 
+// Message is one turn of a conversation, in the OpenAI dialect ("system",
+// "user", "assistant"). The multi-turn Chat path carries these directly; the
+// single-shot Generate path builds a two-message slice from a system prompt and
+// a user prompt and never exposes this type.
+type Message struct {
+	Role    string
+	Content string
+}
+
 // Completion is the answer plus the telemetry a Run needs.
 type Completion struct {
 	Content          string
@@ -151,12 +160,41 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: req.Prompt})
 
+	return p.dispatch(ctx, req.Model, messages, req.Temperature, req.MaxTokens)
+}
+
+// Chat runs a multi-turn conversation against the configured endpoint. It is the
+// single-shot Generate's sibling: same wire format, same clamping, same error
+// handling — the only difference is that the caller supplies the whole message
+// history rather than one system/user pair. The backend-orchestrated decision
+// agent uses this to carry a conversation plus the evidence it has gathered.
+func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Message, temperature float64, maxTokens int) (Completion, error) {
+	if !p.Configured() {
+		return Completion{}, common.ErrUnavailable("server-side inference is not configured")
+	}
+	wire := make([]chatMessage, 0, len(messages))
+	for _, m := range messages {
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		wire = append(wire, chatMessage{Role: m.Role, Content: m.Content})
+	}
+	if len(wire) == 0 {
+		return Completion{}, common.ErrBadRequest("no messages to send")
+	}
+	return p.dispatch(ctx, model, wire, temperature, maxTokens)
+}
+
+// dispatch is the shared HTTP round trip both Generate and Chat funnel through,
+// so the token clamp, headers, error classification and truncation handling are
+// written once and cannot drift apart between the two paths.
+func (p *OpenAIProvider) dispatch(ctx context.Context, model string, messages []chatMessage, temperature float64, wantTokens int) (Completion, error) {
 	// Three cases, distinguished deliberately. Collapsing them into one clamp
 	// cost a whole measurement run: the analysis path computes the budget its
 	// rubric needs, that number was silently reduced to the chat default, every
 	// answer stopped mid-JSON, and the conclusion drawn was "the model cannot
 	// hold the schema" when the truth was "we cut it off".
-	maxTokens := req.MaxTokens
+	maxTokens := wantTokens
 	switch {
 	case maxTokens <= 0:
 		// No opinion from the caller: a modest default, since most callers are
@@ -167,14 +205,14 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 		// never again silently. Anything that asked for more than it got has to
 		// be able to find out why from the logs.
 		slog.Warn("requested max_tokens exceeds the configured ceiling; clamping",
-			"requested", maxTokens, "ceiling", p.maxTokens, "model", req.Model)
+			"requested", maxTokens, "ceiling", p.maxTokens, "model", model)
 		maxTokens = p.maxTokens
 	}
 
 	body, err := json.Marshal(chatRequest{
-		Model:       req.Model,
+		Model:       model,
 		Messages:    messages,
-		Temperature: req.Temperature,
+		Temperature: temperature,
 		MaxTokens:   maxTokens,
 		Stream:      false,
 	})
@@ -244,7 +282,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, req CompletionRequest) (C
 		// merely stops, so without this the only symptom is a downstream parse
 		// failure that looks like the model's fault rather than the budget's.
 		slog.Warn("inference answer was cut off by the token limit",
-			"model", req.Model, "max_tokens", maxTokens,
+			"model", model, "max_tokens", maxTokens,
 			"completion_tokens", parsed.Usage.CompletionTokens)
 	}
 

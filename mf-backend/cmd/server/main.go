@@ -18,6 +18,7 @@ import (
 	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
 	"github.com/emrah/mf-backend/internal/config"
+	"github.com/emrah/mf-backend/internal/decision"
 	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/mcp"
@@ -129,7 +130,18 @@ func main() {
 	// Shares the provider and the settings with the analysis engine so both
 	// features follow the operator's model choice rather than each holding an
 	// opinion about which model to use.
-	wikiHandler := wiki.NewHandler(wiki.NewStore(pool), llmProvider, settingsStore)
+	wikiStore := wiki.NewStore(pool)
+	wikiHandler := wiki.NewHandler(wikiStore, llmProvider, settingsStore)
+
+	// The investment persona: one agent that researches a subject live and
+	// reaches an investability verdict. It reuses the same inference host, the
+	// same settings, and DeepKwiki's own store as a retrieval tool — it is an
+	// orchestration, not a second model. Live web research is pluggable: Tavily
+	// when SEARCH_PROVIDER/SEARCH_API_KEY are set, a keyless DuckDuckGo scrape
+	// otherwise, so the persona runs on a fresh deployment with no account.
+	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.LLMTimeout)
+	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore)
+	decisionHandler := decision.NewHandler(decisionAgent)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
 	// does rather than a parallel implementation: an MCP client and a browser
@@ -232,6 +244,10 @@ func main() {
 	// not, so the router picks its own bounds per route rather than inheriting
 	// one that would have to be wrong for one of them.
 	r.Mount("/wiki", wikiHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+
+	// The investment persona. One slow route — it researches live and then waits
+	// on the GPU — so it takes the generation timeout throughout.
+	r.Mount("/decision", decisionHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
 
 	// Model Context Protocol. Outside the short-bound group for the same reason
 	// as the two above: a tools/call can run an analysis and wait on the GPU.
