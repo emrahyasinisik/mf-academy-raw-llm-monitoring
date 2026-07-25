@@ -24,6 +24,8 @@ import type {
   WikiHit,
   WikiAnswer,
   ActivationResult,
+  DecisionTurn,
+  DecisionResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -248,6 +250,17 @@ export const api = {
     }),
   wikiDelete: (slug: string) =>
     request<void>(`/wiki/documents/${slug}`, { method: "DELETE" }),
+
+  // ---- Decision persona ----
+  //
+  // The whole conversation goes up each turn; the server is stateless between
+  // turns and researches live from the transcript. Slow by design: it waits on
+  // a web search and then the GPU across a tunnel.
+  decisionChat: (messages: DecisionTurn[]) =>
+    request<DecisionResult>("/decision/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
 
   // Which MCP servers this browser is allowed to connect to. Answered by the
   // server rather than bundled, so switching one off actually switches it off.

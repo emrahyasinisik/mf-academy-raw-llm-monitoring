@@ -396,3 +396,36 @@ export interface WikiAnswer {
   model: string;
   latency_ms: number;
 }
+
+// ---- Decision persona ----
+
+export type DecisionRole = "user" | "assistant";
+
+/** One message in the persona conversation. The client owns the whole history. */
+export interface DecisionTurn {
+  role: DecisionRole;
+  content: string;
+}
+
+/** A numbered piece of evidence the persona was given, cited in the reply as [n]. */
+export interface DecisionSource {
+  n: number;
+  title: string;
+  url: string;
+  kind: "web" | "wiki";
+}
+
+/** A tool the persona ran this turn, shown so a verdict traces to live research. */
+export interface ResearchStep {
+  tool: string;
+  query: string;
+  results: number;
+}
+
+/** One reply from the persona: the message plus what it researched to get there. */
+export interface DecisionResult {
+  reply: string;
+  sources: DecisionSource[];
+  research: ResearchStep[];
+  model: string;
+}
