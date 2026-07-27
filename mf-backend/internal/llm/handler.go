@@ -67,8 +67,17 @@ func Catalogue() []ModelInfo {
 // compiles the model to WebGPU, the server to CUDA, from one model definition.
 // That shared id is what makes a browser run and a server run of "the same
 // thing" comparable at all.
+// The one exception to the shared-id rule is the fine-tuned build below, which
+// exists only as a CUDA compile on the inference host. It is deliberately
+// server-only: WebLLM can fetch a published MLC model, not a local build, so
+// offering it in the browser would resolve to nothing and fail at load.
 var catalogue = []ModelInfo{
-	{ID: "gemma-2-2b-it-q4f16_1-MLC", Label: "Gemma 2 2B Instruct", Family: "gemma", SizeHint: "~1.4 GB", Recommended: true, Targets: []string{TargetBrowser, TargetServer}},
+	// The Flutter screen generator. This id must equal the directory name
+	// build_mlc.sh emitted — <name>-<quant>-MLC — because mlc_llm serve registers
+	// the last path segment and an OpenAI-style request is matched against it. A
+	// mismatch here is a 404 from the engine, not a fallback.
+	{ID: "qwen3-4b-flutter-q4f16_1-MLC", Label: "Qwen3 4B · Flutter üreteci", Family: "qwen", SizeHint: "~2.3 GB", Recommended: true, Targets: []string{TargetServer}},
+	{ID: "gemma-2-2b-it-q4f16_1-MLC", Label: "Gemma 2 2B Instruct", Family: "gemma", SizeHint: "~1.4 GB", Recommended: false, Targets: []string{TargetBrowser, TargetServer}},
 	{ID: "gemma-2-2b-it-q4f32_1-MLC", Label: "Gemma 2 2B Instruct (f32)", Family: "gemma", SizeHint: "~2.5 GB", Recommended: false, Targets: []string{TargetBrowser}},
 	{ID: "Llama-3.2-1B-Instruct-q4f16_1-MLC", Label: "Llama 3.2 1B Instruct", Family: "llama", SizeHint: "~0.9 GB", Recommended: false, Targets: []string{TargetBrowser, TargetServer}},
 	{ID: "Phi-3.5-mini-instruct-q4f16_1-MLC", Label: "Phi 3.5 Mini Instruct", Family: "phi", SizeHint: "~2.2 GB", Recommended: false, Targets: []string{TargetBrowser}},
