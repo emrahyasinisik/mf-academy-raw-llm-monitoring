@@ -16,11 +16,15 @@ mf-backend/mf-backend
 mf-backend/server
 
 # Built/downloaded model weights (GGUF, adapters) — too large for git
-mf-inference/models/
+# No trailing slash: this machine keeps mf-inference/models as a symlink to an
+# E: drive (C: is nearly full), and a trailing-slash pattern only matches a
+# real directory, not a symlink.
+mf-inference/models
 
 # Misc
 .DS_Store
 *.log
+**/__pycache__/
 
 # Prometheus scrape credential (see mf-observability/.env.example)
 mf-observability/prometheus/metrics-token

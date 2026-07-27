@@ -29,11 +29,17 @@ Eğitim tam olarak bu iki davranışı hedefliyor. Model zaten içeriği bulabil
 
 | Dosya | İş |
 |---|---|
-| `build_dataset.py` | Eğitim verisi üretir — yer gerçeği bilinen sentetik vakalar |
+| `build_dataset.py` | Rubrik motoru için eğitim verisi — yer gerçeği bilinen vakalar |
 | `train_qlora.py` | QLoRA eğitimi (4-bit NF4 donuk base + ~6M eğitilen parametre) |
 | `merge_adapter.py` | LoRA'yı base ağırlıklara gömer, fp16 HF modeli yazar |
 | `build_mlc.sh` | q4f16_1'e kuantize eder ve MLC serving config'i üretir |
-| `compare.py` | Önce/sonra ölçer ve **verdict basar** |
+| `compare.py` | Rubrik motoru için önce/sonra ölçer ve **verdict basar** |
+| `build_persona_dataset.py` | **Yatırım personası** için eğitim verisi (bkz. aşağıdaki bölüm) |
+| `persona_eval.py` | Persona için önce/sonra ölçer (grounding, format, soru-vs-karar) |
+
+Eğitim ve merge/build/serve scriptleri (`train_qlora.py`, `merge_adapter.py`,
+`build_mlc.sh`) **iki veri seti için de aynıdır** — sadece `--train`/`--eval`
+yollarını değiştirirsin.
 
 ---
 
@@ -47,7 +53,9 @@ açık olmalı.
 ```bash
 cd ~/mf-capstone            # repo nerede duruyorsa
 git fetch origin
-git checkout feat/rubric-analysis-engine
+# Rubrik hattı main'de. Persona hattı henüz merge edilmediyse
+# feat/investment-persona'ya geç — hangisini eğiteceğine göre.
+git checkout main
 git pull
 
 # Eğitim ortamı, mlc container'ından AYRI olmalı.
@@ -310,3 +318,72 @@ panel bunu gizlemiyor.
 
 İki adapter'ı karşılaştırırken `hotswap`, karar verdikten sonra `mlc`'ye derleyip
 oraya geç.
+
+---
+
+## Persona fine-tune (yatırım personası)
+
+Yukarıdaki hat rubrik motorunu (JSON şeması) eğitir. Bu bölüm **konuşmalı yatırım
+personasını** (`mf-backend/internal/decision`) eğitir. İki farklı davranışı
+hedefler — ikisi de 2B base modelin kötü yaptığı şeyler:
+
+1. **Grounding.** Verilen numaralı kanıtlara dayan ve `[n]` ile atıf yap. Base
+   model akıcı bir karar yazıp hiç atıf yapmaz, hatta kanıtta olmayan bir
+   numara uydurur.
+2. **Tahmin yerine soru.** Belirleyici bilgi (aşama, gelir) eksikse tek bir
+   netleştirici soru sor, yine de karar verme.
+
+Yer gerçeği yine kurgulanır: her boyutun kalitesi önce seçilir, tam onu söyleyen
+kanıt üretilir, ardından ondan çıkması **gereken** karar (veya soru) yazılır.
+
+### Format hizası — neden fetch
+
+Eğitim mesajları, `internal/decision`'ın çalışma anında modele gönderdiğiyle
+**birebir** aynıdır: sistem prompt'u ve tur talimatı çalışan backend'den çekilir
+(`GET /decision/prompt`), kanıt bloğu `decision.Agent.gather`'ın düzeniyle
+kurulur. Biri kayarsa adapter, hiçbir şeyin göndermediği bir prompt için
+eğitilir — sessiz bir hata.
+
+### Akış
+
+```bash
+# 0. Backend çalışıyor olsun ve bir token al (herhangi bir hesap yeter).
+export BASE_URL=http://localhost:8090
+export TOKEN=<access-token>
+
+# 1. Veri setini üret — persona_train/eval + eşleşen _meta dosyaları.
+python build_persona_dataset.py --n 800 --n-eval 100 --clarify-share 0.3
+
+# 2. Eğit — aynı train_qlora, sadece yollar farklı.
+python train_qlora.py \
+  --train data/persona_train.jsonl \
+  --eval  data/persona_eval.jsonl \
+  --out-dir ../models/persona-v1
+
+# 3. Yayınla: ya hot-swap (değerlendirme) ya da MLC (üretim) —
+#    "Adapter'ı yayınlamanın iki yolu" bölümüyle aynı.
+```
+
+### Ölç — `compare.py` değil `persona_eval.py`
+
+`compare.py` rubriği backend'in `/analysis/trial` rotasından geçirir. Persona
+öyle ölçülemez: çalışma anında **canlı** araştırır, yani her koşuda kanıt
+değişir. `persona_eval.py` bu yüzden kanıtı **sabitler** — held-out seti
+doğrudan inference host'un OpenAI ucuna, agent'ın göndereceği `[system, user]`
+ile atar (canlı araştırma hariç) ve çıktıyı `_meta` dosyasındaki yer gerçeğine
+karşı puanlar.
+
+```bash
+export LLM_BASE_URL=https://<inference-host>   # /v1 olmadan
+export LLM_API_KEY=<gateway-secret>
+python persona_eval.py --before gemma-2-2b-it-q4f16_1-MLC --after persona-v1 --limit 40
+```
+
+Basılan dört sayı, önem sırasıyla: `citation_valid` (uydurma atıf gitti mi),
+`grounded_format` (karar KARAR/SKOR biçiminde mi), `asked_when_thin` (kanıt
+zayıfken soruyor mu), `decision_match` (karar bandı kanıtla uyuşuyor mu).
+`citation_valid` düşerse adapter **yayınlanmaz**.
+
+> Not: Tüm bu adımlar GPU box'ta (Windows + WSL2) koşar; eğitim ortamı mlc
+> container'ından ayrıdır. Backend Render'da veya lokalde olabilir — veri seti
+> üreticisi ona sadece prompt'u çekmek için bağlanır.

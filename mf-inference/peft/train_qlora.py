@@ -241,6 +241,13 @@ def main() -> None:
             num_train_epochs=args.epochs,
             per_device_train_batch_size=args.batch_size,
             gradient_accumulation_steps=args.grad_accum,
+            # Trainer defaults per_device_eval_batch_size to 8 regardless of the
+            # train batch size, and without eval_accumulation_steps it keeps every
+            # batch's logits on the GPU until the eval loop ends. Both blow past
+            # this card's 6 GB the moment eval starts. Match eval to the train
+            # budget instead.
+            per_device_eval_batch_size=args.batch_size,
+            eval_accumulation_steps=1,
             learning_rate=args.lr,
             lr_scheduler_type="cosine",
             warmup_ratio=0.03,

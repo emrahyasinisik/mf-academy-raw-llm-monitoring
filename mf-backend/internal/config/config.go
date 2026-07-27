@@ -76,6 +76,16 @@ type Config struct {
 	// something to publish. Empty leaves the endpoint open, which is right for
 	// local development and refused in production by Validate.
 	MetricsToken string
+
+	// SearchProvider selects how the decision agent researches live. "tavily"
+	// uses the Tavily API (needs SearchAPIKey and returns extracted page
+	// content); anything else falls back to a keyless DuckDuckGo HTML scrape,
+	// which needs no account but returns only snippets and is best-effort.
+	SearchProvider string
+	// SearchAPIKey is the key for a keyed SearchProvider. Empty forces the
+	// keyless fallback regardless of SearchProvider, so the agent still runs on
+	// a fresh deployment — just with thinner evidence.
+	SearchAPIKey string
 }
 
 // InsecureDefaultSecret is the development JWT secret. It is a known constant —
@@ -127,6 +137,9 @@ func Load() Config {
 		// (roughly 260 per criterion), and the old ceiling silently truncated
 		// every one of them.
 		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 4096),
+
+		SearchProvider: getEnv("SEARCH_PROVIDER", ""),
+		SearchAPIKey:   getEnv("SEARCH_API_KEY", ""),
 
 		AdminEmail:   getEnv("ADMIN_EMAIL", ""),
 		MetricsToken: getEnv("METRICS_TOKEN", ""),

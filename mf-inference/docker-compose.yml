@@ -53,7 +53,11 @@ services:
       # Read-only: the server has no business writing to a build artefact, and
       # the one thing it does write on a cold start — compiled kernels — belongs
       # in the cache volume above, which is writable.
-      - ./models:/models:ro
+      #
+      # MODELS_DIR overrides the source when models/ is a symlink/junction to
+      # another drive (see .env.example): Docker's bind-mount layer cannot read
+      # through a link that crosses drives, so the real path has to be given directly.
+      - ${MODELS_DIR:-./models}:/models:ro
     command:
       # No console-script entry point ships in the wheel; must run as a module.
       - python3
@@ -123,7 +127,7 @@ services:
       - ./llamacpp/entrypoint.sh:/entrypoint.sh:ro
       # Same bind mount as mlc, same reasoning: the PEFT pipeline writes here
       # from outside Docker and the server has no business writing back.
-      - ./models:/models:ro
+      - ${MODELS_DIR:-./models}:/models:ro
     deploy:
       resources:
         reservations:
