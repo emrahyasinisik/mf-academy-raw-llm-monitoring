@@ -8,16 +8,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/store/auth";
 import { AuthView } from "./views/AuthView";
+import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
 
-export type MasterView = "persona" | "admin";
+export type MasterView = "codegen" | "persona" | "admin";
 
-// The persona is the product: one agent that researches live and decides. There
-// is no separate analysis or knowledge-base screen — those are the persona's own
-// tools, not places the user goes. Admin is listed for everyone: the view itself
-// explains the role requirement, friendlier than a nav item that vanishes.
+// The generator leads because it is what the served model does: the compiled
+// build is the Flutter fine-tune, and a brief is the only prompt shape it was
+// trained on. The persona stays reachable rather than being deleted — it is a
+// complete agent against a different base model, and it fails legibly (the view
+// reports the inference host, it does not crash) while that model is not the one
+// being served. Admin is listed for everyone: the view itself explains the role
+// requirement, friendlier than a nav item that vanishes.
 const NAV: { id: MasterView; label: string; icon: string }[] = [
+  { id: "codegen", label: "Üreteç", icon: "</>" },
   { id: "persona", label: "Persona", icon: "◈" },
   { id: "admin", label: "Yönetim", icon: "⚙" },
 ];
@@ -37,7 +42,7 @@ function parseHash(): { view: MasterView; sub: string } | null {
 // the server and the client agree on the first paint.
 function initialRoute(): { view: MasterView; sub: string } {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? { view: "persona", sub: "" };
+  return parsed ?? { view: "codegen", sub: "" };
 }
 
 export function AppShell() {
@@ -138,6 +143,7 @@ export function AppShell() {
       </header>
 
       <main className="flex-1 min-h-0">
+        {view === "codegen" && <CodegenView />}
         {view === "persona" && <PersonaView />}
         {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
       </main>
