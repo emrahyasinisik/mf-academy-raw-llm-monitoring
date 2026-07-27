@@ -59,19 +59,43 @@ print(hashlib.sha256(got.encode()).hexdigest())
 // ---- the brief ----
 
 /**
- * How the state field was phrased in training. The model saw these three shapes
- * and nothing else, so they are a closed set rather than free text: "State:
- * Riverpod" is a prompt the adapter has no answer for, and it will improvise one.
+ * How the state field is phrased in training. A closed set rather than free
+ * text: "State: Riverpod" is a prompt the adapter has no answer for, and it will
+ * improvise one.
+ *
+ * These strings are byte-checked against the dataset by
+ * `mf-inference/peft/flutter/verify_contract.py`. They were not, until v8: the
+ * comment here claimed the model had seen these three shapes and nothing else,
+ * and the dataset disagreed with all three. v7 phrased the stateless case as
+ * "yok (StatelessWidget)." 45 times and "yok, StatelessWidget" never — so every
+ * generation ran a prompt the adapter had never been trained on, with no symptom
+ * beyond output that was slightly worse than it should have been. v8 makes the
+ * dataset's own phrasing canonical and the verifier keeps the two ends equal.
  */
 export const STATE_CHOICES = [
   { id: "cubit", label: "Cubit", wire: "flutter_bloc (Cubit)" },
-  { id: "bloc", label: "Bloc + event", wire: "flutter_bloc (Bloc+event)" },
-  { id: "stateless", label: "Durumsuz", wire: "yok, StatelessWidget" },
+  { id: "bloc", label: "Bloc + event", wire: "flutter_bloc (Bloc + event)" },
+  { id: "stateless", label: "Durumsuz", wire: "yok (StatelessWidget)" },
 ] as const;
 
 export type StateChoice = (typeof STATE_CHOICES)[number]["id"];
 
+/**
+ * What is being asked for. The training set opens a brief with `Ekran:` 104
+ * times and `Bileşen:` 32 times, and the two produce different answers: a screen
+ * is a Scaffold with an AppBar, a component is a widget meant to be dropped into
+ * someone else's tree. Until this existed the form could only say `Ekran:`, so a
+ * quarter of what the adapter was trained to do had no way to be asked for.
+ */
+export const SUBJECT_KINDS = [
+  { id: "ekran", label: "Ekran", wire: "Ekran", hint: "kısa ad" },
+  { id: "bilesen", label: "Bileşen", wire: "Bileşen", hint: "tek widget" },
+] as const;
+
+export type SubjectKind = (typeof SUBJECT_KINDS)[number]["id"];
+
 export interface Brief {
+  kind: SubjectKind;
   screen: string;
   description: string;
   fields: string;
@@ -89,7 +113,8 @@ export interface Brief {
  */
 export function buildBrief(b: Brief): string {
   const state = STATE_CHOICES.find((s) => s.id === b.state) ?? STATE_CHOICES[0];
-  const lines = [`Ekran: ${b.screen.trim()}`];
+  const kind = SUBJECT_KINDS.find((k) => k.id === b.kind) ?? SUBJECT_KINDS[0];
+  const lines = [`${kind.wire}: ${b.screen.trim()}`];
   if (b.description.trim()) lines.push(`Açıklama: ${b.description.trim()}`);
   if (b.fields.trim()) lines.push(`Alanlar/İçerik: ${b.fields.trim()}`);
   lines.push(`State: ${state.wire}.`);

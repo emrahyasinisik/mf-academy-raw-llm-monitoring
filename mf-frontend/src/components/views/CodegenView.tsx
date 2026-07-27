@@ -25,11 +25,13 @@ import type { ModelInfo, Run } from "@/lib/types";
 import {
   FLUTTER_SYSTEM_PROMPT,
   STATE_CHOICES,
+  SUBJECT_KINDS,
   buildBrief,
   extractDart,
   lintDart,
   type Finding,
   type StateChoice,
+  type SubjectKind,
 } from "@/lib/flutterContract";
 import { DartBlock } from "@/components/ui/DartBlock";
 
@@ -42,6 +44,7 @@ const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 
 export function CodegenView() {
+  const [kind, setKind] = useState<SubjectKind>("ekran");
   const [screen, setScreen] = useState("");
   const [description, setDescription] = useState("");
   const [fields, setFields] = useState("");
@@ -74,9 +77,11 @@ export function CodegenView() {
       .catch(() => setServerAvailable(false));
   }, []);
 
+  const subject = SUBJECT_KINDS.find((k) => k.id === kind) ?? SUBJECT_KINDS[0];
+
   const prompt = useMemo(
-    () => (rawMode ? raw : buildBrief({ screen, description, fields, state })),
-    [rawMode, raw, screen, description, fields, state],
+    () => (rawMode ? raw : buildBrief({ kind, screen, description, fields, state })),
+    [rawMode, raw, kind, screen, description, fields, state],
   );
 
   const ready = rawMode ? raw.trim().length > 10 : screen.trim().length > 2;
@@ -152,12 +157,30 @@ export function CodegenView() {
               />
             ) : (
               <>
-                <Field label="Ekran" hint="kısa ad">
+                <Field label="Tür">
+                  <div className="flex gap-1.5">
+                    {SUBJECT_KINDS.map((k) => (
+                      <button
+                        key={k.id}
+                        onClick={() => setKind(k.id)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                        style={{
+                          background: kind === k.id ? "var(--accent-soft)" : "transparent",
+                          border: `1px solid ${kind === k.id ? "var(--accent)" : "var(--border)"}`,
+                          color: kind === k.id ? "var(--text)" : "var(--text-dim)",
+                        }}
+                      >
+                        {k.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label={subject.label} hint={subject.hint}>
                   <input
                     className="input"
                     value={screen}
                     onChange={(e) => setScreen(e.target.value)}
-                    placeholder="Bildirim tercihleri"
+                    placeholder={kind === "bilesen" ? "Yıldızlı ürün kartı" : "Bildirim tercihleri"}
                   />
                 </Field>
                 <Field label="Açıklama" hint="ne yapıyor">
