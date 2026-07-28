@@ -129,35 +129,22 @@ not revisit embedding: an embedded dashboard shows every viewer the same
 queries. Build the panels in the app over a backend endpoint that constrains the
 query, the way `LLM_BASE_URL` already fronts the inference host.
 
-**Publishing it**, on the box:
+**The steps are in [`GRAFANA_RUNBOOK.md`](GRAFANA_RUNBOOK.md)**, which runs on
+the box start to finish. The shape of it: an `mf-edge` network is the one seam
+between the two compose projects, so the tunnel — which lives in mf-inference —
+can resolve `grafana`, which lives here. A public hostname on the existing
+tunnel points at `grafana:3000`, and a Cloudflare Access policy goes up
+*before* that hostname does.
 
-```bash
-docker network create mf-edge          # once; both compose projects join it
-```
+That order is the part not to improvise. Without a policy the tunnel serves
+Grafana's login page to the internet and the only thing between a stranger and
+the dashboards is `GRAFANA_PASSWORD`.
 
-Then in the Cloudflare dashboard, on the same tunnel that already serves
-`mlc.…`, add a public hostname:
+Anonymous auth stays off either way, so a misconfigured policy fails closed.
 
-| | |
-|---|---|
-| Hostname | `grafana.<your-domain>` |
-| Service | `http://grafana:3000` |
-
-`grafana` resolves because both containers now share `mf-edge`. Set
-`GRAFANA_ROOT_URL` in `.env` to that hostname and recreate the container.
-
-**Then put a policy in front of it, before the hostname is live.** Cloudflare
-Access, an Allow policy scoped to your own email. Without it the tunnel serves
-Grafana's login page to the internet, and the only thing between a stranger and
-the dashboards is `GRAFANA_PASSWORD`. With it, unauthenticated requests never
-reach the container.
-
-Anonymous auth stays off either way. A policy that is misconfigured should fail
-closed.
-
-Last, point the admin UI at it — `NEXT_PUBLIC_GRAFANA_URL` in the frontend's
-environment. Unset, the panel simply does not show the link, so a deployment
-without a tunnel is a supported state rather than a broken button.
+`NEXT_PUBLIC_GRAFANA_URL` in the frontend's environment is what renders the
+link. Unset, the panel shows nothing, so a deployment without a tunnel is a
+supported state rather than a broken button.
 
 ## Reading the logs
 
