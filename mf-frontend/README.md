@@ -82,3 +82,19 @@ NEXT_PUBLIC_API_URL = https://mf-backend.onrender.com
 
 Then deploy via the Vercel MCP or `vercel --prod`. After the frontend URL is
 known, update the backend's `CORS_ORIGINS` on Render to match.
+
+**Optional:**
+
+```
+NEXT_PUBLIC_GRAFANA_URL = https://grafana.example.com
+```
+
+Adds a Grafana link to the admin panel's overview. Leave it unset and the link
+is not rendered at all, which is the right state for any deployment whose
+observability stack is not published — the stack runs on the inference box, not
+here. Setting it to a hostname that is not behind an access policy publishes the
+monitoring console to anyone who reads the page source; see
+[mf-observability/README.md](../mf-observability/README.md).
+
+`NEXT_PUBLIC_*` is inlined at build time, so changing it needs a redeploy, not a
+restart.

@@ -104,6 +104,61 @@ docker compose exec prometheus wget -qO- http://localhost:9090/api/v1/targets \
 Empty panels with no error almost always means the datasource uid does not
 match what the dashboard references — both are pinned to `prometheus` here.
 
+## Reaching Grafana from the admin UI
+
+The admin panel links to Grafana. It does not embed it, and that is the
+decision worth explaining, because embedding is the obvious first idea.
+
+An `<iframe>` cannot send an `X-API-Key` header, so the gateway's auth — the one
+thing standing between this machine and the open internet — has no way to
+authenticate a framed request. Making it work means either publishing Grafana
+without that check, or proxying every Grafana asset through the backend on
+Render and running Grafana under a sub-path to match. The first trades away the
+security model; the second buys an iframe with a maintenance bill.
+
+Linking instead keeps Grafana what it already is: an operator's tool, reached
+directly, authenticated by something that understands who the operator is. This
+is also the common arrangement in practice — product UIs that show metrics draw
+their own charts from the metrics API, and teams that want Grafana put it behind
+SSO and link to it. Embedding lands in between and inherits the drawbacks of
+both.
+
+Since the audience is admins only, nothing here needs per-user filtering. If
+that ever changes — metrics shown to ordinary users, each seeing their own — do
+not revisit embedding: an embedded dashboard shows every viewer the same
+queries. Build the panels in the app over a backend endpoint that constrains the
+query, the way `LLM_BASE_URL` already fronts the inference host.
+
+**Publishing it**, on the box:
+
+```bash
+docker network create mf-edge          # once; both compose projects join it
+```
+
+Then in the Cloudflare dashboard, on the same tunnel that already serves
+`mlc.…`, add a public hostname:
+
+| | |
+|---|---|
+| Hostname | `grafana.<your-domain>` |
+| Service | `http://grafana:3000` |
+
+`grafana` resolves because both containers now share `mf-edge`. Set
+`GRAFANA_ROOT_URL` in `.env` to that hostname and recreate the container.
+
+**Then put a policy in front of it, before the hostname is live.** Cloudflare
+Access, an Allow policy scoped to your own email. Without it the tunnel serves
+Grafana's login page to the internet, and the only thing between a stranger and
+the dashboards is `GRAFANA_PASSWORD`. With it, unauthenticated requests never
+reach the container.
+
+Anonymous auth stays off either way. A policy that is misconfigured should fail
+closed.
+
+Last, point the admin UI at it — `NEXT_PUBLIC_GRAFANA_URL` in the frontend's
+environment. Unset, the panel simply does not show the link, so a deployment
+without a tunnel is a supported state rather than a broken button.
+
 ## Reading the logs
 
 In Grafana, the dashboard's bottom row has them. To explore, use **Explore** with

@@ -161,12 +161,21 @@ services:
   #
   # Named tunnel: stable hostname, but it requires a domain already on
   # Cloudflare, because a public hostname has to live in a zone you control.
+  # Joined to `edge` as well so a second public hostname can point at Grafana,
+  # which lives in the mf-observability project and is otherwise on a network
+  # this container cannot see. Nothing is exposed by joining a network — the
+  # tunnel only serves the hostnames configured in the Cloudflare dashboard,
+  # and the Grafana one is expected to sit behind an Access policy. See
+  # mf-observability/README.md.
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: [tunnel]
     restart: unless-stopped
     depends_on:
       - gateway
+    networks:
+      - default
+      - edge
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set — see README}
 
   # Opt-in: `docker compose --profile quicktunnel up -d`.
@@ -187,3 +196,18 @@ services:
 
 volumes:
   model-cache:
+
+networks:
+  # The two compose projects on this machine each get their own default network
+  # and cannot see each other, which is why the tunnel could not reach Grafana.
+  # `edge` is the one deliberate seam between them, declared external so neither
+  # project owns it and `docker compose down` in either one leaves it standing:
+  #
+  #   docker network create mf-edge
+  #
+  # Only cloudflared joins it here. mlc, llamacpp and the gateway stay on the
+  # default network, so widening this seam cannot widen what is reachable from
+  # the internet.
+  edge:
+    external: true
+    name: mf-edge
