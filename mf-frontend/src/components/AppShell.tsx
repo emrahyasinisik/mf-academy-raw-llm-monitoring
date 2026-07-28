@@ -4,6 +4,13 @@
 // navigation state — master view plus the active subview — and mirrors it into
 // the URL hash as `#master/subview`, so any view is shareable and the browser's
 // back button works, with no full-page reload.
+//
+// A view that has been opened stays mounted and is hidden rather than removed.
+// That is not a performance tweak: generation on the box takes tens of seconds,
+// and swapping the view out unmounted the component holding the request, so its
+// result had nowhere to land. The work itself never stopped — the run was
+// still recorded — but from the chair it looked exactly like leaving the tab
+// had killed the job. The persona conversation was lost the same way.
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/store/auth";
@@ -37,6 +44,14 @@ const NAV: { id: MasterView; label: string; icon: string }[] = [
 
 const isMaster = (v: string): v is MasterView => NAV.some((n) => n.id === v);
 
+// Pane holds a view that has been opened, whether or not it is the one on
+// screen. `hidden` is display:none, which takes the subtree out of layout and
+// out of the accessibility tree while React keeps its state — the point being
+// that a request in flight still has a component to resolve into.
+function Pane({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return <div className={active ? "h-full" : "hidden"}>{children}</div>;
+}
+
 // An unknown or missing subview is left empty on purpose — each master view
 // falls back to its own default, so the router never needs to know their names.
 function parseHash(): { view: MasterView; sub: string } | null {
@@ -57,6 +72,16 @@ export function AppShell() {
   const { user, loading, logout } = useAuth();
   const [view, setView] = useState<MasterView>(() => initialRoute().view);
   const [sub, setSub] = useState(() => initialRoute().sub);
+
+  // Which of the two working views have been opened at least once. Mounting
+  // them both up front would be simpler, but each fetches its model list on
+  // mount, and a visitor who only ever opens the generator should not pay for
+  // the persona. Opened once, they stay — that is what keeps a generation
+  // started before the switch alive to return to.
+  const [opened, setOpened] = useState<MasterView[]>(() => [initialRoute().view]);
+  useEffect(() => {
+    setOpened((prev) => (prev.includes(view) ? prev : [...prev, view]));
+  }, [view]);
 
   // The hash is the single source of truth: navigation handlers only write to
   // it, and this listener is what actually moves the app — which is also what
@@ -151,8 +176,24 @@ export function AppShell() {
       </header>
 
       <main className="flex-1 min-h-0">
-        {view === "codegen" && <CodegenView />}
-        {view === "persona" && <PersonaView />}
+        {/* `hidden` and not a conditional render: React keeps the subtree and
+            its state alive, so an in-flight generation still has a component
+            to return to, and each view keeps its scroll position. The inactive
+            ones are display:none, so they cost nothing to lay out. */}
+        {opened.includes("codegen") && (
+          <Pane active={view === "codegen"}>
+            <CodegenView />
+          </Pane>
+        )}
+        {opened.includes("persona") && (
+          <Pane active={view === "persona"}>
+            <PersonaView />
+          </Pane>
+        )}
+        {/* The two read-only screens are still torn down and rebuilt, and that
+            is the right default: they start no work that can be interrupted,
+            and every one of their numbers ages. Kept mounted, a chart opened
+            this morning would still be on screen tonight, silently. */}
         {view === "metrics" && <MetricsView />}
         {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
       </main>
