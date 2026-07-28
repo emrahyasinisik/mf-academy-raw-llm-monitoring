@@ -50,10 +50,10 @@ func TestSanitize(t *testing.T) {
 }
 
 func TestBuildQuery(t *testing.T) {
-	if got := buildQuery("Acme AI", "Acme AI"); got != "Acme AI" {
+	if got := buildQuery("Acme AI", "Acme AI"); got != "Acme AI yatırım değerlendirme pazar analizi" {
 		t.Fatalf("subject should not be repeated: %q", got)
 	}
-	if got := buildQuery("Acme AI", "500K bütçe"); got != "Acme AI 500K bütçe" {
+	if got := buildQuery("Acme AI", "500K bütçe"); got != "Acme AI 500K bütçe yatırım değerlendirme pazar analizi" {
 		t.Fatalf("want subject anchored to the latest message, got %q", got)
 	}
 }
