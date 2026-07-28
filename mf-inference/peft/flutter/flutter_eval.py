@@ -15,12 +15,23 @@ and titleLarge migrations appear on both sides. That gives two numbers whose
     followed_unseen   evidence obeyed for one it has never seen
 
 Equal, and the model learned the rule. A large gap, and it memorised two API
-names and v8 bought nothing the fact corpus could not have hard-coded. This is
-the measurement that decides whether the evidence pipeline is worth building
-out, so it is the one worth being honest about.
+names and v8 bought nothing the fact corpus could not have hard-coded.
 
-The supporting numbers are the v7 gate, kept so a gain in grounding that costs
-code quality is visible rather than hidden:
+That was the design. What the 2026-07-27 run measured is that these numbers
+cannot carry it, and the reason is in the base model, not the adapter:
+
+    followed_unseen   base 71.4%  ->  adapter 57.1%   (n=7)
+    followed_seen     base  100%  ->  adapter  100%   (n=6)
+    clean             base 81.0%  ->  adapter 95.2%   (n=21)
+
+Reading evidence is already a base capability of a modern 4B instruct model, so
+followed_* has almost no room to show an adapter's contribution, and at n=7 a
+single row moves it 14 points. Judge a Flutter adapter on `clean`, which is what
+the fine-tune is actually for, and read followed_* only against a base run of
+the same prompts on the same library versions.
+
+The supporting numbers are the v7 gate, and on this evidence they are not
+supporting at all — they are the result:
 
     clean            no error-severity lint finding
     fenced           answered inside a ```dart block, as the contract requires
@@ -100,7 +111,16 @@ def extract_code(text: str) -> tuple[str, bool, bool]:
     return rest[:close.start()], True, True
 
 
-def score_one(text: str, meta: dict) -> dict:
+def score_one(text: str, meta: dict) -> tuple[dict, str | None]:
+    """Return (flags, migration outcome).
+
+    A migration can fail two ways that mean opposite things, so they are not
+    collapsed into the one boolean. `deprecated` is the failure the evidence
+    block exists to prevent: the model was told the API was removed and reached
+    for it anyway. `neither` is a screen that never used the widget at all —
+    the model narrowed the brief, which is a scope problem and no evidence to
+    read would have fixed it.
+    """
     code, fenced, complete = extract_code(text)
     out = {
         "fenced": fenced,
@@ -108,14 +128,50 @@ def score_one(text: str, meta: dict) -> dict:
         "clean": not any(re.search(p, code) for p, _ in BAD),
     }
     key = meta.get("decisive")
-    if key and key in REPLACES:
-        old = REPLACES[key]
-        followed = (key in code) and (old not in code)
-        out["followed_unseen" if key in HELDOUT else "followed_seen"] = followed
-    return out
+    if not (key and key in REPLACES):
+        return out, None
+
+    old = REPLACES[key]
+    used_new, used_old = key in code, old in code
+    out["followed_unseen" if key in HELDOUT else "followed_seen"] = (
+        used_new and not used_old)
+    if used_old:
+        outcome = "deprecated"
+    elif used_new:
+        outcome = "replacement"
+    else:
+        outcome = "neither"
+    return out, outcome
 
 
 # --- backends ---------------------------------------------------------------
+
+def _silence_torchao_probe() -> None:
+    """Stop peft's torchao probe from raising on a host that has an old torchao.
+
+    Attaching a LoRA walks a chain of dispatchers, each asked whether its
+    backend applies. peft's torchao probe *raises* ImportError on a too-old
+    torchao instead of answering False, so a chain that merely passes over it
+    dies. Kaggle's image ships 0.10.0 and peft wants above 0.16.0.
+
+    Training never hit this: a 4-bit model matches the bitsandbytes dispatcher
+    two entries earlier and the chain stops there. Eval loads fp16 to score what
+    serving will run, walks further, and trips it — which is why the v8 run
+    produced a trained adapter and no after-number.
+
+    Nothing here uses torchao, so the honest answer to the probe is False. Only
+    patched when it actually raises, so a host with a current torchao is left
+    alone.
+    """
+    try:
+        from peft.tuners.lora import torchao as lora_torchao
+    except Exception:
+        return
+    try:
+        lora_torchao.is_torchao_available()
+    except ImportError:
+        lora_torchao.is_torchao_available = lambda: False
+
 
 def gen_hf(rows: list[dict], base: str, adapter: str | None, max_new: int):
     import torch
@@ -126,6 +182,7 @@ def gen_hf(rows: list[dict], base: str, adapter: str | None, max_new: int):
         base, torch_dtype=torch.float16, device_map={"": 0})
     if adapter:
         from peft import PeftModel
+        _silence_torchao_probe()
         model = PeftModel.from_pretrained(model, adapter)
     model.eval()
 
@@ -200,9 +257,12 @@ def main() -> None:
         label = args.model
 
     agg: dict[str, list[bool]] = {}
+    outcomes: dict[str, int] = {}
     dumped = []
     for i, (text, meta) in enumerate(zip(stream, metas), 1):
-        s = score_one(text, meta)
+        s, outcome = score_one(text, meta)
+        if outcome:
+            outcomes[outcome] = outcomes.get(outcome, 0) + 1
         for k, v in s.items():
             agg.setdefault(k, []).append(v)
         dumped.append({"i": i, "meta": meta, "completion": text})
@@ -221,11 +281,19 @@ def main() -> None:
         return f"{100*sum(vals)/len(vals):5.1f}%  (n={len(vals)})"
 
     print(f"\n=== {label} ===")
-    print(f"  followed_unseen  {rate('followed_unseen')}   <- the result")
+    print(f"  followed_unseen  {rate('followed_unseen')}")
     print(f"  followed_seen    {rate('followed_seen')}")
     print(f"  clean            {rate('clean')}")
     print(f"  fenced           {rate('fenced')}")
     print(f"  complete         {rate('complete')}")
+
+    if outcomes:
+        print("\n  migrations       " + "   ".join(
+            f"{k} {outcomes[k]}" for k in ("replacement", "deprecated", "neither")
+            if k in outcomes))
+        if outcomes.get("neither"):
+            print("  `neither` is not an evidence failure — the answer never used "
+                  "the widget.\n  Read those rows before reading followed_*.")
 
     seen, unseen = agg.get("followed_seen"), agg.get("followed_unseen")
     if seen and unseen:

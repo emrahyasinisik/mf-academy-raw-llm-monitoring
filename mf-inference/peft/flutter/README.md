@@ -54,6 +54,8 @@ Aynen taşınan tek şey fp16 + loss scaling: T4 de sm_75, bf16 yok.
 | `verify_contract.py` | Servis edilen sözleşme ile eğitilen sözleşmeyi karşılaştırır |
 | `fetch_dataset.sh` | Veri setini Kaggle'dan `data/` altına indirir (data/ gitignore'da) |
 | `kaggle-notebook.ipynb` | v7 notebook'unun kayıtlı sürümü — eksik olduğu bilinerek, kanıt olarak |
+| `kaggle-v8-train.ipynb` | v8 eğitim koşusu (`emrahik/flutter-v8-qlora`) — v7'de düştüğümüz "notebook yalnız Kaggle'da" durumu tekrarlanmasın diye |
+| `kaggle-v8-eval.ipynb` | Yalnız ölçüm (`emrahik/flutter-v8-eval`); adapter'ı eğitim koşusunun çıktısından alır, eğitimi tekrarlamaz |
 | `kernel-metadata.json` | v7 koşusunun GPU tipi ve veri kaynakları |
 
 ## v8 nasıl eğitiliyor
@@ -71,24 +73,39 @@ fp16 + loss scaling                     (T4 = sm_75, bf16 yok — 1660 Ti ile ay
 LoRA r16/α32, yalnız q,k,v,o_proj       (115 satırda MLP'yi de açmak overfit daveti)
 ```
 
+Üç adımın ilk ikisi geçti, üçüncüsü düştü: adapter takarken peft bir dispatcher
+zinciri yürüyor ve zincirdeki torchao yoklaması eski bir torchao'da `False`
+dönmek yerine hata fırlatıyor (Kaggle 0.10.0, peft 0.16.0 üstünü istiyor).
+Eğitim buna hiç değmemişti — 4-bit model zincirin iki adım öncesindeki
+bitsandbytes dispatcher'ında eşleşiyor. Ölçüm servisin koşacağı şeyi puanlamak
+için fp16 yüklüyor, zinciri sonuna kadar yürüyor ve tökezliyor. `flutter_eval.py`
+artık yoklamayı **yalnızca gerçekten hata fırlattığında** susturuyor; torchao'yu
+kullanmadığımız için dürüst cevap zaten `False`.
+
+Eğitilmiş adapter sağlamdı, eksik olan yalnızca sayısıydı. `kaggle-v8-eval.ipynb`
+o son adımı 3.5 saatlik eğitimi tekrarlamadan koşuyor: adapter'ı `kernel_sources`
+ile eğitim koşusunun çıktısından alıyor.
+
 Base model kimliği bir **varsayım**: v7'nin hangi Qwen3 sürümüyle eğitildiği
 kayıtlı değil, notebook'un kurtarılmış hücresi yalnızca bir chat template
 kullanıldığını gösteriyor. `--base-model` ile tek kelimede değişir.
 
 ### Ölçüm neye bakıyor
 
-`flutter_eval.py`'nin sonucu tek satır:
-
 | metrik | ne diyor |
 |---|---|
-| `followed_unseen` | **Sonuç bu.** Eğitimde hiç görmediği bir API göçünü (SegmentedButton, DropdownMenu, NavigationBar, withValues) kanıta bakarak yaptı mı — n=7 |
+| `followed_unseen` | Eğitimde hiç görmediği bir API göçünü (SegmentedButton, DropdownMenu, NavigationBar, withValues) kanıta bakarak yaptı mı — n=7 |
 | `followed_seen` | Eğitimde gördüğü göçler (FilledButton, titleLarge) — n=6 |
-| `clean` / `fenced` / `complete` | v7'nin kapısı, korunuyor: kanıt kazancı kod kalitesine mal olduysa görünsün |
+| `clean` / `fenced` / `complete` | v7'nin kapısı |
+| `migrations` | Göç satırının üç sonucu: `replacement` / `deprecated` / `neither` |
 
-İkisi arasındaki **fark** ezber ölçüsüdür. Eşitlerse model kuralı öğrenmiştir;
-arası açıksa iki API adı ezberlemiştir ve kanıt hattı henüz maliyetini
-çıkarmıyordur — o durumda backend ajanını yazmadan önce migration çeşitliliğini
-artırmak gerekir.
+`followed_unseen` **sonuç olarak tasarlanmıştı ama o işi yapamıyor** — neden
+[aşağıda](#v8-sonucu). Bir göç satırının başarısızlığı iki farklı şey olabildiği
+için tek boolean yetmiyor: `deprecated`, modele "bu API kaldırıldı" denmişken
+eskisine uzanmasıdır ve kanıt bloğunun önlemek için var olduğu hata tam olarak
+budur. `neither` ise widget'ı hiç kullanmayan bir ekrandır — modelin brief'i
+daralttığı yerdir, hiçbir kanıt onu düzeltmezdi. `followed_*` ikisini aynı
+kutuya koyar, `migrations` ayırır.
 
 ## v8 — kanıtlı sürüm
 
@@ -126,6 +143,51 @@ kaynaktan türüyor, yani hattın iki ucu inşa gereği anlaşıyor.
 yasaklıyor ve linter `error` sayıyor. Üzerinde eğitmek, modele denetleyicinin
 reddedeceği şeyi üretmeyi öğretmek olurdu. Mekanik olarak yeniden yazmak yerine
 düşürüldüler — yanlış bir onarım, 136 satırdan kötüdür.
+
+## v8 sonucu
+
+27 Tem 2026, Kaggle T4. 115 satır × 6 epoch, eval loss **0.6179** (5. epoch'ta
+0.6191 — son epoch neredeyse hiçbir şey katmadı, 4 epoch yeterli). Aynı 21
+prompt, aynı greedy çözme, aynı `transformers 5.14.1 / peft 0.19.1`:
+
+| | temel | adapter | |
+|---|---|---|---|
+| `clean` | 81.0% | **95.2%** | 4 linter hatası → 1 |
+| `complete` | 95.2% | **100%** | kırpılma bitti |
+| `fenced` | 100% | 100% | |
+| `followed_seen` | 100% | 100% | n=6 |
+| `followed_unseen` | 71.4% | 57.1% | n=7 |
+
+Göç satırlarının kırılımı — `followed_unseen`'in gizlediği yer:
+
+| | temel | adapter |
+|---|---|---|
+| `replacement` | 11 | 10 |
+| `deprecated` | 2 | **1** |
+| `neither` | 0 | **2** |
+
+**Kanıt hattının iddiası doğrulanmadı.** `followed_unseen`'in sonuç olmasının
+şartı temel modelin düşük çıkmasıydı; temel model **71.4%** yaptı. Kanıt takibi
+modern bir 4B instruct modelinin zaten yaptığı bir şey, dolayısıyla metriğin
+adapter'ın katkısını gösterecek yeri kalmıyor — üstelik n=7'de tek satır 14
+puan oynatıyor. Fine-tune'un kanıt okumayı öğrettiğine dair elimizde kanıt yok.
+
+**Adapter'ın gerçek kazancı ev stili:** `clean` 81 → 95.2. v7'nin işi buydu ve
+v8 onu kaybetmemiş, iyileştirmiş.
+
+Düşen `followed_unseen`'in tamamı iki `neither` satırından geliyor: adapter o
+ekranlarda dropdown'ı hiç yazmamış. Kaldırılmış API'ye uzanma (`deprecated`)
+2'den 1'e inmiş — doğru yön ama 13 göç satırında iddia edilecek bir fark değil.
+Kalan tek `deprecated` satırı `withValues`: model `withOpacity` yazıyor ve
+`clean`'de kalan tek hata da o.
+
+Bu, `complete` 95.2 → 100 ile aynı madalyonun iki yüzü: adapter daha kısa ve hep
+kapanan cevaplar yazıyor, karşılığında iki satırda kapsam kaybediyor.
+
+**v8 yine de servis edilecek sürüm**, ama commit mesajındaki gerekçeyle değil.
+Değeri kanıt okumayı öğretmesi değil — o bedava geliyor — **adapter'ın çıkarımda
+görecegi prompt şekliyle eğitilmiş olması**. Kanıt bloğunu backend ajanı
+gönderdiğinde v7 onu hiç görmemiş bir model olarak karşılardı.
 
 ## Sözleşme doğrulaması
 
@@ -165,6 +227,8 @@ v8'in her etiketine `ok` veriyor.
 
 ## Sırada
 
-1. Notebook'un dolu sürümünü Kaggle geçmişinden kurtar → `build_flutter_dataset.py` (v7 üreteci) + `train_qlora_qwen.py` buraya.
-2. `internal/codegen` — çıkarımda kanıt bloğunu üreten backend ajanı. `EVIDENCE_HEADER` ve `TURN_INSTRUCTION` şu an v8 üretecinde sabit; ajan gelince `GET /codegen/prompt`'tan çekilmeli, `build_persona_dataset.py`'nin yaptığı gibi.
-3. `flutter_eval.py` — kalite kapısı şu an yalnızca frontend linteri. Ölçüm asıl olarak `migration` satırlarına bakmalı: kanıt "X kaldırıldı, yerine Y" derken model X'i mi Y'yi mi yazıyor. Bu, kanıtın okunup okunmadığını gösteren tek doğrudan sayı.
+1. **Merge + MLC derlemesi.** `clean` 81 → 95.2 servis edilmeye değer; adapter `emrahik/flutter-v8-qlora` çıktısında duruyor. T4 de sm_75 olduğu için derleme GPU kutusunda geçerli.
+2. **Ölçüm setini büyütmeden kanıt hattına daha fazla yatırım yapma.** n=7'de tek satır 14 puan oynatıyor ve temel model tavana yakın; bu ölçekte hiçbir koşu "kanıt okumayı öğrendi" diyemez. Ya held-out göç çeşitliliği artmalı (özellikle `withValues` — kalan tek `deprecated` satırı o), ya da iddia bırakılmalı.
+3. **`neither` satırlarını kovala.** Adapter iki ekranda widget'ı hiç yazmadı. `complete` 95.2 → 100 ile birlikte okununca bu bir kısalma eğilimi; kanıtla ilgisi yok, brief kapsamıyla ilgili.
+4. `internal/codegen` — çıkarımda kanıt bloğunu üreten backend ajanı. `EVIDENCE_HEADER` ve `TURN_INSTRUCTION` şu an v8 üretecinde sabit; ajan gelince `GET /codegen/prompt`'tan çekilmeli, `build_persona_dataset.py`'nin yaptığı gibi. Kanıt bloğu ölçülebilir bir kazanç getirmese de gerekli: adapter o şekille eğitildi.
+5. v7 üretecini (`build_flutter_dataset.py`) Kaggle geçmişinden kurtar — v8 notebook'ları artık repoda, eksik kalan tek şey o.
