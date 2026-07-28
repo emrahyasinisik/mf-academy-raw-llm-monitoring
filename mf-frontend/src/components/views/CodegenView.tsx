@@ -18,10 +18,17 @@
 // prompt on the self-hosted host and records the run. There is no new endpoint
 // here on purpose: single-shot with a system prompt is exactly what that route
 // does, and what this model needs.
+//
+// A note on what this screen no longer says. It used to narrate the hardware —
+// how long a run takes on a particular card, which service to restart when it
+// failed. That reads as somebody's workshop rather than a product, and it was
+// also unreliable: the sentence was a guess, while the status rail above now
+// counts the real elapsed seconds of the real run.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { ModelInfo, Run } from "@/lib/types";
+import type { Run } from "@/lib/types";
+import { useMachine } from "@/store/machine";
 import {
   FLUTTER_SYSTEM_PROMPT,
   STATE_CHOICES,
@@ -33,7 +40,7 @@ import {
 } from "@/lib/flutterContract";
 import { DartBlock } from "@/components/ui/DartBlock";
 
-// 0.3 is what the trial run used. Higher wanders off the house style the whole
+// 0.3 is what the trial run used. Higher wanders off the code standard the whole
 // fine-tune exists to enforce; 0 makes it repeat one layout for every brief.
 const DEFAULT_TEMPERATURE = 0.3;
 
@@ -42,6 +49,8 @@ const DEFAULT_TEMPERATURE = 0.3;
 const DEFAULT_MAX_TOKENS = 2048;
 
 export function CodegenView() {
+  const { models, host, begin } = useMachine();
+
   const [screen, setScreen] = useState("");
   const [description, setDescription] = useState("");
   const [fields, setFields] = useState("");
@@ -49,30 +58,26 @@ export function CodegenView() {
   const [raw, setRaw] = useState("");
   const [rawMode, setRawMode] = useState(false);
 
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [model, setModel] = useState("");
-  const [serverAvailable, setServerAvailable] = useState(true);
   const [temperature, setTemperature] = useState(DEFAULT_TEMPERATURE);
 
   const [run, setRun] = useState<Run | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
 
-  // Only server-capable models can run this: the adapter is compiled into the
-  // self-hosted build, and a browser target would silently serve a different
-  // model that has never seen the house style.
-  useEffect(() => {
-    api
-      .models()
-      .then((res) => {
-        const usable = res.models.filter((m) => m.targets.includes("server"));
-        setModels(usable);
-        setServerAvailable(res.server_inference && usable.length > 0);
-        const preferred = usable.find((m) => m.recommended) ?? usable[0];
-        if (preferred) setModel(preferred.id);
-      })
-      .catch(() => setServerAvailable(false));
-  }, []);
+  // The catalogue belongs to the machine store, so this view holds only the
+  // operator's choice — and only once they have made one.
+  //
+  // Derived rather than defaulted through an effect. The list arrives after the
+  // first render, and "copy the default into state when it loads" is the shape
+  // that needs an effect, a guard against overwriting a deliberate pick, and a
+  // cascading render to go with it. An empty `chosen` simply means "whatever the
+  // catalogue recommends", which stays true as the catalogue changes.
+  const [chosen, setChosen] = useState("");
+  const fallback = useMemo(() => {
+    const preferred = models.find((m) => m.recommended) ?? models[0];
+    return preferred?.id ?? "";
+  }, [models]);
+  const model = chosen || fallback;
 
   const prompt = useMemo(
     () => (rawMode ? raw : buildBrief({ screen, description, fields, state })),
@@ -86,6 +91,9 @@ export function CodegenView() {
     setRunning(true);
     setError("");
     setRun(null);
+    // Hands the rail the job. Whatever happens below, `done` is what puts the
+    // machine back to idle and records what the run cost.
+    const done = begin("Ekran üretiliyor");
     try {
       const res = await api.generateRun({
         model,
@@ -95,48 +103,53 @@ export function CodegenView() {
         max_tokens: DEFAULT_MAX_TOKENS,
       });
       setRun(res);
+      done(res);
     } catch (e) {
+      done();
       setError(
         e instanceof ApiError
           ? e.message
-          : "Model yanıt vermedi. Çıkarım sunucusu kapalı ya da tünel düşmüş olabilir.",
+          : "Üretim tamamlanamadı. Çıkarım sunucusu yanıt vermedi.",
       );
     } finally {
       setRunning(false);
     }
-  }, [ready, running, model, prompt, temperature]);
+  }, [ready, running, model, prompt, temperature, begin]);
+
+  const offline = host === "offline";
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto w-full px-4 py-6 grid gap-6 lg:grid-cols-[380px_1fr]">
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold">Flutter Ekran Üreteci</h2>
-            <p className="text-sm mt-1 leading-relaxed" style={{ color: "var(--text-dim)" }}>
-              Ekranı tarif et, ev stilinde (flutter_bloc + Material 3) tek dosyalık bir
-              widget üretilir.
-            </p>
-          </div>
-
-          {!serverAvailable && (
-            <div
-              className="px-3 py-2.5 rounded-lg text-xs leading-relaxed"
-              style={{ background: "var(--accent-soft)", color: "var(--warn)" }}
+    <div className="h-full overflow-y-auto scrollbar-thin">
+      <div className="max-w-[1400px] mx-auto w-full px-4 sm:px-5 py-6 grid gap-5 lg:grid-cols-[minmax(340px,400px)_1fr]">
+        {/* ---- control column ---- */}
+        <div className="space-y-4 min-w-0">
+          <header>
+            <h2 className="font-display text-xl font-semibold tracking-tight">
+              Flutter Ekran Üreteci
+            </h2>
+            <p
+              className="text-sm mt-1.5 leading-relaxed"
+              style={{ color: "var(--text-dim)" }}
             >
-              Sunucu çıkarımı şu an kapalı. Bu ekran yalnızca kendi GPU kutusunda derlenmiş
-              modelle çalışır — tüneli ve <span className="mono">mlc</span> servisini kontrol et.
+              Ekranı tarif et; flutter_bloc ve Material 3 ile, projenin kod
+              standardına uyan tek dosyalık bir widget üretilsin.
+            </p>
+          </header>
+
+          {offline && (
+            <div className="notice notice-warn">
+              Çıkarım sunucusuna ulaşılamıyor. Üretim, sunucu çevrimiçi olduğunda
+              yeniden açılır.
             </div>
           )}
 
-          <div className="card p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold" style={{ color: "var(--text-dim)" }}>
-                BRIEF
-              </span>
+          <section className="card p-4 space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="eyebrow">Brief</span>
               <button
-                className="btn btn-ghost !py-1 !px-2.5 !text-xs"
+                className="btn btn-quiet btn-sm"
                 onClick={() => setRawMode((v) => !v)}
-                title="Eğitim setinden birebir bir prompt denemek için"
+                title="Eğitim setindeki bir prompt'u birebir çalıştır"
               >
                 {rawMode ? "Forma dön" : "Ham prompt"}
               </button>
@@ -148,7 +161,10 @@ export function CodegenView() {
                 rows={10}
                 value={raw}
                 onChange={(e) => setRaw(e.target.value)}
-                placeholder={"Ekran: …\nAçıklama: …\nAlanlar/İçerik: …\nState: flutter_bloc (Cubit)."}
+                aria-label="Ham prompt"
+                placeholder={
+                  "Ekran: …\nAçıklama: …\nAlanlar/İçerik: …\nState: flutter_bloc (Cubit)."
+                }
               />
             ) : (
               <>
@@ -179,36 +195,46 @@ export function CodegenView() {
                   />
                 </Field>
                 <Field label="State">
-                  <div className="flex gap-1.5">
-                    {STATE_CHOICES.map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => setState(s.id)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                        style={{
-                          background: state === s.id ? "var(--accent-soft)" : "transparent",
-                          border: `1px solid ${state === s.id ? "var(--accent)" : "var(--border)"}`,
-                          color: state === s.id ? "var(--text)" : "var(--text-dim)",
-                        }}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
+                  <div
+                    className="flex gap-1.5"
+                    role="radiogroup"
+                    aria-label="Durum yönetimi"
+                  >
+                    {STATE_CHOICES.map((s) => {
+                      const on = state === s.id;
+                      return (
+                        <button
+                          key={s.id}
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => setState(s.id)}
+                          className="px-2.5 py-1.5 rounded-[var(--r-xs)] text-xs font-semibold"
+                          style={{
+                            background: on ? "var(--brand-wash)" : "var(--panel-2)",
+                            border: `1px solid ${on ? "var(--brand-line)" : "var(--line)"}`,
+                            color: on ? "var(--brand)" : "var(--text-dim)",
+                            transition:
+                              "background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease)",
+                          }}
+                        >
+                          {s.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </Field>
               </>
             )}
-          </div>
+          </section>
 
-          <div className="card p-4 space-y-3">
-            <span className="text-xs font-semibold" style={{ color: "var(--text-dim)" }}>
-              MODEL
-            </span>
+          <section className="card p-4 space-y-3.5">
+            <span className="eyebrow">Model</span>
             <select
               className="input"
               value={model}
-              onChange={(e) => setModel(e.target.value)}
+              onChange={(e) => setChosen(e.target.value)}
               disabled={models.length === 0}
+              aria-label="Model"
             >
               {models.length === 0 && <option value="">— sunucu modeli yok —</option>}
               {models.map((m) => (
@@ -217,10 +243,16 @@ export function CodegenView() {
                 </option>
               ))}
             </select>
+
             <label className="block">
-              <span className="text-xs flex justify-between" style={{ color: "var(--text-dim)" }}>
+              <span
+                className="text-xs flex justify-between items-baseline mb-1.5"
+                style={{ color: "var(--text-dim)" }}
+              >
                 <span>Sıcaklık</span>
-                <span className="mono">{temperature.toFixed(2)}</span>
+                <span className="mono num" style={{ color: "var(--text)" }}>
+                  {temperature.toFixed(2)}
+                </span>
               </span>
               <input
                 type="range"
@@ -229,37 +261,36 @@ export function CodegenView() {
                 step={0.05}
                 value={temperature}
                 onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full mt-1.5"
               />
-              <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-                0.30 eğitim testinde kullanılan değer; yukarısı ev stilinden sapar.
+              <span
+                className="text-xs block mt-1.5 leading-relaxed"
+                style={{ color: "var(--text-faint)" }}
+              >
+                0.30 eğitimde kullanılan değer. Yükseldikçe çıktı kod standardından
+                uzaklaşır.
               </span>
             </label>
-          </div>
+          </section>
 
           <button
             className="btn btn-primary w-full"
             onClick={generate}
             disabled={!ready || running || !model}
           >
-            {running ? "Üretiyor…" : "Ekranı üret"}
+            {running ? "Üretiliyor…" : "Ekranı üret"}
           </button>
 
-          {error && (
-            <div
-              className="px-3 py-2.5 rounded-lg text-xs"
-              style={{ background: "var(--accent-soft)", color: "var(--bad)" }}
-            >
-              {error}
-            </div>
-          )}
+          {error && <div className="notice notice-bad">{error}</div>}
 
-          <details className="card p-3">
-            <summary className="text-xs cursor-pointer" style={{ color: "var(--text-dim)" }}>
+          <details className="card px-4 py-3">
+            <summary
+              className="text-xs cursor-pointer select-none"
+              style={{ color: "var(--text-dim)" }}
+            >
               Gönderilecek prompt
             </summary>
             <pre
-              className="mono text-xs mt-2 whitespace-pre-wrap"
+              className="mono text-xs mt-2.5 whitespace-pre-wrap leading-relaxed"
               style={{ color: "var(--text-faint)" }}
             >
               {prompt || "—"}
@@ -267,10 +298,11 @@ export function CodegenView() {
           </details>
         </div>
 
-        <div className="min-w-0">
-          {running && <Working />}
-          {!running && !run && <Empty />}
-          {!running && run && <Result run={run} state={state} />}
+        {/* ---- output column ----
+            aria-live so the outcome is announced when it lands: the reader who
+            started a minute-long generation is not necessarily still watching. */}
+        <div className="min-w-0" aria-live="polite">
+          {running ? <Working /> : run ? <Result run={run} state={state} /> : <Empty />}
         </div>
       </div>
     </div>
@@ -288,13 +320,12 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs flex items-baseline gap-2 mb-1" style={{ color: "var(--text-dim)" }}>
+      <span
+        className="text-xs flex items-baseline gap-2 mb-1.5 font-medium"
+        style={{ color: "var(--text-dim)" }}
+      >
         {label}
-        {hint && (
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-            {hint}
-          </span>
-        )}
+        {hint && <span style={{ color: "var(--text-faint)" }}>{hint}</span>}
       </span>
       {children}
     </label>
@@ -303,34 +334,74 @@ function Field({
 
 function Empty() {
   return (
-    <div className="h-full min-h-[24rem] grid place-items-center text-center">
+    <div className="h-full min-h-[26rem] grid place-items-center text-center px-6">
       <div className="max-w-sm">
         <div
-          className="mx-auto w-12 h-12 rounded-xl grid place-items-center text-xl mb-4"
-          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+          className="mx-auto w-11 h-11 rounded-[var(--r-md)] grid place-items-center mb-4"
+          style={{
+            background: "var(--brand-wash)",
+            border: "1px solid var(--brand-line)",
+            color: "var(--brand)",
+          }}
         >
-          {"</>"}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" />
+          </svg>
         </div>
+        <h3 className="font-display font-semibold mb-1.5">Henüz çıktı yok</h3>
         <p className="text-sm leading-relaxed" style={{ color: "var(--text-dim)" }}>
-          Soldaki brief&apos;i doldur. Üretilen kod burada sözdizimi renklendirmesiyle ve ev
-          stili denetimiyle birlikte görünecek.
+          Soldaki brief&apos;i doldur ve ekranı üret. Kod burada sözdizimi
+          renklendirmesi ve kod standardı denetimiyle birlikte görünür.
         </p>
       </div>
     </div>
   );
 }
 
+/**
+ * The waiting state, shaped like the answer.
+ *
+ * A skeleton of the block that is coming, rather than a spinner and a sentence
+ * guessing at the duration. The real elapsed time is on the status rail, which
+ * is counting the actual request — so this only has to hold the space.
+ */
 function Working() {
   return (
-    <div className="h-full min-h-[24rem] grid place-items-center">
-      <div className="flex items-center gap-2 text-sm animate-pulse-soft" style={{ color: "var(--text-dim)" }}>
-        <span
-          className="w-6 h-6 rounded-lg grid place-items-center text-xs"
-          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+    <div className="space-y-3" aria-label="Üretiliyor">
+      <div className="flex gap-2">
+        <div className="skeleton h-7 w-40" />
+        <div className="skeleton h-7 w-20" />
+        <div className="skeleton h-7 w-20" />
+      </div>
+      <div className="card overflow-hidden">
+        <div
+          className="px-3 py-2.5"
+          style={{
+            background: "var(--panel-2)",
+            borderBottom: "1px solid var(--line)",
+          }}
         >
-          {"</>"}
-        </span>
-        Widget üretiliyor — 6 GB kartta bu bir dakikayı bulabilir…
+          <div className="skeleton h-3 w-24" />
+        </div>
+        <div className="p-4 space-y-2.5">
+          {[92, 74, 84, 55, 88, 66, 79, 48, 90, 71, 60, 83].map((w, i) => (
+            <div
+              key={i}
+              className="skeleton h-3"
+              style={{ width: `${w}%`, animationDelay: `${i * 70}ms` }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -343,81 +414,115 @@ function Result({ run, state }: { run: Run; state: StateChoice }) {
     [extracted.code, state],
   );
   const errors = findings.filter((f) => f.severity === "error");
-  const tps =
-    run.latency_ms > 0 ? (run.completion_tokens / (run.latency_ms / 1000)).toFixed(1) : "—";
+  const seconds = run.latency_ms / 1000;
+  const tps = seconds > 0 ? (run.completion_tokens / seconds).toFixed(1) : "—";
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Verdict clean={errors.length === 0} truncated={extracted.truncated} />
-        <span className="pill mono" style={{ color: "var(--text-dim)" }}>
-          {run.completion_tokens} tok
-        </span>
-        <span className="pill mono" style={{ color: "var(--text-dim)" }}>
-          {(run.latency_ms / 1000).toFixed(1)} s
-        </span>
-        <span className="pill mono" style={{ color: "var(--text-dim)" }}>
-          {tps} tok/s
-        </span>
-        <span className="pill mono" style={{ color: "var(--text-faint)" }}>
-          {run.model}
-        </span>
-      </div>
+      <Verdict
+        clean={errors.length === 0}
+        truncated={extracted.truncated}
+        stats={[
+          { label: "token", value: String(run.completion_tokens) },
+          { label: "süre", value: `${seconds.toFixed(1)} s` },
+          { label: "hız", value: `${tps} tok/s` },
+        ]}
+        model={run.model}
+      />
 
       {extracted.truncated && (
-        <Notice tone="var(--bad)">
+        <div className="notice notice-bad">
           Kod bloğu kapanmadan bitti — çıktı <span className="mono">max_tokens</span>{" "}
-          sınırında kesilmiş. Aşağıdaki widget eksik; briefi küçült ya da sınırı yükselt.
-        </Notice>
+          sınırında kesilmiş. Aşağıdaki widget eksik; brief&apos;i küçült ya da sınırı
+          yükselt.
+        </div>
       )}
 
       {!extracted.fenced && (
-        <Notice tone="var(--warn)">
-          Model <span className="mono">```dart</span> bloğu olmadan yanıt verdi — sözleşmenin
-          ihlali. Sistem prompt&apos;unun eğitimdekiyle birebir aynı olduğunu doğrula.
-        </Notice>
+        <div className="notice notice-warn">
+          Model <span className="mono">```dart</span> bloğu olmadan yanıt verdi —
+          sözleşmenin ihlali. Sistem prompt&apos;unun eğitimdekiyle birebir aynı
+          olduğunu doğrula.
+        </div>
       )}
 
       {extracted.stray && (
-        <Notice tone="var(--warn)">
+        <div className="notice notice-warn">
           Kod bloğunun dışında metin var; sözleşme yalnızca kod istiyor:{" "}
           <span className="mono">{extracted.stray.slice(0, 160)}</span>
-        </Notice>
+        </div>
       )}
 
       {findings.length > 0 && <Findings findings={findings} />}
 
       <DartBlock
         code={extracted.code}
-        highlightLines={findings.map((f) => f.line).filter((l): l is number => l !== null)}
+        highlightLines={findings
+          .map((f) => f.line)
+          .filter((l): l is number => l !== null)}
       />
     </div>
   );
 }
 
-function Verdict({ clean, truncated }: { clean: boolean; truncated: boolean }) {
-  const [label, color] = truncated
-    ? ["KESİLMİŞ", "var(--bad)"]
+/**
+ * The headline: did this output pass, and what did it cost.
+ *
+ * One band rather than a row of loose pills, with the tone carried by a thick
+ * left edge. The verdict is the first thing to read on the screen and it earns
+ * the emphasis — everything downstream is the evidence for it.
+ */
+function Verdict({
+  clean,
+  truncated,
+  stats,
+  model,
+}: {
+  clean: boolean;
+  truncated: boolean;
+  stats: { label: string; value: string }[];
+  model: string;
+}) {
+  const [label, tone] = truncated
+    ? ["Kesilmiş", "var(--bad)"]
     : clean
-      ? ["EV STİLİNE UYGUN", "var(--good)"]
-      : ["İHLAL VAR", "var(--bad)"];
-  return (
-    <span
-      className="px-3 py-1.5 rounded-lg text-sm font-semibold"
-      style={{ background: "var(--accent-soft)", color }}
-    >
-      {label}
-    </span>
-  );
-}
+      ? ["Standarda uygun", "var(--ok)"]
+      : ["İhlal var", "var(--bad)"];
 
-function Notice({ tone, children }: { tone: string; children: React.ReactNode }) {
   return (
     <div
-      className="px-3 py-2.5 rounded-lg text-xs leading-relaxed"
-      style={{ background: "var(--accent-soft)", color: tone }}
+      className="card view-in flex flex-wrap items-center gap-x-5 gap-y-3 p-4"
+      style={{ borderLeft: `3px solid ${tone}` }}
     >
-      {children}
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="lamp" style={{ color: tone }} />
+        <span
+          className="font-display font-semibold tracking-tight"
+          style={{ color: tone }}
+        >
+          {label}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 ml-auto">
+        {stats.map((s) => (
+          <div key={s.label} className="leading-tight">
+            <div className="mono num text-sm" style={{ color: "var(--text)" }}>
+              {s.value}
+            </div>
+            <div className="eyebrow" style={{ fontSize: "0.6rem" }}>
+              {s.label}
+            </div>
+          </div>
+        ))}
+        <span
+          className="mono text-xs truncate max-w-[220px]"
+          style={{ color: "var(--text-faint)" }}
+          title={model}
+        >
+          {model}
+        </span>
+      </div>
     </div>
   );
 }
@@ -430,27 +535,33 @@ function Findings({ findings }: { findings: Finding[] }) {
   return (
     <div className="card overflow-hidden">
       <div
-        className="px-3 py-2 text-xs"
-        style={{ color: "var(--text-faint)", background: "var(--bg-elev-2)" }}
+        className="px-3.5 py-2.5 eyebrow"
+        style={{
+          background: "var(--panel-2)",
+          borderBottom: "1px solid var(--line)",
+        }}
       >
-        {findings.length} bulgu · ev stili denetimi
+        {findings.length} bulgu · kod standardı denetimi
       </div>
       {findings.map((f, i) => (
         <div
           key={i}
-          className="px-3 py-2 flex gap-2.5 items-baseline text-xs"
-          style={{ borderTop: "1px solid var(--border)" }}
+          className="item-in px-3.5 py-2.5 flex gap-3 items-baseline text-xs"
+          style={{
+            borderTop: i === 0 ? undefined : "1px solid var(--line)",
+            // Capped so a long list finishes animating in well under a second.
+            ["--i" as string]: Math.min(i, 8),
+          }}
         >
           <span
-            className="pill shrink-0"
-            style={{ color: f.severity === "error" ? "var(--bad)" : "var(--warn)" }}
+            className={`pill shrink-0 ${f.severity === "error" ? "pill-bad" : "pill-warn"}`}
           >
             {f.severity === "error" ? "hata" : "uyarı"}
           </span>
-          <span className="mono shrink-0" style={{ color: "var(--text-faint)" }}>
+          <span className="mono shrink-0 num" style={{ color: "var(--text-faint)" }}>
             {f.line ? `L${f.line}` : "—"}
           </span>
-          <span className="min-w-0">
+          <span className="min-w-0 leading-relaxed">
             <span className="mono" style={{ color: "var(--text)" }}>
               {f.rule}
             </span>

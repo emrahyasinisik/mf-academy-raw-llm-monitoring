@@ -15,16 +15,23 @@ import { useCallback, useState } from "react";
 
 // Syntax colours are local rather than in globals.css because nothing else in
 // the app highlights code, and a var(--syntax-keyword) that exists for one
-// component is indirection without a payoff. The palette lacks a violet, which
-// is the conventional colour for type names, so that one is a literal.
+// component is indirection without a payoff.
+//
+// They are also deliberately literals rather than the design system's status
+// colours. The system reserves green, amber and red to mean healthy, caution and
+// failed; borrowing --ok for string literals would put "healthy" green on every
+// quoted word in a widget that the linter had just rejected. A highlighter needs
+// six hues that separate well from each other, which is a different problem from
+// the one the palette solves — so it gets its own, tuned to sit on --bg-sunk and
+// to keep the brand orange in the family.
 const C = {
-  keyword: "var(--accent)",
-  string: "var(--good)",
-  comment: "var(--text-faint)",
-  number: "var(--warn)",
-  type: "#c4b5fd",
-  annotation: "#f0abfc",
-  plain: "var(--text)",
+  keyword: "#f0883e",
+  string: "#7ee787",
+  comment: "#6b7c8a",
+  number: "#79c0ff",
+  type: "#d2a8ff",
+  annotation: "#ff7b72",
+  plain: "#e9eff5",
 };
 
 const KEYWORDS = new Set([
@@ -131,27 +138,44 @@ export function DartBlock({
   return (
     <div className="card overflow-hidden">
       <div
-        className="flex items-center justify-between px-3 py-2"
-        style={{ background: "var(--bg-elev-2)", borderBottom: "1px solid var(--border)" }}
+        className="flex items-center justify-between px-3.5 py-2.5"
+        style={{ background: "var(--panel-2)", borderBottom: "1px solid var(--line)" }}
       >
-        <span className="text-xs mono" style={{ color: "var(--text-faint)" }}>
-          dart · {lines.length} satır
-        </span>
-        <button className="btn btn-ghost !py-1 !px-2.5 !text-xs" onClick={copy}>
+        <span className="eyebrow">dart · {lines.length} satır</span>
+        {/* The label is the whole feedback mechanism, so it must not resize the
+            button when it changes — a control that jumps at the moment it is
+            clicked reads as a misfire. Fixed width, centred text. */}
+        <button
+          className="btn btn-ghost btn-sm justify-center"
+          onClick={copy}
+          style={{
+            minWidth: "6.5rem",
+            color: copied ? "var(--ok)" : undefined,
+            borderColor: copied ? "var(--ok-line)" : undefined,
+          }}
+        >
           {copied ? "Kopyalandı" : "Kopyala"}
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* The code sits in a well: recessed, where the panel around it is raised.
+          The two depths are what separate the model's output from the app's own
+          chrome at a glance. */}
+      <div className="overflow-x-auto scrollbar-thin" style={{ background: "var(--bg-sunk)" }}>
         <pre className="mono text-xs leading-relaxed py-3" style={{ color: C.plain }}>
           {lines.map((toks, i) => (
             <div
               key={i}
               className="flex"
-              style={{ background: marked.has(i + 1) ? "var(--accent-soft)" : undefined }}
+              style={{
+                background: marked.has(i + 1) ? "var(--brand-wash)" : undefined,
+                boxShadow: marked.has(i + 1)
+                  ? "inset 2px 0 0 var(--brand)"
+                  : undefined,
+              }}
             >
               <span
-                className="select-none shrink-0 text-right pr-3 pl-3"
+                className="select-none shrink-0 text-right pr-3 pl-3 num"
                 style={{ color: "var(--text-faint)", minWidth: "3.25rem" }}
               >
                 {i + 1}

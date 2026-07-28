@@ -20,8 +20,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MetricSeries } from "@/lib/types";
 
-const SERIES_COLORS = ["#4f8cff", "#ea580c"];
-const SURFACE = "var(--bg-elev)";
+// Mirrors --series-1 / --series-2. Literals rather than var() because these are
+// also read into the tooltip swatches and the legend, where a computed colour
+// would have to be resolved from the cascade at paint time.
+const SERIES_COLORS = ["#58a6ff", "#ff7a2f"];
+const SURFACE = "var(--panel)";
 
 // Plot geometry in CSS pixels. The chart measures its own width so text and
 // stroke widths stay literal — scaling a viewBox would grow the labels with the
@@ -247,7 +250,7 @@ export function TimeChart({
               x2={PAD.left + plotW}
               y1={y(t)}
               y2={y(t)}
-              stroke="var(--border)"
+              stroke="var(--line)"
               strokeWidth={1}
             />
             <text
@@ -283,9 +286,20 @@ export function TimeChart({
             .join(" ");
           const last = s.points[s.points.length - 1];
           return (
-            <g key={si}>
+            // Keyed by the window so switching range remounts the path and
+            // replays the draw. Without it React would patch `d` in place and
+            // the new data would simply appear.
+            <g key={`${si}-${t0}-${t1}`}>
+              {/* pathLength={1} normalises the path's own length to 1, so the
+                  dash offset that hides it can be written without measuring the
+                  geometry in JS. The line then draws itself left to right, which
+                  is the direction it is read in. */}
               <path
                 d={d}
+                className="draw-in"
+                pathLength={1}
+                strokeDasharray={1}
+                strokeDashoffset={1}
                 fill="none"
                 stroke={color}
                 strokeWidth={2}

@@ -11,6 +11,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/store/auth";
+import { Segmented } from "@/components/ui/Segmented";
+import { RoleGate } from "@/components/ui/RoleGate";
 import type {
   Adapter,
   AdminLogEntry,
@@ -30,59 +32,84 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "logs", label: "Log Monitörü" },
 ];
 
-export function AdminView({ sub, onNavigate }: { sub: string; onNavigate: (s: string) => void }) {
+export function AdminView({
+  sub,
+  onNavigate,
+}: {
+  sub: string;
+  onNavigate: (s: string) => void;
+}) {
   const { user } = useAuth();
   const tab = (TABS.find((t) => t.id === sub)?.id ?? "overview") as Tab;
 
   if (user?.role !== "admin") {
     return (
-      <div className="max-w-3xl mx-auto p-5">
-        <div className="card p-5">
-          <h2 className="text-sm font-semibold mb-2">Bu bölüm yönetici hesabı gerektiriyor</h2>
-          <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
-            Yönetici rolü API üzerinden verilmiyor. Sunucunun{" "}
-            <code style={{ color: "var(--text)" }}>ADMIN_EMAIL</code> değişkeninde adı geçen hesap,
-            servis yeniden başladığında yükseltilir. Rol veren bir endpoint olsaydı, ileride
-            çıkacak herhangi bir kimlik doğrulama açığı doğrudan tam yetkiye dönüşürdü.
-          </p>
-        </div>
-      </div>
+      <RoleGate title="Bu bölüm yönetici hesabı gerektiriyor">
+        Yönetici rolü API üzerinden verilmiyor. Sunucunun{" "}
+        <code className="mono" style={{ color: "var(--text)" }}>
+          ADMIN_EMAIL
+        </code>{" "}
+        değişkeninde adı geçen hesap, servis yeniden başladığında yükseltilir. Rol
+        veren bir endpoint olsaydı, ileride çıkacak herhangi bir kimlik doğrulama
+        açığı doğrudan tam yetkiye dönüşürdü.
+      </RoleGate>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-5 space-y-4">
-      <nav className="flex gap-1 flex-wrap">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => onNavigate(t.id)}
-            className={`btn ${tab === t.id ? "btn-primary" : "btn-ghost"} !py-1.5 !px-3 text-xs`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+    <div className="max-w-6xl mx-auto p-4 sm:p-5 space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="font-display text-xl font-semibold tracking-tight">Yönetim</h2>
+        <Segmented
+          items={TABS}
+          active={tab}
+          onSelect={(t) => onNavigate(t)}
+          label="Yönetim bölümü"
+          size="sm"
+        />
+      </div>
 
-      {tab === "overview" && <OverviewPanel />}
-      {tab === "model" && <ModelPanel />}
-      {tab === "mcp" && <MCPPanel />}
-      {tab === "logs" && <LogsPanel />}
+      {/* Keyed so switching tabs replays the entrance: these panels are torn
+          down and rebuilt anyway, and without the key the new one would appear
+          instantly while every other transition in the app animates. */}
+      <div key={tab} className="view-in">
+        {tab === "overview" && <OverviewPanel />}
+        {tab === "model" && <ModelPanel />}
+        {tab === "mcp" && <MCPPanel />}
+        {tab === "logs" && <LogsPanel />}
+      </div>
     </div>
   );
 }
 
-function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: string }) {
+/** A single figure, its name, and what to do about it. */
+function Stat({
+  label,
+  value,
+  hint,
+  tone,
+  index = 0,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: string;
+  index?: number;
+}) {
   return (
-    <div className="card p-4">
-      <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
-        {label}
-      </div>
-      <div className="text-2xl font-semibold tabular-nums mt-1" style={{ color: tone ?? "var(--text)" }}>
+    <div className="card item-in p-4" style={{ ["--i" as string]: index }}>
+      <div className="eyebrow">{label}</div>
+      <div
+        className="font-display text-3xl font-semibold num mt-1.5 tracking-tight"
+        style={{ color: tone ?? "var(--text)" }}
+      >
         {value}
       </div>
       {hint && (
-        <div className="text-xs mt-1 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+        <div
+          className="text-xs mt-2 leading-relaxed"
+          style={{ color: "var(--text-dim)" }}
+        >
           {hint}
         </div>
       )}
@@ -101,8 +128,20 @@ function OverviewPanel() {
       .catch((e: ApiError) => setError(e.message));
   }, []);
 
-  if (error) return <p className="text-xs" style={{ color: "var(--bad)" }}>{error}</p>;
-  if (!data) return <p className="text-xs" style={{ color: "var(--text-faint)" }}>Yükleniyor…</p>;
+  if (error) return <div className="notice notice-bad">{error}</div>;
+  if (!data) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="card p-4 space-y-2.5">
+            <div className="skeleton h-3 w-24" />
+            <div className="skeleton h-8 w-20" />
+            <div className="skeleton h-3 w-32" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   // The one number on this panel that says "roll back". A drop here after
   // activating an adapter means the build made output worse, and it is easy to
@@ -112,7 +151,7 @@ function OverviewPanel() {
     data.assessments_last_24h === 0
       ? "var(--text-faint)"
       : schemaPct >= 80
-        ? "var(--good)"
+        ? "var(--ok)"
         : schemaPct >= 40
           ? "var(--warn)"
           : "var(--bad)";
@@ -120,20 +159,37 @@ function OverviewPanel() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <Stat
+        index={0}
         label="Şema uyumu (24s)"
         value={data.assessments_last_24h === 0 ? "—" : `%${schemaPct}`}
         tone={schemaTone}
         hint="Adapter aktive ettikten sonra bu düşerse geri al. Onarılmış her çıktı, güvenilmemesi gereken bir rapordur."
       />
-      <Stat label="Analiz (24s)" value={String(data.assessments_last_24h)} hint={`toplam ${data.assessments}`} />
       <Stat
+        index={1}
+        label="Analiz (24s)"
+        value={String(data.assessments_last_24h)}
+        hint={`toplam ${data.assessments}`}
+      />
+      <Stat
+        index={2}
         label="p95 gecikme (24s)"
         value={`${(data.p95_latency_ms_24h / 1000).toFixed(1)}s`}
         hint={`ortalama ${(data.avg_latency_ms_24h / 1000).toFixed(1)}s`}
       />
-      <Stat label="Adapter build" value={`${data.adapters_ready}/${data.adapters_total}`} hint="servis edilebilir / toplam" />
-      <Stat label="Çalıştırma" value={String(data.runs_last_24h)} hint={`toplam ${data.total_runs}`} />
-      <Stat label="Kullanıcı" value={String(data.total_users)} />
+      <Stat
+        index={3}
+        label="Adapter build"
+        value={`${data.adapters_ready}/${data.adapters_total}`}
+        hint="servis edilebilir / toplam"
+      />
+      <Stat
+        index={4}
+        label="Çalıştırma"
+        value={String(data.runs_last_24h)}
+        hint={`toplam ${data.total_runs}`}
+      />
+      <Stat index={5} label="Kullanıcı" value={String(data.total_users)} />
       <GrafanaCard />
     </div>
   );
@@ -159,15 +215,20 @@ function GrafanaCard() {
       // meant to be discoverable, and Referer would leak it into any logging on
       // the other side.
       rel="noopener noreferrer"
-      className="card p-4 block hover:opacity-90 transition-opacity"
+      className="card card-action item-in p-4 block"
+      style={{ ["--i" as string]: 6 }}
     >
-      <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
-        Grafana
+      <div className="eyebrow">Grafana</div>
+      <div className="font-display text-2xl font-semibold mt-1.5 flex items-center gap-2 tracking-tight">
+        Panolar
+        <span style={{ color: "var(--brand)" }}>→</span>
       </div>
-      <div className="text-2xl font-semibold mt-1">Panolar →</div>
-      <div className="text-xs mt-1 leading-relaxed" style={{ color: "var(--text-dim)" }}>
-        Metrikler ve loglar ayrı sekmede. Kutu kapalıyken açılmaz — burada
-        gördüğün sayılar backend&apos;den gelir, Grafana&apos;dan değil.
+      <div
+        className="text-xs mt-2 leading-relaxed"
+        style={{ color: "var(--text-dim)" }}
+      >
+        Metrikler ve loglar ayrı sekmede. Çıkarım sunucusu kapalıyken açılmaz —
+        burada gördüğün sayılar backend&apos;den gelir, Grafana&apos;dan değil.
       </div>
     </a>
   );
@@ -220,23 +281,39 @@ function ModelPanel() {
     }
   }
 
-  if (!settings) return <p className="text-xs" style={{ color: "var(--text-faint)" }}>Yükleniyor…</p>;
+  if (!settings) {
+    return (
+      <div className="space-y-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="card p-4 space-y-3">
+            <div className="skeleton h-4 w-32" />
+            <div className="skeleton h-9 w-full" />
+            <div className="skeleton h-3 w-3/4" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Model seçimi</h3>
+      <section className="card p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="font-display font-semibold">Model seçimi</h3>
           <span className="text-xs" style={{ color: "var(--text-faint)" }}>
-            şu an çalışan: <strong style={{ color: "var(--text)" }}>{effective}</strong>
+            şu an çalışan:{" "}
+            <strong className="mono" style={{ color: "var(--text)" }}>
+              {effective}
+            </strong>
           </span>
         </div>
 
         <select
-          className="input w-full"
+          className="input"
           value={settings.default_model}
           onChange={(e) => save({ default_model: e.target.value })}
           disabled={saving}
+          aria-label="Varsayılan model"
         >
           {/* Empty means "no explicit choice", which falls through to the active
               adapter. Spelled out rather than left blank so the operator can
@@ -251,25 +328,36 @@ function ModelPanel() {
         </select>
 
         <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
-          Buradaki seçim aktif adapter&apos;ın <strong style={{ color: "var(--text)" }}>üstünde</strong>{" "}
-          çalışır. Bir adapter varken temel modeli bilerek servis etmek için kullanılır — bir
+          Buradaki seçim aktif adapter&apos;ın{" "}
+          <strong style={{ color: "var(--text)" }}>üstünde</strong> çalışır. Bir
+          adapter varken temel modeli bilerek servis etmek için kullanılır — bir
           değerlendirme sırasında normal olan durum budur.
         </p>
-      </div>
+      </section>
 
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold mb-3">Adapter build&apos;leri</h3>
+      <section className="card p-4">
+        <h3 className="font-display font-semibold mb-3">Adapter build&apos;leri</h3>
         {adapters.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--text-faint)" }}>
             Kayıtlı build yok. Pipeline için mf-inference/peft/README.md.
           </p>
         ) : (
-          <ul className="space-y-2">
-            {adapters.map((a) => (
-              <li key={a.id} className="flex items-center gap-3 text-xs">
+          <ul className="space-y-1.5">
+            {adapters.map((a, i) => (
+              <li
+                key={a.id}
+                className="item-in flex items-center gap-3 text-xs rounded-[var(--r-sm)] px-2.5 py-2"
+                style={{
+                  background: "var(--panel-2)",
+                  border: "1px solid var(--line)",
+                  ["--i" as string]: i,
+                }}
+              >
                 <span className="flex-1 min-w-0">
-                  <span className="block truncate" style={{ color: "var(--text)" }}>{a.name}</span>
-                  <span style={{ color: "var(--text-faint)" }}>
+                  <span className="block truncate" style={{ color: "var(--text)" }}>
+                    {a.name}
+                  </span>
+                  <span className="mono" style={{ color: "var(--text-faint)" }}>
                     r={a.lora_rank} α={a.lora_alpha} · {a.status}
                     {a.last_error && ` · ${a.last_error}`}
                   </span>
@@ -278,28 +366,35 @@ function ModelPanel() {
                     is shown on the row rather than discovered by clicking. */}
                 <span className="flex gap-1 shrink-0">
                   {a.gguf_adapter && (
-                    <span className="pill text-xs" style={{ color: "var(--good)", borderColor: "var(--border)" }}
-                          title={`GGUF: ${a.gguf_adapter} — anında geçiş`}>
+                    <span
+                      className="pill pill-ok"
+                      title={`GGUF: ${a.gguf_adapter} — anında geçiş`}
+                    >
                       hot-swap
                     </span>
                   )}
                   {a.mlc_model_id && (
-                    <span className="pill text-xs" style={{ color: "var(--text-faint)", borderColor: "var(--border)" }}
-                          title={`Derlenmiş model: ${a.mlc_model_id}`}>
+                    <span className="pill" title={`Derlenmiş model: ${a.mlc_model_id}`}>
                       derlenmiş
                     </span>
                   )}
                 </span>
                 {a.status === "active" ? (
-                  <button className="btn btn-ghost !py-1 !px-2.5 text-xs"
-                          onClick={() => api.admin.deactivateAdapter().then(announce)}>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => api.admin.deactivateAdapter().then(announce)}
+                  >
                     devre dışı bırak
                   </button>
                 ) : (
                   <button
-                    className="btn btn-ghost !py-1 !px-2.5 text-xs"
+                    className="btn btn-ghost btn-sm"
                     disabled={a.status !== "ready"}
-                    title={a.status !== "ready" ? "Yalnızca tamamlanmış bir build aktive edilebilir" : ""}
+                    title={
+                      a.status !== "ready"
+                        ? "Yalnızca tamamlanmış bir build aktive edilebilir"
+                        : ""
+                    }
                     onClick={() =>
                       api.admin
                         .activateAdapter(a.id)
@@ -319,58 +414,56 @@ function ModelPanel() {
             a build published but not yet picked up by the runtime activates
             fine and swaps nothing. */}
         {swap && (
-          <p
-            className="text-xs mt-3 p-2.5 rounded leading-relaxed"
-            style={{
-              background: "var(--accent-soft)",
-              color: swap.hot_swapped ? "var(--good)" : "var(--warn)",
-            }}
+          <div
+            className={`notice mt-3 view-in ${swap.hot_swapped ? "notice-ok" : "notice-warn"}`}
           >
             {swap.hot_swapped ? (
               <>
-                <strong>Canlı geçiş yapıldı — {swap.swap_ms} ms.</strong> Yeniden başlatma
-                yok, yeniden derleme yok.
+                <strong>
+                  Canlı geçiş yapıldı — <span className="mono num">{swap.swap_ms} ms</span>.
+                </strong>{" "}
+                Yeniden başlatma yok, yeniden derleme yok.
               </>
             ) : (
               swap.note
             )}
-          </p>
+          </div>
         )}
 
         <p className="text-xs mt-3 leading-relaxed" style={{ color: "var(--text-dim)" }}>
           İki yol var. <strong style={{ color: "var(--text)" }}>hot-swap</strong>{" "}
-          etiketli bir
-          build&apos;in ağırlıkları llama.cpp&apos;de zaten yüklüdür; aktive etmek bir ölçeği
-          0&apos;dan 1&apos;e çeker ve milisaniyeler sürer.{" "}
-          <strong style={{ color: "var(--text)" }}>derlenmiş</strong>{" "}
-          etiketli bir build&apos;de
-          MLC kernelleri adapter var olmadan önce üretilmiştir, dolayısıyla çalışma zamanında
-          LoRA yuvası yoktur — orada değişen, sunucudan hangi derlenmiş modelin isteneceğidir.
-          Yeni bir GGUF yayınlamak yine de llamacpp konteynerinin yeniden başlatılmasını ister;
-          yüklü adapter&apos;lar arasında geçiş istemez.
+          etiketli bir build&apos;in ağırlıkları llama.cpp&apos;de zaten yüklüdür;
+          aktive etmek bir ölçeği 0&apos;dan 1&apos;e çeker ve milisaniyeler sürer.{" "}
+          <strong style={{ color: "var(--text)" }}>derlenmiş</strong> etiketli bir
+          build&apos;de MLC kernelleri adapter var olmadan önce üretilmiştir,
+          dolayısıyla çalışma zamanında LoRA yuvası yoktur — orada değişen,
+          sunucudan hangi derlenmiş modelin isteneceğidir. Yeni bir GGUF yayınlamak
+          yine de llamacpp konteynerinin yeniden başlatılmasını ister; yüklü
+          adapter&apos;lar arasında geçiş istemez.
         </p>
-      </div>
+      </section>
 
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold">Üretim parametreleri</h3>
+      <section className="card p-4 space-y-3">
+        <h3 className="font-display font-semibold">Üretim parametreleri</h3>
         <label className="block">
-          <span className="text-xs block mb-1" style={{ color: "var(--text-faint)" }}>
-            Sistem promptu
-          </span>
+          <span className="label">Sistem promptu</span>
           <textarea
-            className="input w-full font-mono text-xs"
+            className="input mono !text-xs"
             rows={5}
             defaultValue={settings.system_prompt}
-            onBlur={(e) => e.target.value !== settings.system_prompt && save({ system_prompt: e.target.value })}
+            onBlur={(e) =>
+              e.target.value !== settings.system_prompt &&
+              save({ system_prompt: e.target.value })
+            }
           />
         </label>
 
         <div className="grid gap-3 sm:grid-cols-3">
           {(["temperature", "top_p", "max_tokens"] as const).map((k) => (
             <label key={k}>
-              <span className="text-xs block mb-1" style={{ color: "var(--text-faint)" }}>{k}</span>
+              <span className="label mono">{k}</span>
               <input
-                className="input w-full"
+                className="input mono num"
                 type="number"
                 step={k === "max_tokens" ? 1 : 0.05}
                 defaultValue={settings[k]}
@@ -384,13 +477,17 @@ function ModelPanel() {
         </div>
 
         <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
-          Bu ayarlar sohbet yolunu etkiler. Analiz yolunun sıcaklığı bilerek sabitlenmiştir:
-          rubrik doldurmak çıkarım işidir ve örnekleme çeşitliliği, ürünün üzerine kurulduğu
-          tutarlılığın doğrudan karşıtıdır.
+          Bu ayarlar sohbet yolunu etkiler. Analiz yolunun sıcaklığı bilerek
+          sabitlenmiştir: rubrik doldurmak çıkarım işidir ve örnekleme çeşitliliği,
+          ürünün üzerine kurulduğu tutarlılığın doğrudan karşıtıdır.
         </p>
 
-        {status && <p className="text-xs" style={{ color: "var(--text-dim)" }}>{status}</p>}
-      </div>
+        {status && (
+          <p className="text-xs mono" style={{ color: "var(--text-dim)" }}>
+            {status}
+          </p>
+        )}
+      </section>
     </div>
   );
 }
@@ -398,10 +495,18 @@ function ModelPanel() {
 function MCPPanel() {
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ slug: "", name: "", url: "", side: "frontend" as MCPServer["side"] });
+  const [form, setForm] = useState({
+    slug: "",
+    name: "",
+    url: "",
+    side: "frontend" as MCPServer["side"],
+  });
 
   const reload = useCallback(() => {
-    api.admin.mcpServers().then((r) => setServers(r.servers)).catch((e: ApiError) => setError(e.message));
+    api.admin
+      .mcpServers()
+      .then((r) => setServers(r.servers))
+      .catch((e: ApiError) => setError(e.message));
   }, []);
   useEffect(reload, [reload]);
 
@@ -418,72 +523,125 @@ function MCPPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <h3 className="text-sm font-semibold mb-3">Kayıtlı sunucular</h3>
-        <ul className="space-y-2">
-          {servers.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 text-xs">
-              <span className="flex-1 min-w-0">
-                <span className="flex items-center gap-2">
-                  <span className="truncate" style={{ color: "var(--text)" }}>{s.name}</span>
-                  {s.kind === "internal" && (
-                    <span className="pill text-xs" style={{ color: "var(--accent)" }}>dahili</span>
-                  )}
-                </span>
-                <span className="block truncate" style={{ color: "var(--text-faint)" }}>
-                  {s.url || "bu servisin kendi /mcp adresi"} · {s.side}
-                </span>
-              </span>
-
-              <label className="flex items-center gap-1.5 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={s.enabled}
-                  onChange={(e) =>
-                    api.admin
-                      .updateMcpServer(s.id, { enabled: e.target.checked })
-                      .then(reload)
-                      .catch((err: ApiError) => setError(err.message))
-                  }
+      <section className="card p-4">
+        <h3 className="font-display font-semibold mb-3">Kayıtlı sunucular</h3>
+        {servers.length === 0 ? (
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            Kayıtlı sunucu yok.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {servers.map((s, i) => (
+              <li
+                key={s.id}
+                className="item-in flex items-center gap-3 text-xs rounded-[var(--r-sm)] px-2.5 py-2"
+                style={{
+                  background: "var(--panel-2)",
+                  border: "1px solid var(--line)",
+                  ["--i" as string]: i,
+                }}
+              >
+                <span
+                  className="lamp"
+                  style={{ color: s.enabled ? "var(--ok)" : "var(--text-faint)" }}
                 />
-                <span style={{ color: "var(--text-faint)" }}>açık</span>
-              </label>
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate" style={{ color: "var(--text)" }}>
+                      {s.name}
+                    </span>
+                    {s.kind === "internal" && (
+                      <span className="pill pill-brand">dahili</span>
+                    )}
+                  </span>
+                  <span
+                    className="block truncate mono"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    {s.url || "bu servisin kendi /mcp adresi"} · {s.side}
+                  </span>
+                </span>
 
-              {s.kind === "external" && (
-                <button
-                  className="btn btn-ghost !py-1 !px-2.5 text-xs"
-                  onClick={() => api.admin.deleteMcpServer(s.id).then(reload)}
-                >
-                  sil
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
+                <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={s.enabled}
+                    onChange={(e) =>
+                      api.admin
+                        .updateMcpServer(s.id, { enabled: e.target.checked })
+                        .then(reload)
+                        .catch((err: ApiError) => setError(err.message))
+                    }
+                  />
+                  <span style={{ color: "var(--text-faint)" }}>açık</span>
+                </label>
 
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold">Harici sunucu ekle</h3>
+                {s.kind === "external" && (
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => api.admin.deleteMcpServer(s.id).then(reload)}
+                  >
+                    sil
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card p-4 space-y-3">
+        <h3 className="font-display font-semibold">Harici sunucu ekle</h3>
         <div className="grid gap-2 sm:grid-cols-2">
-          <input className="input" placeholder="slug" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} />
-          <input className="input" placeholder="ad" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <input className="input sm:col-span-2" placeholder="https://…/mcp" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
-          <select className="input" value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value as MCPServer["side"] })}>
+          <input
+            className="input"
+            placeholder="slug"
+            aria-label="slug"
+            value={form.slug}
+            onChange={(e) => setForm({ ...form, slug: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="ad"
+            aria-label="ad"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <input
+            className="input sm:col-span-2 mono !text-xs"
+            placeholder="https://…/mcp"
+            aria-label="MCP adresi"
+            value={form.url}
+            onChange={(e) => setForm({ ...form, url: e.target.value })}
+          />
+          <select
+            className="input"
+            aria-label="Taraf"
+            value={form.side}
+            onChange={(e) =>
+              setForm({ ...form, side: e.target.value as MCPServer["side"] })
+            }
+          >
             <option value="frontend">frontend</option>
             <option value="backend">backend</option>
             <option value="both">ikisi</option>
           </select>
-          <button className="btn btn-primary" onClick={add} disabled={!form.slug || !form.url}>
-            ekle
+          <button
+            className="btn btn-primary"
+            onClick={add}
+            disabled={!form.slug || !form.url}
+          >
+            Ekle
           </button>
         </div>
         <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
-          Frontend&apos;e açılan bir sunucu <strong style={{ color: "var(--text)" }}>https</strong>{" "}
-          olmak zorunda (localhost hariç): https bir sayfadan düz http bağlantısını tarayıcı
+          Frontend&apos;e açılan bir sunucu{" "}
+          <strong style={{ color: "var(--text)" }}>https</strong> olmak zorunda
+          (localhost hariç): https bir sayfadan düz http bağlantısını tarayıcı
           engeller, yani böyle bir kayıt seçim listesinde yalnızca hata üretirdi.
         </p>
-        {error && <p className="text-xs" style={{ color: "var(--bad)" }}>{error}</p>}
-      </div>
+        {error && <div className="notice notice-bad">{error}</div>}
+      </section>
     </div>
   );
 }
@@ -491,56 +649,102 @@ function MCPPanel() {
 function LogsPanel() {
   const [entries, setEntries] = useState<AdminLogEntry[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.admin
       .logs(50)
       .then((r) => setEntries(r.entries))
-      .catch((e: ApiError) => setError(e.message));
+      .catch((e: ApiError) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <p className="text-xs" style={{ color: "var(--bad)" }}>{error}</p>;
+  if (error) return <div className="notice notice-bad">{error}</div>;
 
   return (
     <div className="card overflow-hidden">
-      <div className="px-4 py-3">
-        <h3 className="text-sm font-semibold">Son çalıştırmalar</h3>
+      <div className="px-4 py-3.5" style={{ borderBottom: "1px solid var(--line)" }}>
+        <h3 className="font-display font-semibold">Son çalıştırmalar</h3>
         {/* Said explicitly, because an operator reasonably expects a log to
             contain the request. This one carries timings and outcomes only:
             debugging latency does not require reading what people asked, and a
             log that holds it becomes a liability the moment it is exported. */}
-        <p className="text-xs mt-0.5" style={{ color: "var(--text-faint)" }}>
-          Prompt ve yanıt metinleri bilerek yok — burada yalnızca zamanlama ve sonuç var.
+        <p className="text-xs mt-1" style={{ color: "var(--text-faint)" }}>
+          Prompt ve yanıt metinleri bilerek yok — burada yalnızca zamanlama ve
+          sonuç var.
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr style={{ color: "var(--text-faint)" }}>
-              {["kullanıcı", "model", "hedef", "token", "gecikme", "puan", "zaman"].map((h) => (
-                <th key={h} className="text-left font-normal px-4 py-2">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td className="px-4 py-2 truncate max-w-[160px]">{e.user_email}</td>
-                <td className="px-4 py-2 truncate max-w-[180px]" style={{ color: "var(--text-dim)" }}>{e.model}</td>
-                <td className="px-4 py-2">{e.target}</td>
-                <td className="px-4 py-2 tabular-nums" style={{ color: "var(--text-dim)" }}>
-                  {e.prompt_tokens}→{e.completion_tokens}
-                </td>
-                <td className="px-4 py-2 tabular-nums">{(e.latency_ms / 1000).toFixed(1)}s</td>
-                <td className="px-4 py-2 tabular-nums">{e.score === null ? "—" : e.score.toFixed(0)}</td>
-                <td className="px-4 py-2" style={{ color: "var(--text-faint)" }}>
-                  {new Date(e.created_at).toLocaleTimeString("tr-TR")}
-                </td>
+
+      {loading ? (
+        <div className="p-4 space-y-2">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="skeleton h-6 w-full" />
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <p className="text-xs p-4" style={{ color: "var(--text-faint)" }}>
+          Henüz kayıtlı çalıştırma yok.
+        </p>
+      ) : (
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "var(--panel-2)" }}>
+                {["kullanıcı", "model", "hedef", "token", "gecikme", "puan", "zaman"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      scope="col"
+                      className="text-left px-4 py-2.5 eyebrow font-medium"
+                      style={{ borderBottom: "1px solid var(--line)" }}
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr
+                  key={e.id}
+                  style={{ borderTop: "1px solid var(--line)" }}
+                  className="hover:bg-[var(--panel-2)] transition-colors"
+                >
+                  <td className="px-4 py-2.5 truncate max-w-[160px]">{e.user_email}</td>
+                  <td
+                    className="px-4 py-2.5 truncate max-w-[180px] mono"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    {e.model}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="pill">{e.target}</span>
+                  </td>
+                  <td
+                    className="px-4 py-2.5 mono num"
+                    style={{ color: "var(--text-dim)" }}
+                  >
+                    {e.prompt_tokens}→{e.completion_tokens}
+                  </td>
+                  <td className="px-4 py-2.5 mono num">
+                    {(e.latency_ms / 1000).toFixed(1)}s
+                  </td>
+                  <td className="px-4 py-2.5 mono num">
+                    {e.score === null ? "—" : e.score.toFixed(0)}
+                  </td>
+                  <td
+                    className="px-4 py-2.5 mono"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    {new Date(e.created_at).toLocaleTimeString("tr-TR")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

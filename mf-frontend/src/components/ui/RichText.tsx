@@ -41,7 +41,7 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         <code
           key={k}
           className="px-1 py-0.5 rounded text-[0.9em]"
-          style={{ background: "var(--bg-elev-2)", fontFamily: "var(--font-mono, monospace)" }}
+          style={{ background: "var(--panel-2)", fontFamily: "var(--font-mono, monospace)" }}
         >
           {tok.slice(1, -1)}
         </code>,
@@ -79,7 +79,7 @@ function Table({ rows, k }: { rows: string[]; k: string }) {
               <th
                 key={i}
                 className="text-left font-semibold px-3 py-1.5 whitespace-nowrap"
-                style={{ borderBottom: "1px solid var(--border)", color: "var(--text)" }}
+                style={{ borderBottom: "1px solid var(--line)", color: "var(--text)" }}
               >
                 {inline(c, `${k}-h${i}`)}
               </th>
@@ -93,7 +93,7 @@ function Table({ rows, k }: { rows: string[]; k: string }) {
                 <td
                   key={i}
                   className="px-3 py-1.5 align-top"
-                  style={{ borderBottom: "1px solid var(--border)", color: "var(--text-dim)" }}
+                  style={{ borderBottom: "1px solid var(--line)", color: "var(--text-dim)" }}
                 >
                   {inline(c, `${k}-r${r}c${i}`)}
                 </td>
@@ -156,7 +156,7 @@ export function RichText({ text }: { text: string }) {
       <blockquote
         key={`q${k++}`}
         className="text-sm leading-relaxed my-2 pl-3 py-1"
-        style={{ borderLeft: "2px solid var(--accent)", color: "var(--text-dim)" }}
+        style={{ borderLeft: "2px solid var(--brand)", color: "var(--text-dim)" }}
       >
         {inline(quote.join(" "), `q${k}`)}
       </blockquote>,
@@ -182,7 +182,7 @@ export function RichText({ text }: { text: string }) {
           <pre
             key={`c${k++}`}
             className="text-xs my-3 p-3 rounded overflow-x-auto"
-            style={{ background: "var(--bg-elev-2)" }}
+            style={{ background: "var(--panel-2)" }}
           >
             <code>{fence.lines.join("\n")}</code>
           </pre>,
@@ -259,7 +259,7 @@ export function RichText({ text }: { text: string }) {
       <pre
         key={`c${k++}`}
         className="text-xs my-3 p-3 rounded overflow-x-auto"
-        style={{ background: "var(--bg-elev-2)" }}
+        style={{ background: "var(--panel-2)" }}
       >
         <code>{fence.lines.join("\n")}</code>
       </pre>,
