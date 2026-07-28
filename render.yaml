@@ -73,14 +73,10 @@ services:
       # one is set in the dashboard and stays out of this repository.
       - key: LLM_API_KEY
         sync: false
-      # Generous next to the 5s global REQUEST_TIMEOUT, and applied only to the
-      # generation route. The decision persona re-researches and re-sends the
-      # full conversation each turn, so the prompt grows and inference takes
-      # longer on the 2B model. 90s accommodates web search + wiki lookup +
-      # generation on a busy card. Must stay under the gateway's 180s proxy
-      # timeout in mf-inference/gateway/Caddyfile.
+      # Qwen3-4B on a 6 GB card needs more than 25–90s for a 2048-token screen.
+      # 120s fits under the gateway's 180s proxy timeout in Caddyfile.
       - key: LLM_TIMEOUT
-        value: 90s
+        value: 120s
       # The engine's input window, not an output budget — see LLM_MAX_TOKENS for
       # that. mlc_llm serves the window the card affords once the weights are
       # loaded, which for the Qwen3-4B build is far below the 8192 it was

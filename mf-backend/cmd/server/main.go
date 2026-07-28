@@ -162,9 +162,8 @@ func main() {
 	// did not answer in time", which is a true statement about the clock and a
 	// false one about the cause. Bounding search is what keeps that message
 	// honest.
-	searchTimeout := min(max(cfg.LLMTimeout/4, 5*time.Second), 20*time.Second)
-	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, searchTimeout)
-	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens)
+	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.SearchTimeout())
+	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens, cfg.LLMTimeout)
 	decisionHandler := decision.NewHandler(decisionAgent)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
@@ -278,7 +277,7 @@ func main() {
 
 	// The investment persona. One slow route — it researches live and then waits
 	// on the GPU — so it takes the generation timeout throughout.
-	r.Mount("/decision", decisionHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.LLMTimeout))
+	r.Mount("/decision", decisionHandler.Routes(tokens.Verify, cfg.RequestTimeout, cfg.DecisionChatTimeout()))
 
 	// Model Context Protocol. Outside the short-bound group for the same reason
 	// as the two above: a tools/call can run an analysis and wait on the GPU.

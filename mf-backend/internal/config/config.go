@@ -142,7 +142,10 @@ func Load() Config {
 		// Provisional. The real figure comes from measuring the inference host;
 		// it must stay below the server's WriteTimeout in cmd/server/main.go and
 		// below the gateway's proxy timeouts in mf-inference/gateway/Caddyfile.
-		LLMTimeout: getDuration("LLM_TIMEOUT", 25*time.Second),
+		// Qwen3-4B on a 6 GB card can exceed 25s for a single screen (2048
+		// tokens). 120s matches the gateway headroom and keeps codegen from
+		// failing while the persona still has room after web search.
+		LLMTimeout: getDuration("LLM_TIMEOUT", 120*time.Second),
 		// A ceiling, not a default — the provider still falls back to a modest
 		// 512 when a caller expresses no preference. Raised from 512 because
 		// rubric analysis legitimately needs a few thousand output tokens
@@ -168,6 +171,26 @@ func Load() Config {
 
 // ServerInferenceEnabled reports whether a server-side inference host is wired.
 func (c Config) ServerInferenceEnabled() bool { return c.LLMBaseURL != "" }
+
+// SearchTimeout bounds live web research on one persona turn. It is a fraction
+// of LLMTimeout rather than the whole of it, so a slow search cannot consume the
+// generation budget and surface as "inference host did not answer in time".
+func (c Config) SearchTimeout() time.Duration {
+	d := c.LLMTimeout / 4
+	if d < 5*time.Second {
+		return 5 * time.Second
+	}
+	if d > 20*time.Second {
+		return 20 * time.Second
+	}
+	return d
+}
+
+// DecisionChatTimeout covers web search, wiki retrieval, and one GPU generation
+// on POST /decision/chat. Using LLMTimeout alone cut the model off after search.
+func (c Config) DecisionChatTimeout() time.Duration {
+	return c.LLMTimeout + c.SearchTimeout() + 15*time.Second
+}
 
 // HotSwapURL is the effective address of the live-adapter runtime.
 //

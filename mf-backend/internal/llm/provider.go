@@ -97,10 +97,11 @@ func NewOpenAIProvider(baseURL, apiKey string, timeout time.Duration, maxTokens 
 		apiKey:    apiKey,
 		maxTokens: maxTokens,
 		client: &http.Client{
-			Timeout: timeout,
-			// The default transport pools connections, which matters here: the
-			// upstream is across a tunnel, so a fresh TLS handshake per request
-			// would add a round trip to every generation.
+			// Deadlines come from the request context on each call. A fixed
+			// client.Timeout fought nested routes — a persona turn that spent
+			// 20s on search then started inference could hit the client's wall
+			// clock even when the route still had budget left.
+			Timeout:   0,
 			Transport: http.DefaultTransport,
 		},
 	}

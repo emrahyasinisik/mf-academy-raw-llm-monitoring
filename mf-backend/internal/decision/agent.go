@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/emrah/mf-backend/internal/llm"
@@ -54,14 +55,20 @@ type Agent struct {
 	// promptPlan for why this agent budgets its prompt at all and why it does so
 	// in characters rather than tokens.
 	promptChars int
+	// llmTimeout is the generation slice of one turn, separate from the route
+	// budget that also pays for web search and wiki retrieval.
+	llmTimeout time.Duration
 }
 
 // NewAgent takes the engine's input window in tokens, not because the agent
 // counts tokens but because that is the number the operator can actually read
 // off the inference host.
-func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set SettingsSource, maxPromptTokens int) *Agent {
+func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set SettingsSource, maxPromptTokens int, llmTimeout time.Duration) *Agent {
 	if maxPromptTokens <= 0 {
 		maxPromptTokens = fallbackPromptTokens
+	}
+	if llmTimeout <= 0 {
+		llmTimeout = 120 * time.Second
 	}
 	return &Agent{
 		chat:        chat,
@@ -69,6 +76,7 @@ func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set Settin
 		wiki:        retriever,
 		settings:    set,
 		promptChars: int(float64(maxPromptTokens) * charsPerToken),
+		llmTimeout:  llmTimeout,
 	}
 }
 
@@ -86,9 +94,9 @@ const defaultModel = "qwen3-4b-flutter-q4f16_1-MLC"
 // brainstorm; a low temperature is what stops it inventing evidence.
 const personaTemperature = 0.2
 
-// personaMaxTokens bounds one reply. Generous enough for a full verdict with a
-// per-dimension rationale, bounded so a single turn cannot occupy the GPU.
-const personaMaxTokens = 1024
+// Raised from 1024 because Qwen3 may spend tokens in a leading reasoning
+// block before the KARAR/SKOR lines the UI parses.
+const personaMaxTokens = 1536
 
 // Bounds on how much evidence goes into one prompt. The card has 6 GB; an
 // unbounded evidence block is the fastest way to run the KV cache out of it.
@@ -206,7 +214,14 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	model := a.resolveModel(ctx)
 	messages := a.compose(history, evidence, plan)
 
-	comp, err := a.chat.Chat(ctx, model, messages, personaTemperature, personaMaxTokens)
+	// Reserve the full generation budget even when search already consumed part
+	// of the route deadline. Without this, a 20s search under a 90s route left
+	// only ~70s for the model and surfaced as "inference host did not answer in
+	// time" even though the host was still generating.
+	llmCtx, cancel := context.WithTimeout(ctx, a.llmTimeout)
+	defer cancel()
+
+	comp, err := a.chat.Chat(llmCtx, model, messages, personaTemperature, personaMaxTokens)
 	if err != nil {
 		return Result{}, err
 	}

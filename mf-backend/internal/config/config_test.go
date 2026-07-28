@@ -88,3 +88,16 @@ func TestWarningsFlagUntrustedProxyInProduction(t *testing.T) {
 		t.Errorf("warnings %v do not mention TRUST_PROXY", warnings)
 	}
 }
+
+func TestDecisionChatTimeoutCoversSearchAndGeneration(t *testing.T) {
+	cfg := Config{LLMTimeout: 120 * time.Second}
+	search := cfg.SearchTimeout()
+	got := cfg.DecisionChatTimeout()
+	want := cfg.LLMTimeout + search + 15*time.Second
+	if got != want {
+		t.Fatalf("DecisionChatTimeout() = %v, want %v", got, want)
+	}
+	if got <= cfg.LLMTimeout {
+		t.Fatalf("DecisionChatTimeout() = %v must exceed LLMTimeout %v", got, cfg.LLMTimeout)
+	}
+}

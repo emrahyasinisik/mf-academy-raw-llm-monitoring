@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/emrah/mf-backend/internal/llm"
@@ -167,7 +168,7 @@ func TestRespondKeepsPromptInsideTheWindow(t *testing.T) {
 	// 1366 is what the Qwen3-4B build on the 6 GB card actually serves.
 	window := 1366
 	chat := &fakeChatter{}
-	agent := NewAgent(chat, fatSearcher{}, fatWiki{}, fixedSettings{}, window)
+	agent := NewAgent(chat, fatSearcher{}, fatWiki{}, fixedSettings{}, window, 120*time.Second)
 
 	res, err := agent.Respond(context.Background(), history)
 	if err != nil {
@@ -199,7 +200,7 @@ func TestGatherCitationsMatchTheSourceList(t *testing.T) {
 	// A citation the UI cannot resolve is the one failure this feature cannot
 	// have, so the numbering in the block and the list rendered beside it are
 	// checked against each other rather than each against itself.
-	agent := NewAgent(&fakeChatter{}, fatSearcher{}, fatWiki{}, fixedSettings{}, 1366)
+	agent := NewAgent(&fakeChatter{}, fatSearcher{}, fatWiki{}, fixedSettings{}, 1366, 120*time.Second)
 	plan := agent.plan([]Turn{{Role: "user", Content: "Acme AI"}})
 
 	sources, evidence, steps := agent.gather(context.Background(), "Acme AI", plan.evidence)
@@ -225,7 +226,7 @@ func TestGatherCitationsMatchTheSourceList(t *testing.T) {
 }
 
 func TestPlanTruncatesAMessageThatAloneExceedsTheWindow(t *testing.T) {
-	agent := NewAgent(&fakeChatter{}, fatSearcher{}, fatWiki{}, fixedSettings{}, 1366)
+	agent := NewAgent(&fakeChatter{}, fatSearcher{}, fatWiki{}, fixedSettings{}, 1366, 120*time.Second)
 	huge := strings.Repeat("ş", maxTurnChars)
 
 	plan := agent.plan([]Turn{{Role: "user", Content: huge}})
