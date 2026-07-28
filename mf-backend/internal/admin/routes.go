@@ -31,6 +31,13 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) htt
 	r.Get("/overview", h.Overview)
 	r.Get("/logs", h.Logs)
 
+	// The one endpoint here that leaves the machine: it reads Prometheus
+	// through the inference gateway. It still fits the timeout above because
+	// the client behind it is given a shorter one of its own, so a switched-off
+	// box fails as "metrics store unavailable" rather than as a request that
+	// ran out of time.
+	r.Get("/metrics", h.Metrics)
+
 	r.Get("/settings", h.Settings)
 	r.Patch("/settings", h.UpdateSettings)
 

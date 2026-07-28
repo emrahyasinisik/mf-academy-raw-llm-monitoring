@@ -134,7 +134,42 @@ function OverviewPanel() {
       <Stat label="Adapter build" value={`${data.adapters_ready}/${data.adapters_total}`} hint="servis edilebilir / toplam" />
       <Stat label="Çalıştırma" value={String(data.runs_last_24h)} hint={`toplam ${data.total_runs}`} />
       <Stat label="Kullanıcı" value={String(data.total_users)} />
+      <GrafanaCard />
     </div>
+  );
+}
+
+// Grafana is linked, not embedded. An iframe cannot send the gateway's
+// X-API-Key, so framing it would mean either publishing Grafana without that
+// check or proxying every asset through the backend; the reasoning is in
+// mf-observability/README.md.
+//
+// Read at module scope because NEXT_PUBLIC_* is inlined at build time — there
+// is no runtime value to wait for. Unset is a supported state: a deployment
+// with no tunnel renders nothing here rather than a button that cannot work.
+const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL ?? "";
+
+function GrafanaCard() {
+  if (!GRAFANA_URL) return null;
+  return (
+    <a
+      href={GRAFANA_URL}
+      target="_blank"
+      // noreferrer as well as noopener: the target is a hostname that is not
+      // meant to be discoverable, and Referer would leak it into any logging on
+      // the other side.
+      rel="noopener noreferrer"
+      className="card p-4 block hover:opacity-90 transition-opacity"
+    >
+      <div className="text-xs uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
+        Grafana
+      </div>
+      <div className="text-2xl font-semibold mt-1">Panolar →</div>
+      <div className="text-xs mt-1 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+        Metrikler ve loglar ayrı sekmede. Kutu kapalıyken açılmaz — burada
+        gördüğün sayılar backend&apos;den gelir, Grafana&apos;dan değil.
+      </div>
+    </a>
   );
 }
 

@@ -104,6 +104,68 @@ docker compose exec prometheus wget -qO- http://localhost:9090/api/v1/targets \
 Empty panels with no error almost always means the datasource uid does not
 match what the dashboard references — both are pinned to `prometheus` here.
 
+## The app's own charts
+
+The product has a **Metrikler** tab, admin-only, with four panels over the same
+metrics: request rate, 5xx rate, p95 latency, and generation p95 split by
+target. They are drawn by the frontend from data the backend fetches here —
+`GET /admin/metrics?window=1h|6h|24h`, reaching Prometheus through the inference
+gateway's `/prom` route.
+
+The queries live in the backend, not in the browser. An endpoint that forwarded
+arbitrary PromQL would be a Prometheus console with our login in front of it:
+a caller could ask for a year at one-second resolution, or read series the panel
+was never meant to show. A fixed set has a known cost per request.
+
+This does not replace Grafana and is not meant to. Four panels answer the
+questions worth answering without leaving the product; Grafana answers the ones
+nobody anticipated, which is why it stays.
+
+When the box is off, the tab says so and the rest of the admin panel — which
+reads the database, not this — keeps working.
+
+## Reaching Grafana from the admin UI
+
+The admin panel links to Grafana. It does not embed it, and that is the
+decision worth explaining, because embedding is the obvious first idea.
+
+An `<iframe>` cannot send an `X-API-Key` header, so the gateway's auth — the one
+thing standing between this machine and the open internet — has no way to
+authenticate a framed request. Making it work means either publishing Grafana
+without that check, or proxying every Grafana asset through the backend on
+Render and running Grafana under a sub-path to match. The first trades away the
+security model; the second buys an iframe with a maintenance bill.
+
+Linking instead keeps Grafana what it already is: an operator's tool, reached
+directly, authenticated by something that understands who the operator is. This
+is also the common arrangement in practice — product UIs that show metrics draw
+their own charts from the metrics API, and teams that want Grafana put it behind
+SSO and link to it. Embedding lands in between and inherits the drawbacks of
+both.
+
+Since the audience is admins only, nothing here needs per-user filtering. If
+that ever changes — metrics shown to ordinary users, each seeing their own — do
+not revisit embedding: an embedded dashboard shows every viewer the same
+queries. Build the panels in the app over a backend endpoint that constrains the
+query, the way `LLM_BASE_URL` already fronts the inference host.
+
+**The steps are in [`GRAFANA_RUNBOOK.md`](GRAFANA_RUNBOOK.md)**, which runs on
+the box start to finish. The shape of it: an `mf-edge` network is the one seam
+between the two compose projects, so the tunnel — which lives in mf-inference —
+can resolve `grafana`, which lives here. A public hostname on the existing
+tunnel points at `grafana:3000`, and a Cloudflare Access policy goes up
+*before* that hostname does.
+
+That order is the part not to improvise. Without a policy the tunnel serves
+Grafana's login page to the internet and the only thing between a stranger and
+the dashboards is `GRAFANA_PASSWORD`.
+
+Anonymous auth stays off either way, so a misconfigured policy fails closed.
+
+`NEXT_PUBLIC_GRAFANA_URL` in the frontend's environment is what renders the
+link. Unset, the panel shows nothing, so a deployment without a tunnel is a
+supported state rather than a broken button.
+
 ## Reading the logs
 
 In Grafana, the dashboard's bottom row has them. To explore, use **Explore** with

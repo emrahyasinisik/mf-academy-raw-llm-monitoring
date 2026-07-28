@@ -166,6 +166,24 @@ func (c Config) HotSwapURL() string {
 	return strings.TrimRight(c.LLMBaseURL, "/") + "/rt"
 }
 
+// MetricsQueryURL is the address of the Prometheus query API.
+//
+// Derived from the inference host for the same reason as HotSwapURL: the
+// gateway already routes /prom there, so the ordinary deployment gets the admin
+// charts by setting nothing. Prometheus runs beside the GPU rather than beside
+// this service, which is why it is reached through the same tunnel and the same
+// shared secret as inference — there is no second credential to configure and
+// no second thing that can be left half-configured.
+//
+// Empty when there is no inference host, and the charts then degrade the way
+// server-side generation does: the endpoint answers 503 and says why.
+func (c Config) MetricsQueryURL() string {
+	if c.LLMBaseURL == "" {
+		return ""
+	}
+	return strings.TrimRight(c.LLMBaseURL, "/") + "/prom"
+}
+
 // MetricsEnabled reports whether GET /metrics should be served at all.
 //
 // Outside production an open endpoint is convenient and harmless. In production

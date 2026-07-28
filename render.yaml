@@ -60,6 +60,12 @@ services:
       # Leaving this unset is a supported state — POST /llm/generate then answers
       # 503 and the browser path is unaffected — so the API survives the
       # inference machine being switched off.
+      #
+      # Three things hang off this one variable, all through the same gateway
+      # and the same secret: generation, the hot-swap control plane (/rt), and
+      # the admin panel's metric charts (/prom). None of them needs its own
+      # address or its own credential, and unsetting this degrades all three the
+      # same way — they report that the host is not wired instead of failing.
       - key: LLM_BASE_URL
         value: https://mlc.visevent.com
       # The shared secret the tunnel's gateway checks. sync: false means the

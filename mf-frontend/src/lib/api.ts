@@ -20,6 +20,8 @@ import type {
   MCPServer,
   AdminOverview,
   AdminLogEntry,
+  MetricsResponse,
+  MetricsWindow,
   WikiDocument,
   WikiHit,
   WikiAnswer,
@@ -270,6 +272,11 @@ export const api = {
   // ---- admin (403 for anyone without the role) ----
   admin: {
     overview: () => request<AdminOverview>("/admin/overview"),
+    // The window is the server's vocabulary, not a duration the client invents:
+    // each one carries a step chosen to keep the payload near 120 points, and an
+    // arbitrary span would have no step to go with it.
+    metrics: (window: MetricsWindow) =>
+      request<MetricsResponse>(`/admin/metrics?window=${window}`),
     logs: (limit = 50, target = "") => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (target) params.set("target", target);

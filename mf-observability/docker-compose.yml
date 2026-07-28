@@ -20,6 +20,13 @@ services:
     restart: unless-stopped
     expose:
       - "9090"
+    networks:
+      # `edge` lets the inference gateway reach this for the admin panel's
+      # charts. Still no published port: the only way in is through that
+      # gateway, which checks the same API key it checks for inference and
+      # forwards only /api/v1/query and query_range.
+      - default
+      - edge
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # The bearer token, as a file — Prometheus does not expand environment
@@ -77,7 +84,14 @@ services:
       - prometheus
       - loki
     ports:
+      # Still localhost-only. The tunnel reaches Grafana over the `edge` network
+      # below, not through this binding, so publishing nothing more is correct.
       - "127.0.0.1:3001:3000"
+    networks:
+      # `default` keeps Prometheus and Loki reachable; `edge` is what lets
+      # cloudflared, which runs in the mf-inference project, resolve `grafana`.
+      - default
+      - edge
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -85,14 +99,36 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
-      # Nothing here is meant to be reachable from outside this machine, and the
-      # port binding above already says so; this stops Grafana from inviting
-      # anonymous readers if that ever changes.
+      # Both stay off even once a public hostname exists. Access authenticates
+      # who reaches Grafana; these decide what an unauthenticated request would
+      # be allowed to do if it ever arrived, and the answer must remain
+      # "nothing" — a misconfigured policy should fail closed, not publish the
+      # dashboards.
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Grafana builds redirects and share links from this. Left at the
+      # localhost default it would send a tunnel visitor to their own machine
+      # after login.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001}
 
 volumes:
   prometheus-data:
   grafana-data:
   loki-data:
   alloy-data:
+
+networks:
+  # Declared external so this project does not own it: `docker compose down`
+  # here must not tear a network out from under the tunnel in the other project.
+  # Create it once, on the box:
+  #
+  #   docker network create mf-edge
+  #
+  # Grafana and Prometheus join it; Loki and Alloy do not. Joining is not
+  # exposure — nothing on this network is published — it only decides which
+  # containers can address each other. Grafana is reached by the tunnel, and
+  # Prometheus by the inference gateway, which authenticates and allow-lists
+  # before forwarding. Loki has no such caller and so stays where it was.
+  edge:
+    external: true
+    name: mf-edge
