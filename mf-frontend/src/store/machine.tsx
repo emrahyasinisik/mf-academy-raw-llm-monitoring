@@ -26,6 +26,7 @@ import {
 } from "react";
 import { useEffect } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/store/auth";
 import type { ModelInfo, Run } from "@/lib/types";
 
 export type HostState = "checking" | "online" | "offline";
@@ -64,6 +65,11 @@ interface MachineState {
 const MachineContext = createContext<MachineState | null>(null);
 
 export function MachineProvider({ children }: { children: ReactNode }) {
+  // Nothing is probed until somebody is signed in. /llm/models is authenticated,
+  // so mounting this unconditionally fired a request on the login screen that
+  // could only ever come back 401 — and then painted the host as offline on the
+  // strength of it, before the session had even been established.
+  const { user } = useAuth();
   const [host, setHost] = useState<HostState>("checking");
   const [model, setModel] = useState("");
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -77,6 +83,7 @@ export function MachineProvider({ children }: { children: ReactNode }) {
   const jobs = useRef(0);
 
   const refresh = useCallback(() => {
+    if (!user) return;
     api
       .models()
       .then((res) => {
@@ -93,7 +100,7 @@ export function MachineProvider({ children }: { children: ReactNode }) {
         setModels([]);
         setHost("offline");
       });
-  }, []);
+  }, [user]);
 
   useEffect(refresh, [refresh]);
 

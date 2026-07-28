@@ -52,6 +52,26 @@ function parseVerdict(text: string): Verdict | null {
   return { label, score: s ? Math.min(100, parseInt(s[1], 10)) : null };
 }
 
+/**
+ * Removes the machine-readable verdict lines from the prose.
+ *
+ * They are a protocol between the persona and this screen, not part of what it
+ * wrote: once parsed into the badge, leaving them in the body renders the
+ * decision twice, and the second copy is worse — the two lines collapse into one
+ * run-on paragraph ("KARAR: Temkinli yatırılabilir SKOR: 64") because nothing in
+ * markdown makes them separate blocks.
+ *
+ * Only applied when a verdict was actually parsed, so a reply that mentions
+ * these words without committing to a decision keeps every word it wrote.
+ */
+function stripVerdictLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*(KARAR|SKOR)\s*:/i.test(line))
+    .join("\n")
+    .trimEnd();
+}
+
 function toneFor(label: string): string {
   const key = label.toLowerCase();
   for (const k of Object.keys(VERDICT_TONE)) {
@@ -330,7 +350,7 @@ function PersonaBubble({
       )}
 
       <div className="card p-4">
-        <RichText text={msg.content} />
+        <RichText text={verdict ? stripVerdictLines(msg.content) : msg.content} />
       </div>
 
       {msg.research.length > 0 && <ResearchTrail steps={msg.research} />}
