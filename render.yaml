@@ -74,8 +74,10 @@ services:
       - key: LLM_API_KEY
         sync: false
       # Generous next to the 5s global REQUEST_TIMEOUT, and applied only to the
-      # generation route. Measured on the inference host: ~107 tok/s warm, so a
-      # 512-token answer lands in about 5s; the rest is headroom for the tunnel
-      # hop and a busy card. Must stay under the server's 30s WriteTimeout.
+      # generation route. The decision persona re-researches and re-sends the
+      # full conversation each turn, so the prompt grows and inference takes
+      # longer on the 2B model. 90s accommodates web search + wiki lookup +
+      # generation on a busy card. Must stay under the gateway's 180s proxy
+      # timeout in mf-inference/gateway/Caddyfile.
       - key: LLM_TIMEOUT
-        value: 25s
+        value: 90s
