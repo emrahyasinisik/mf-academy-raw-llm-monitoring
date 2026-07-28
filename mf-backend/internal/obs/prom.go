@@ -16,18 +16,44 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/emrah/mf-backend/internal/common"
 )
 
 // ErrUnavailable means Prometheus could not be reached or refused the query.
 // Kept distinct from an empty result: "the metrics store is down" and "nothing
 // happened in this window" look identical on a chart and mean opposite things.
 var ErrUnavailable = errors.New("metrics store unavailable")
+
+// StatusError is a reply that arrived but was not a result: the query never
+// reached Prometheus, or reached it and was refused.
+//
+// It exists because "unreachable" is too coarse to act on and every layer
+// between here and the store answers with a different number. 401 is the
+// gateway rejecting the shared secret, 403 is its allow-list or Cloudflare's
+// bot protection standing in the way, 502 is the gateway up while Prometheus
+// is not. Body carries a short prefix of the reply for the same reason — a
+// Cloudflare challenge page and a Caddy "unauthorized" are both 403 to a
+// status code alone, and the operator reading the log needs to tell them
+// apart without reproducing the request.
+type StatusError struct {
+	Code int
+	Body string
+}
+
+func (e *StatusError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("query API returned %d", e.Code)
+	}
+	return fmt.Sprintf("query API returned %d: %s", e.Code, e.Body)
+}
 
 // Point is one sample. Time is Unix seconds, which is what the API returns and
 // what a chart axis wants; converting to time.Time here would only make the
@@ -97,20 +123,37 @@ func (c *Client) QueryRange(ctx context.Context, expr string, start, end time.Ti
 	if err != nil {
 		return nil, fmt.Errorf("build metrics request: %w", err)
 	}
-	// Both headers, matching the rest of this codebase's calls to the gateway:
-	// Caddy checks X-API-Key, and the Authorization form keeps the request
-	// usable against an OpenAI-dialect endpoint without a second code path.
+	// Named, because the tunnel sits behind Cloudflare and an anonymous
+	// Go-http-client is what its bot protection challenges — with a challenge
+	// page, which this client cannot solve and would report only as a failed
+	// query. Same header as the generation path for the same reason.
+	req.Header.Set("User-Agent", common.UserAgent)
+	// Both auth headers, matching the rest of this codebase's calls to the
+	// gateway: Caddy checks X-API-Key, and the Authorization form keeps the
+	// request usable against an OpenAI-dialect endpoint without a second code
+	// path.
 	req.Header.Set("X-API-Key", c.apiKey)
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		// Two %w verbs, not %w and %v: callers switch on ErrUnavailable to
+		// decide the shape of the answer, but a deadline that fired is worth
+		// saying out loud, and flattening the cause to text is what would hide
+		// it. Both stay reachable through errors.Is.
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: query API returned %d", ErrUnavailable, resp.StatusCode)
+		// Bounded: an error body is diagnostic, not payload, and the thing most
+		// likely to be answering here with something long is an HTML
+		// interstitial from the edge.
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, &StatusError{
+			Code: resp.StatusCode,
+			Body: strings.TrimSpace(string(snippet)),
+		})
 	}
 
 	// Values arrive as [unixSeconds, "stringValue"] pairs — the timestamp a
@@ -126,7 +169,7 @@ func (c *Client) QueryRange(ctx context.Context, expr string, start, end time.Ti
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	if body.Status != "success" {
 		return nil, fmt.Errorf("%w: query API status %q", ErrUnavailable, body.Status)

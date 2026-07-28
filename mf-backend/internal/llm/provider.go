@@ -81,10 +81,10 @@ const defaultMaxTokens = 512
 // how a peer decides how much of our memory it gets to use.
 const maxResponseBytes = 4 << 20 // 4 MiB
 
-// userAgent identifies this service to the inference host. Deliberately names
-// what we are rather than imitating a browser: the point is that whoever reads
-// the host's logs can tell which client called.
-const userAgent = "mf-backend/0.1.0 (+https://github.com/emrahyasinisik/mf-academy-raw-llm-monitoring)"
+// userAgent identifies this service to the inference host. Shared with every
+// other caller that crosses the same tunnel — see common.UserAgent for why it
+// is not defined here.
+const userAgent = common.UserAgent
 
 // NewOpenAIProvider builds a provider. A zero timeout leaves the bound entirely
 // to the request context; the caller is expected to set one.

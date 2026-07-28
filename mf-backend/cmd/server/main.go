@@ -125,11 +125,19 @@ func main() {
 	// is wedged, and making the operator wait that long to learn it is not help.
 	adapterRuntime := llm.NewAdapterRuntime(cfg.HotSwapURL(), cfg.LLMAPIKey, 15*time.Second)
 
-	// The admin panel's charts. Deliberately given less time than
-	// RequestTimeout: four queries run together, and if the inference box is
-	// off they should fail on this clock and name the reason, rather than being
-	// cut by the request bound with nothing to say about why.
-	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 3*time.Second)
+	// The admin panel's charts.
+	//
+	// Sized against the hop, not against a local query: Prometheus is beside the
+	// GPU, so every one of these crosses Cloudflare to a home connection, and
+	// the four run together on connections that have usually gone idle since
+	// the last visit. The first version gave them three seconds — under
+	// RequestTimeout, which was the right instinct applied to the wrong number,
+	// since it also sat under what the round trip legitimately costs.
+	//
+	// It stays comfortably below the route's own bound below, because that
+	// ordering is what makes a switched-off box report itself as an unreachable
+	// metrics store instead of as a request that ran out of time.
+	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
 	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
@@ -227,17 +235,24 @@ func main() {
 
 		pr.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
 
-		// Control plane. Every route inside is gated on the admin role by the
-		// subtree's own middleware, so mounting it here — inside the short
-		// default bound — is safe: nothing in it waits on the GPU.
-		pr.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout))
-
 		// Which MCP servers this client may connect to. Outside the admin gate
 		// because an ordinary user's browser needs the answer, and deliberately
 		// a different handler from the admin listing: that one carries config
 		// blobs which can hold upstream credentials.
 		pr.With(common.RequireAuth(tokens.Verify)).Get("/mcp-servers", adminHandler.ClientServers)
 	})
+
+	// Control plane. Mounted outside the group for the same reason as the
+	// routers below rather than because anything here is slow: all but one of
+	// its routes are database calls, and that one reads Prometheus across the
+	// tunnel. Nested inside the short bound, the longer one it declares for
+	// that route would have been silently overridden — the exact failure that
+	// moved generation out of the group in the first place.
+	//
+	// Twelve seconds is the outer bound, above the six the query client is
+	// given, so an unreachable box is described by the client's own error
+	// rather than by a deadline landing on the request.
+	r.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout, 12*time.Second))
 
 	// Mounted outside that group so its own routes can choose their bounds: the
 	// short default for everything, the long one for generation.

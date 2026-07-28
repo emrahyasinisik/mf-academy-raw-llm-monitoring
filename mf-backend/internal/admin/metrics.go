@@ -3,7 +3,10 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -155,6 +158,12 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 				// slot and nothing is shared, which is what makes that safe
 				// without a mutex.
 				results[i].Error = errText(err)
+				// The panel gets a sentence a reader can act on; the log gets
+				// the whole chain. Without this the only account of a failure
+				// was four identical words on a chart, which is how this
+				// endpoint went from "wrong" to "unexplained" — the reason had
+				// been thrown away before anyone could read it.
+				slog.Warn("metrics query failed", "panel", p.ID, "error", err)
 				return
 			}
 			results[i].Series = series
@@ -169,8 +178,27 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// errText turns a failure into something the reader of a chart can act on.
+//
+// One message for every failure is what this used to be, and it cost a
+// diagnosis: "could not be reached" is true of a switched-off box, of a
+// rejected secret, of a bot check standing in front of the tunnel and of a
+// deadline that fired one hop short — four different repairs behind one
+// sentence. The status code is included deliberately; it is the operator's
+// own infrastructure answering, not a detail about a stranger's.
 func errText(err error) string {
-	if errors.Is(err, obs.ErrUnavailable) {
+	var se *obs.StatusError
+	switch {
+	case errors.As(err, &se):
+		switch se.Code {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return fmt.Sprintf("metrik deposu isteği reddetti (%d) — gateway anahtarı ya da önündeki bot koruması", se.Code)
+		default:
+			return fmt.Sprintf("metrik deposu %d döndü", se.Code)
+		}
+	case errors.Is(err, context.DeadlineExceeded), os.IsTimeout(err):
+		return "metrik deposu zamanında cevap vermedi"
+	case errors.Is(err, obs.ErrUnavailable):
 		return "metrik deposuna ulaşılamadı"
 	}
 	return "sorgu başarısız"

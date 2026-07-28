@@ -18,25 +18,46 @@ import (
 // the failure mode of the alternative is an admin endpoint quietly serving the
 // public, which is not a mistake worth leaving available.
 //
-// Everything here is a database call, so one short bound covers all of it.
-// Nothing in this package waits on the GPU: the build pipeline runs on the
-// inference host and reports back, it is not driven synchronously from here.
-func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) http.Handler {
+// Almost everything here is a database call, so one short bound covers it —
+// the exception is /metrics, which reads Prometheus across the tunnel and is
+// given its own group below.
+//
+// The two bounds are siblings rather than one nested in the other, and that is
+// the whole point: a child context cannot extend its parent's deadline, so a
+// generous timeout written inside a five-second subtree is decoration. This
+// codebase learned that on /llm/generate, where a 25-second route bound never
+// once took effect and every request died at 5001ms instead. Applying the
+// short bound to a group that excludes the slow route is the only arrangement
+// where both numbers mean something.
+func (h *Handler) Routes(verify common.TokenVerifier, timeout, remoteTimeout time.Duration) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(common.RequireAuth(verify))
 	r.Use(common.RequireRole(common.RoleAdmin))
-	r.Use(common.Timeout(timeout))
 
+	// The one endpoint here that leaves the machine. Prometheus runs beside the
+	// GPU, so this waits on a round trip through Cloudflare to a home
+	// connection — an order of magnitude more than a query against the pool
+	// next door, and four of them at once. The client behind it keeps a shorter
+	// bound of its own so a switched-off box is still reported as an
+	// unreachable store rather than as a request that ran out of time.
+	r.Group(func(gr chi.Router) {
+		gr.Use(common.Timeout(remoteTimeout))
+		gr.Get("/metrics", h.Metrics)
+	})
+
+	r.Group(func(gr chi.Router) {
+		gr.Use(common.Timeout(timeout))
+		h.localRoutes(gr)
+	})
+
+	return r
+}
+
+// localRoutes are the endpoints that go no further than the database.
+func (h *Handler) localRoutes(r chi.Router) {
 	r.Get("/overview", h.Overview)
 	r.Get("/logs", h.Logs)
-
-	// The one endpoint here that leaves the machine: it reads Prometheus
-	// through the inference gateway. It still fits the timeout above because
-	// the client behind it is given a shorter one of its own, so a switched-off
-	// box fails as "metrics store unavailable" rather than as a request that
-	// ran out of time.
-	r.Get("/metrics", h.Metrics)
 
 	r.Get("/settings", h.Settings)
 	r.Patch("/settings", h.UpdateSettings)
@@ -62,6 +83,4 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) htt
 		ar.Patch("/{id}/status", h.UpdateAdapterStatus)
 		ar.Post("/{id}/activate", h.ActivateAdapter)
 	})
-
-	return r
 }
