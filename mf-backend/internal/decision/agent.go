@@ -225,9 +225,8 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	reply := normalizeVerdict(strings.TrimSpace(comp.Content))
 	return Result{
-		Reply:    reply,
+		Reply:    strings.TrimSpace(comp.Content),
 		Sources:  sources,
 		Research: steps,
 		Model:    model,
@@ -417,14 +416,10 @@ func deriveSubject(history []Turn) string {
 func buildQuery(subject, latest string) string {
 	subject = truncate(subject, 200)
 	latest = truncate(strings.TrimSpace(latest), 200)
-	var base string
 	if latest == "" || latest == subject {
-		base = subject
-	} else {
-		base = subject + " " + latest
+		return subject
 	}
-	// Thin DuckDuckGo snippets improve when the query names what we need.
-	return base + " yatırım değerlendirme pazar analizi"
+	return subject + " " + latest
 }
 
 func oneLine(s string) string {
