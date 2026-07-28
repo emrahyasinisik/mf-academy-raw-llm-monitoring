@@ -47,7 +47,7 @@ func NewHandler(store DocumentStore, gen llm.Generator, set SettingsSource) *Han
 // defaultModel is the fallback when neither the request nor the settings name
 // one. Duplicated from the analysis package rather than shared, because these
 // two features are allowed to diverge on which model suits them.
-const defaultModel = "gemma-2-2b-it-q4f16_1-MLC"
+const defaultModel = "qwen3-4b-flutter-q4f16_1-MLC"
 
 // answerTemperature is pinned low and is not the operator's chat temperature.
 // Summarising supplied passages is an extraction task; sampling variety here

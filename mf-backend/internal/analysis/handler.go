@@ -22,7 +22,7 @@ import (
 // one. It mirrors the catalogue entry in internal/llm rather than importing it,
 // because the two mean different things: that one is what the UI offers, this
 // one is what an API caller gets by omission.
-const defaultModel = "gemma-2-2b-it-q4f16_1-MLC"
+const defaultModel = "qwen3-4b-flutter-q4f16_1-MLC"
 
 // analysisTemperature is pinned rather than taken from the operator's settings.
 //

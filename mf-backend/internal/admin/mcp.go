@@ -423,7 +423,7 @@ func effectiveModel(s settings.Settings) string {
 	if s.ActiveModelID != "" {
 		return s.ActiveModelID
 	}
-	return "gemma-2-2b-it-q4f16_1-MLC"
+	return "qwen3-4b-flutter-q4f16_1-MLC"
 }
 
 // ClientServers is the non-admin view: what this caller's side is allowed to

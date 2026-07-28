@@ -69,7 +69,14 @@ services:
       # adapter" does at the container level — see the panel's activate button,
       # which changes the model id the backend asks for, and this variable,
       # which changes what is actually loaded.
-      - ${MLC_MODEL:-HF://mlc-ai/gemma-2-2b-it-q4f16_1-MLC}
+      #
+      # Defaults to the Qwen build the PEFT pipeline produced, because that is
+      # what this host serves. Note that mlc_llm does *not* validate the `model`
+      # field of an incoming request against it — one model is loaded, every
+      # request is answered from it, and the requested id is echoed back
+      # unchanged. So pointing this at the wrong build does not fail: it answers
+      # from one model while every stored row and every chart credits another.
+      - ${MLC_MODEL:-/models/qwen3-4b-flutter-q4f16_1-MLC}
       - --device
       - cuda
       - --host
@@ -81,6 +88,28 @@ services:
       # would be the first thing to fail.
       - --mode
       - local
+      # The engine does not serve the context window the model was compiled with.
+      # It sizes a KV cache from what the card has left after the weights, then
+      # divides that by how many sequences it is willing to batch, and enforces
+      # the quotient as a hard per-request *input* limit — a longer prompt is
+      # rejected with a 400 before a token is generated.
+      #
+      # Left to itself with the 4B build, that quotient came out at 1366 tokens
+      # against a model compiled for 8192, which is under what the decision
+      # persona's prompt costs: the feature could not answer at all, and the only
+      # symptom was the 400 the backend used to summarise as "returned 400".
+      #
+      # max_num_sequence=1 gives the whole cache to one request instead of a
+      # quarter of it. That is the right trade here and not a compromise: this is
+      # a single-operator stack, and concurrency in this design comes from
+      # scaling mlc replicas (see the README), not from batching inside one.
+      #
+      # Verify rather than assume, after any change to the model or the card's
+      # other tenants — the engine prints what it granted:
+      #   docker compose logs mlc | grep -i max_single_sequence_length
+      # and LLM_MAX_PROMPT_TOKENS on the backend must not exceed that number.
+      - --overrides
+      - ${MLC_OVERRIDES:-max_num_sequence=1}
     deploy:
       resources:
         reservations:

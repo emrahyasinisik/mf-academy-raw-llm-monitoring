@@ -263,6 +263,17 @@ func (p *OpenAIProvider) dispatch(ctx context.Context, model string, messages []
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			return Completion{}, common.ErrUpstreamFailed("inference host rejected this service's credentials")
 		}
+		if resp.StatusCode == http.StatusBadRequest {
+			// A 400 from the engine is always about the request we built, never
+			// about the user's input: an over-long prompt, an unknown field, a
+			// sampling value out of range. The engine states which, and passing
+			// that through is the difference between one line and an afternoon —
+			// "prompt has 2331 tokens, larger than the model input length limit
+			// 1366" is a diagnosis, "inference host returned 400" is a puzzle.
+			if msg := upstreamMessage(raw); msg != "" {
+				return Completion{}, common.ErrUpstreamFailed("inference host rejected the request: " + msg)
+			}
+		}
 		return Completion{}, common.ErrUpstreamFailed(
 			fmt.Sprintf("inference host returned %d", resp.StatusCode))
 	}
@@ -287,13 +298,85 @@ func (p *OpenAIProvider) dispatch(ctx context.Context, model string, messages []
 	}
 
 	return Completion{
-		Content:          parsed.Choices[0].Message.Content,
+		Content:          stripReasoning(parsed.Choices[0].Message.Content, model),
 		PromptTokens:     parsed.Usage.PromptTokens,
 		CompletionTokens: parsed.Usage.CompletionTokens,
 		LatencyMs:        latencyMs,
 		Truncated:        finish == finishLength,
 	}, nil
 }
+
+// stripReasoning removes a Qwen-style <think> block from the front of an answer.
+//
+// Here rather than in each caller because it is a property of the served model,
+// not of the feature asking. The host now serves a Qwen3 build, and Qwen3 opens
+// every reply with a <think> block — empty when the chat template does not enable
+// thinking, which is the case for this stack, but still present in the text. Left
+// in, it is not merely noise: the rubric and wiki paths parse the answer as JSON
+// and a leading block makes every one of them fail to parse, while the persona
+// renders it to the user as part of the verdict.
+//
+// Only a *leading* block is removed, and only a closed one. An unterminated
+// <think> means the token budget was spent reasoning and the answer never
+// arrived; the raw text is returned in that case, because a caller can act on a
+// visibly reasoning-only reply and cannot act on an empty string.
+func stripReasoning(content, model string) string {
+	trimmed := strings.TrimLeft(content, " \t\r\n")
+	if !strings.HasPrefix(trimmed, thinkOpen) {
+		return content
+	}
+	end := strings.Index(trimmed, thinkClose)
+	if end < 0 {
+		slog.Warn("answer is an unterminated reasoning block; returning it raw",
+			"model", model, "chars", len(content))
+		return content
+	}
+	return strings.TrimSpace(trimmed[end+len(thinkClose):])
+}
+
+const (
+	thinkOpen  = "<think>"
+	thinkClose = "</think>"
+)
+
+// upstreamMessage digs the engine's own explanation out of an error body, or
+// returns "" when there is nothing quotable in there.
+//
+// Three shapes, because the two engines behind the gateway do not agree and one
+// of them does not agree with itself. OpenAI (and llama.cpp) nest the text under
+// "error"; mlc_llm puts it at the top level as {"object":"error","message":…};
+// and mlc_llm actually sends that object *JSON-encoded as a string*, so the body
+// has to be unwrapped once before it parses. Guessing wrong on any of these is
+// not harmful — the caller falls back to the bare status code.
+func upstreamMessage(raw []byte) string {
+	var shape struct {
+		Message string `json:"message"`
+		Error   struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := json.Unmarshal(raw, &shape); err == nil {
+			if m := strings.TrimSpace(shape.Error.Message); m != "" {
+				return truncate(m, maxUpstreamMessage)
+			}
+			return truncate(strings.TrimSpace(shape.Message), maxUpstreamMessage)
+		}
+		// Not an object: possibly the doubly-encoded case. Unwrap the string
+		// layer once and try again; a second failure ends the loop.
+		var nested string
+		if err := json.Unmarshal(raw, &nested); err != nil {
+			return ""
+		}
+		raw = []byte(nested)
+	}
+	return ""
+}
+
+// maxUpstreamMessage bounds what a remote host can print into our error
+// response. The engine is ours, but an error body is still untrusted length.
+const maxUpstreamMessage = 300
 
 // classifyTransportError separates "did not answer in time" from "could not be
 // reached", because the operator does different things about each. The

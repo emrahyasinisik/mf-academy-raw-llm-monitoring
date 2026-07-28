@@ -154,8 +154,17 @@ func main() {
 	// orchestration, not a second model. Live web research is pluggable: Tavily
 	// when SEARCH_PROVIDER/SEARCH_API_KEY are set, a keyless DuckDuckGo scrape
 	// otherwise, so the persona runs on a fresh deployment with no account.
-	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.LLMTimeout)
-	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore)
+	//
+	// The searcher gets a fraction of LLMTimeout, not the whole of it. Search and
+	// generation are spent out of one route budget, so handing search the entire
+	// deadline lets a slow provider consume it and leave nothing for the model —
+	// and the error that surfaces is then the provider's own "the inference host
+	// did not answer in time", which is a true statement about the clock and a
+	// false one about the cause. Bounding search is what keeps that message
+	// honest.
+	searchTimeout := min(max(cfg.LLMTimeout/4, 5*time.Second), 20*time.Second)
+	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, searchTimeout)
+	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens)
 	decisionHandler := decision.NewHandler(decisionAgent)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path

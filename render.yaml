@@ -81,3 +81,11 @@ services:
       # timeout in mf-inference/gateway/Caddyfile.
       - key: LLM_TIMEOUT
         value: 90s
+      # The engine's input window, not an output budget — see LLM_MAX_TOKENS for
+      # that. mlc_llm serves the window the card affords once the weights are
+      # loaded, which for the Qwen3-4B build is far below the 8192 it was
+      # compiled for, and rejects a longer prompt with a 400 rather than a short
+      # answer. The persona trims itself to this figure; it must not exceed what
+      # the host reports as max_single_sequence_length.
+      - key: LLM_MAX_PROMPT_TOKENS
+        value: 1200

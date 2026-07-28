@@ -60,6 +60,18 @@ type Config struct {
 	// LLMMaxTokens caps generated length, bounding both the time a request can
 	// occupy the GPU and the size of the row it writes.
 	LLMMaxTokens int
+	// LLMMaxPromptTokens is the *input* window the served engine will accept,
+	// which is a different number from LLMMaxTokens and not derivable from it.
+	//
+	// It exists because mlc_llm does not serve the context window the model was
+	// compiled with — it serves what the card has room for once the weights are
+	// loaded, divides that by the batch size, and enforces the result as a hard
+	// per-request input limit. A prompt over it is rejected with a 400 before a
+	// token is generated, so the number has to be known on this side to be
+	// respected. Read it off the engine: an over-long request states the limit
+	// in its error body, and the startup log prints it as
+	// max_single_sequence_length.
+	LLMMaxPromptTokens int
 
 	// AdminEmail names the one account promoted to the admin role at boot.
 	//
@@ -137,6 +149,14 @@ func Load() Config {
 		// (roughly 260 per criterion), and the old ceiling silently truncated
 		// every one of them.
 		LLMMaxTokens: getInt("LLM_MAX_TOKENS", 4096),
+		// Sized to the smallest window the stack has actually granted: a
+		// Qwen3-4B q4f16 build on the 6 GB card serves 1366 input tokens in
+		// `--mode local`, despite being compiled for 8192. The default is
+		// deliberately the pessimistic figure rather than the compiled one,
+		// because being wrong low costs a few sources of evidence and being
+		// wrong high costs the whole turn. Raise it once the engine reports a
+		// bigger window — see mf-inference/docker-compose.yml.
+		LLMMaxPromptTokens: getInt("LLM_MAX_PROMPT_TOKENS", 1200),
 
 		SearchProvider: getEnv("SEARCH_PROVIDER", ""),
 		SearchAPIKey:   getEnv("SEARCH_API_KEY", ""),

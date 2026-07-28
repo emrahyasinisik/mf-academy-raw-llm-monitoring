@@ -87,6 +87,18 @@ command:
 `HF://` öneki "bunu Hugging Face'ten indir" demek. ~1.5 GB'lık ağırlıklar
 iniyor ve şuraya yazılıyor:
 
+> Bu bölüm indirme mekanizmasını anlatıyor; bugünkü **varsayılan farklı**.
+> `MLC_MODEL` artık PEFT hattının ürettiği yerel derlemeyi gösteriyor
+> (`/models/qwen3-4b-flutter-q4f16_1-MLC`), çünkü host onu servis ediyor.
+> `HF://` yolu hâlâ geçerli ve aşağıdaki cache anlatımı ikisi için de aynı —
+> ikisi arasında geçiş yapmak "adapter aktifleştirmek"in container'daki
+> karşılığı.
+>
+> Bir tuzak: mlc_llm istekteki `model` alanını **doğrulamıyor**. Yüklediği tek
+> modelden cevap verir ve istenen id'yi olduğu gibi geri yazar. Yani yanlış id
+> istemek hata vermez — cevabı bir model üretirken kayıt ve grafikler başka bir
+> modeli işaretler.
+
 ```yaml
 volumes:
   - model-cache:/cache

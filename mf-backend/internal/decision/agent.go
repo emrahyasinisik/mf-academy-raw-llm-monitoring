@@ -16,7 +16,9 @@ package decision
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/settings"
@@ -48,15 +50,37 @@ type Agent struct {
 	search   Searcher
 	wiki     WikiRetriever
 	settings SettingsSource
+	// promptChars is the whole input budget for one turn, in characters. See
+	// promptPlan for why this agent budgets its prompt at all and why it does so
+	// in characters rather than tokens.
+	promptChars int
 }
 
-func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set SettingsSource) *Agent {
-	return &Agent{chat: chat, search: search, wiki: retriever, settings: set}
+// NewAgent takes the engine's input window in tokens, not because the agent
+// counts tokens but because that is the number the operator can actually read
+// off the inference host.
+func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set SettingsSource, maxPromptTokens int) *Agent {
+	if maxPromptTokens <= 0 {
+		maxPromptTokens = fallbackPromptTokens
+	}
+	return &Agent{
+		chat:        chat,
+		search:      search,
+		wiki:        retriever,
+		settings:    set,
+		promptChars: int(float64(maxPromptTokens) * charsPerToken),
+	}
 }
 
 // defaultModel matches the analysis and wiki paths: the fallback when neither
 // the operator's settings name a model nor an adapter is active.
-const defaultModel = "gemma-2-2b-it-q4f16_1-MLC"
+//
+// The Qwen build rather than the Gemma one because it is what the inference host
+// serves. mlc_llm does not validate this field — it answers from whatever single
+// model it loaded and echoes the requested id back — so a stale value here does
+// not fail, which is worse than failing: every stored row and every chart then
+// attributes the run to a model that was not involved.
+const defaultModel = "qwen3-4b-flutter-q4f16_1-MLC"
 
 // personaTemperature keeps the verdict grounded. This is an analyst, not a
 // brainstorm; a low temperature is what stops it inventing evidence.
@@ -68,10 +92,56 @@ const personaMaxTokens = 1024
 
 // Bounds on how much evidence goes into one prompt. The card has 6 GB; an
 // unbounded evidence block is the fastest way to run the KV cache out of it.
+//
+// These cap how many sources are *fetched*. How many survive into the prompt is
+// decided separately by promptPlan, because the engine's limit is on characters
+// of prompt and not on count of sources.
 const (
 	maxWebResults  = 5
 	maxWikiResults = 4
 	maxSnippetLen  = 500
+)
+
+// The prompt budget.
+//
+// The engine enforces a hard input limit and rejects an over-long prompt with a
+// 400 before generating anything, so a turn that does not fit does not produce a
+// short answer — it produces no answer. This persona is the one path that can
+// exceed it without anybody writing a long message: it re-sends the whole
+// conversation and staples a fresh evidence block to every turn, so the prompt
+// grows on its own until the turn stops working.
+const (
+	// charsPerToken converts the operator-visible token limit into the unit the
+	// trimming is done in. Characters, because the tokeniser lives on the
+	// inference host and the only alternative — asking it how long a prompt is
+	// before sending it — is a network round trip per trim step.
+	//
+	// 2.2 is below the 2.75 measured on a real persona prompt (Turkish prose,
+	// URLs and rubric text together) on purpose. Dense Turkish tokenises worse
+	// than that average because each diacritic tends to cost its own token, and
+	// the two errors are not symmetric: estimating low drops a source, and
+	// estimating high loses the turn.
+	charsPerToken = 2.2
+
+	// promptMarginChars covers what this side cannot count: the chat template's
+	// own turn markers, and the role tokens the engine adds per message.
+	promptMarginChars = 400
+
+	// evidenceShare is how much of the free budget goes to this turn's evidence
+	// before any of it goes to conversation history. Evidence is what the verdict
+	// has to be grounded in and it was gathered for this question; an older turn
+	// is context the user can restate. So history is what gets dropped first.
+	evidenceShare = 0.75
+
+	// fallbackPromptTokens applies when the caller passes nothing usable. Small
+	// enough to fit every window this stack has served.
+	fallbackPromptTokens = 1200
+
+	// citationOverhead is the fixed cost of one source's citation line — the
+	// "[12] (DeepKwiki) " prefix, the separator and the two newlines — charged
+	// on top of its title and URL so a source is never admitted on a budget its
+	// own scaffolding already spent.
+	citationOverhead = 24
 )
 
 // evidenceHeader opens the evidence block. Named so the fine-tune's dataset
@@ -125,10 +195,16 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	subject := deriveSubject(history)
 	query := buildQuery(subject, latest.Content)
 
-	sources, evidence, steps := a.gather(ctx, query)
+	// The budget is decided before the evidence is gathered, not after. gather
+	// numbers each source as it writes it, so a source dropped afterwards would
+	// leave the reply citing [4] while the UI lists three sources — a citation
+	// pointing at nothing, in the one feature whose whole claim is that every
+	// claim is checkable.
+	plan := a.plan(history)
+	sources, evidence, steps := a.gather(ctx, query, plan.evidence)
 
 	model := a.resolveModel(ctx)
-	messages := a.compose(history, evidence)
+	messages := a.compose(history, evidence, plan)
 
 	comp, err := a.chat.Chat(ctx, model, messages, personaTemperature, personaMaxTokens)
 	if err != nil {
@@ -146,15 +222,27 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 // source list that lets the reader check every citation. A tool that fails is
 // logged into the evidence as unavailable rather than aborting the turn: a
 // verdict on thin evidence, clearly labelled, beats no verdict at all.
-func (a *Agent) gather(ctx context.Context, query string) ([]Source, string, []ResearchStep) {
+//
+// budget is the characters the evidence block may occupy. Sources are admitted
+// until it runs out, and the last one admitted has its snippet shortened to fit
+// rather than being dropped whole — a title and a URL the reader can follow is
+// worth more than the space it costs. Both returns stay in lockstep: a source
+// that did not fit the prompt is not in the list either, so the numbering the
+// model cites and the numbering the UI shows are the same numbering.
+func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source, string, []ResearchStep) {
 	var (
 		sources []Source
 		b       strings.Builder
 		steps   []ResearchStep
 		n       int
+		dropped int
 	)
 
 	b.WriteString(evidenceHeader + "\n")
+
+	// room reports what is left for one more source's snippet, after the fixed
+	// cost of its own citation line.
+	room := func(fixed int) int { return budget - b.Len() - fixed }
 
 	web, err := a.search.Search(ctx, query, maxWebResults)
 	steps = append(steps, ResearchStep{Tool: "web_research", Query: query, Results: len(web)})
@@ -165,27 +253,78 @@ func (a *Agent) gather(ctx context.Context, query string) ([]Source, string, []R
 		if r.URL == "" {
 			continue
 		}
+		title := oneLine(r.Title)
+		left := room(len(title) + len(r.URL) + citationOverhead)
+		if left <= 0 {
+			dropped++
+			continue
+		}
 		n++
 		sources = append(sources, Source{N: n, Title: r.Title, URL: r.URL, Kind: "web"})
-		fmt.Fprintf(&b, "[%d] (web) %s — %s\n%s\n", n, oneLine(r.Title), r.URL, truncate(r.Snippet, maxSnippetLen))
+		fmt.Fprintf(&b, "[%d] (web) %s — %s\n%s\n", n, title, r.URL, truncate(r.Snippet, min(maxSnippetLen, left)))
 	}
 
 	hits, err := a.wiki.Search(ctx, query, maxWikiResults)
 	steps = append(steps, ResearchStep{Tool: "wiki_retrieve", Query: query, Results: len(hits)})
 	for _, h := range hits {
-		n++
 		title := h.Title
 		if h.Heading != "" {
 			title += " · " + h.Heading
 		}
+		left := room(len(title) + citationOverhead)
+		if left <= 0 {
+			dropped++
+			continue
+		}
+		n++
 		sources = append(sources, Source{N: n, Title: title, URL: h.SourceURL, Kind: "wiki"})
-		fmt.Fprintf(&b, "[%d] (DeepKwiki) %s\n%s\n", n, oneLine(title), truncate(h.Body, maxSnippetLen))
+		fmt.Fprintf(&b, "[%d] (DeepKwiki) %s\n%s\n", n, oneLine(title), truncate(h.Body, min(maxSnippetLen, left)))
 	}
 
 	if n == 0 {
 		b.WriteString("- Hiçbir kaynak bulunamadı; kullanıcıdan daha fazla bilgi iste veya kararının belirsiz olduğunu söyle.\n")
 	}
+	if dropped > 0 {
+		// Logged rather than written into the prompt: the model cannot act on
+		// evidence it was not given, and saying so in the prompt spends the very
+		// budget that ran out. An operator seeing this repeatedly should raise
+		// LLM_MAX_PROMPT_TOKENS, and the engine's window with it.
+		slog.Info("persona evidence trimmed to fit the prompt budget",
+			"budget_chars", budget, "kept", n, "dropped", dropped)
+	}
 	return sources, b.String(), steps
+}
+
+// promptPlan is one turn's character budget, divided up before anything is
+// gathered.
+type promptPlan struct {
+	evidence int // chars the evidence block may occupy
+	history  int // chars the prior conversation may occupy
+	// latest is the new user message, truncated if it alone exceeds the window.
+	latest string
+}
+
+// plan divides the budget. The persona prompt, the turn instruction and the new
+// user message are what the turn *is* and come out first; what is left is split
+// between evidence and history.
+func (a *Agent) plan(history []Turn) promptPlan {
+	free := a.promptChars - len(personaSystemPrompt) - len(turnInstruction) - promptMarginChars
+
+	latest := history[len(history)-1].Content
+	if len(latest) > free {
+		// The user's own message outranks every other part of the prompt, but it
+		// does not outrank the window. Truncating here is what turns "the engine
+		// rejected your message" into "the persona answered the first part of
+		// it", which is the better of the two available failures.
+		latest = truncate(latest, max(free, 0))
+	}
+	free -= len(latest)
+	if free <= 0 {
+		return promptPlan{latest: latest}
+	}
+
+	evidence := int(float64(free) * evidenceShare)
+	return promptPlan{evidence: evidence, history: free - evidence, latest: latest}
 }
 
 // compose builds the message list: the persona, the prior conversation verbatim,
@@ -193,11 +332,29 @@ func (a *Agent) gather(ctx context.Context, query string) ([]Source, string, []R
 // The evidence is attached to the user turn rather than the system prompt so it
 // stays tied to the question it was gathered for and does not accumulate across
 // the conversation.
-func (a *Agent) compose(history []Turn, evidence string) []llm.Message {
+//
+// History is fitted to plan.history newest-first and then replayed in order.
+// Dropping the oldest turns rather than the longest is what keeps a clarifying
+// question and the answer to it next to each other; losing one half of that pair
+// would have the persona ask the same question again.
+func (a *Agent) compose(history []Turn, evidence string, plan promptPlan) []llm.Message {
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: "system", Content: personaSystemPrompt})
 
-	for _, t := range history[:len(history)-1] {
+	prior := history[:len(history)-1]
+	keep, used := 0, 0
+	for i := len(prior) - 1; i >= 0; i-- {
+		if used+len(prior[i].Content) > plan.history {
+			break
+		}
+		used += len(prior[i].Content)
+		keep++
+	}
+	if keep < len(prior) {
+		slog.Info("persona history trimmed to fit the prompt budget",
+			"budget_chars", plan.history, "kept", keep, "dropped", len(prior)-keep)
+	}
+	for _, t := range prior[len(prior)-keep:] {
 		role := "user"
 		if t.Role == "assistant" {
 			role = "assistant"
@@ -205,8 +362,7 @@ func (a *Agent) compose(history []Turn, evidence string) []llm.Message {
 		msgs = append(msgs, llm.Message{Role: role, Content: t.Content})
 	}
 
-	latest := history[len(history)-1].Content
-	final := evidence + "\n\nKULLANICI: " + latest + "\n\n" + turnInstruction
+	final := evidence + "\n\nKULLANICI: " + plan.latest + "\n\n" + turnInstruction
 	msgs = append(msgs, llm.Message{Role: "user", Content: final})
 	return msgs
 }
@@ -255,10 +411,22 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// truncate cuts s to at most n bytes, which is the unit the prompt budget is
+// kept in. It backs off to a rune boundary first: the corpus and the persona are
+// Turkish, so a cut chosen by arithmetic lands mid-rune often rather than rarely,
+// and half a rune reaches the tokeniser as U+FFFD — a byte of budget spent to
+// make the surrounding word unreadable.
 func truncate(s string, n int) string {
 	s = strings.TrimSpace(s)
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
 	}
-	return strings.TrimSpace(s[:n]) + "…"
+	cut := s[:n]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimSpace(cut) + "…"
 }

@@ -230,3 +230,60 @@ func TestGenerateWithoutAConfiguredHostIsUnavailable(t *testing.T) {
 func asAPIError(err error, target **common.APIError) bool {
 	return errors.As(err, target)
 }
+
+// The host serves a Qwen3 build, and Qwen3 prefixes every reply with a <think>
+// block. It is empty under this stack's chat template but still present in the
+// text, and left in it breaks the two paths that parse the answer as JSON.
+func TestStripReasoning(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty block, which is what this stack actually gets",
+			"<think>\n\n</think>\n\nKARAR: Temkinli", "KARAR: Temkinli"},
+		{"a block with reasoning in it",
+			"<think>hangi kanıt?</think>\n{\"score\":4}", `{"score":4}`},
+		{"leading whitespace before the block",
+			"\n  <think></think> cevap", "cevap"},
+		{"no block at all is returned untouched",
+			"KARAR: Yatırılabilir", "KARAR: Yatırılabilir"},
+		{"a block that is not leading stays, because it is the answer's own text",
+			"cevap <think>x</think>", "cevap <think>x</think>"},
+		{"an unterminated block is returned raw rather than emptied",
+			"<think>düşünmeye devam", "<think>düşünmeye devam"},
+	}
+	for _, c := range cases {
+		if got := stripReasoning(c.in, "qwen3-4b-flutter-q4f16_1-MLC"); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// A 400 from the engine is about the request we built, and the engine says which
+// — so the message has to survive the trip to the client. mlc_llm sends its error
+// object JSON-encoded as a string, which is the shape that used to be discarded.
+func TestUpstreamMessage(t *testing.T) {
+	const mlc = `Request prompt has 2331 tokens in total, larger than the model input length limit 1366.`
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"mlc_llm, doubly encoded",
+			`"{\"object\":\"error\",\"message\":\"` + mlc + `\",\"code\":400}"`, mlc},
+		{"mlc_llm, plain object",
+			`{"object":"error","message":"` + mlc + `","code":400}`, mlc},
+		{"OpenAI/llama.cpp nesting",
+			`{"error":{"message":"context shift disabled","type":"invalid_request_error"}}`, "context shift disabled"},
+		{"nothing quotable",
+			`<html>502 Bad Gateway</html>`, ""},
+		{"valid JSON with no message field",
+			`{"code":400}`, ""},
+	}
+	for _, c := range cases {
+		if got := upstreamMessage([]byte(c.in)); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
