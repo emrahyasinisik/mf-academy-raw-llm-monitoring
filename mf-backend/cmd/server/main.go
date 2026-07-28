@@ -22,6 +22,7 @@ import (
 	"github.com/emrah/mf-backend/internal/docs"
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/mcp"
+	"github.com/emrah/mf-backend/internal/obs"
 	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/emrah/mf-backend/internal/wiki"
 	"github.com/emrah/mf-backend/migrations"
@@ -123,7 +124,13 @@ func main() {
 	// generation. These calls move no tokens; if one takes 25 seconds the engine
 	// is wedged, and making the operator wait that long to learn it is not help.
 	adapterRuntime := llm.NewAdapterRuntime(cfg.HotSwapURL(), cfg.LLMAPIKey, 15*time.Second)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime)
+
+	// The admin panel's charts. Deliberately given less time than
+	// RequestTimeout: four queries run together, and if the inference box is
+	// off they should fail on this clock and name the reason, rather than being
+	// cut by the request bound with nothing to say about why.
+	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 3*time.Second)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier)
 	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
 
 	// DeepKwiki: the searchable knowledge base and the grounded answers over it.

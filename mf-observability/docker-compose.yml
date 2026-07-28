@@ -20,6 +20,13 @@ services:
     restart: unless-stopped
     expose:
       - "9090"
+    networks:
+      # `edge` lets the inference gateway reach this for the admin panel's
+      # charts. Still no published port: the only way in is through that
+      # gateway, which checks the same API key it checks for inference and
+      # forwards only /api/v1/query and query_range.
+      - default
+      - edge
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # The bearer token, as a file — Prometheus does not expand environment
@@ -117,9 +124,11 @@ networks:
   #
   #   docker network create mf-edge
   #
-  # Only Grafana joins it. Prometheus and Loki stay on the default network with
-  # no published ports, so the seam that makes Grafana reachable does not make a
-  # metrics store or a log store reachable with it.
+  # Grafana and Prometheus join it; Loki and Alloy do not. Joining is not
+  # exposure — nothing on this network is published — it only decides which
+  # containers can address each other. Grafana is reached by the tunnel, and
+  # Prometheus by the inference gateway, which authenticates and allow-lists
+  # before forwarding. Loki has no such caller and so stays where it was.
   edge:
     external: true
     name: mf-edge

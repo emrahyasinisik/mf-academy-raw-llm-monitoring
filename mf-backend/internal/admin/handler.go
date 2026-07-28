@@ -68,10 +68,11 @@ type Handler struct {
 	settings SettingsStore
 	mcp      MCPStore
 	runtime  AdapterSwapper
+	metrics  MetricsQuerier
 }
 
-func NewHandler(store AdapterStore, set SettingsStore, mcp MCPStore, rt AdapterSwapper) *Handler {
-	return &Handler{store: store, settings: set, mcp: mcp, runtime: rt}
+func NewHandler(store AdapterStore, set SettingsStore, mcp MCPStore, rt AdapterSwapper, mq MetricsQuerier) *Handler {
+	return &Handler{store: store, settings: set, mcp: mcp, runtime: rt, metrics: mq}
 }
 
 // hotSwapReady reports whether a live swap can even be attempted. Written as a

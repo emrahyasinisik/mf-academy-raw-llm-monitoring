@@ -52,6 +52,26 @@
 			}
 		}
 
+		# Prometheus, reached under /prom/*, so the backend on Render can draw
+		# the admin panel's metric charts. Grafana is not involved: it renders
+		# for a human at its own hostname, this serves JSON to one service.
+		#
+		# Behind the same auth check as everything else, and narrowed further to
+		# the two read endpoints the panel actually calls. Prometheus's API is
+		# wider than that — /api/v1/admin/* can delete series outright, and it
+		# is only disabled because --web.enable-admin-api defaults off, which is
+		# a flag someone could flip for an unrelated reason years from now. An
+		# allow-list does not depend on that staying true.
+		#
+		# handle_path strips /prom, so the matcher below reads the rewritten
+		# path and the upstream sees ordinary /api/v1/query URLs.
+		handle_path /prom/* {
+			@notread not path /api/v1/query /api/v1/query_range
+			respond @notread "forbidden" 403
+
+			reverse_proxy prometheus:9090
+		}
+
 		# Wrapped in `handle` (not a bare reverse_proxy) so Caddy compiles it
 		# with an automatic exclusion against the handle_path block above. A
 		# bare reverse_proxy has no matcher of its own, so inside an explicit

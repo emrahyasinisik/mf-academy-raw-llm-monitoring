@@ -233,6 +233,24 @@ Practical limits on this box:
 - **The box must stay awake.** Sleep drops the tunnel and the backend starts
   returning 502. Disable sleep in Windows power settings.
 
+## What the gateway routes
+
+| path | to | why it is there |
+|---|---|---|
+| `/v1/*` | `mlc` replicas | inference, load balanced |
+| `/rt/*` | `llamacpp` | the hot-swap adapter control plane |
+| `/prom/*` | `prometheus` | the admin panel's metric charts |
+
+`/prom` reaches into the mf-observability project over the `mf-edge` network and
+is narrowed to `/api/v1/query` and `/api/v1/query_range`. Prometheus's API is
+wider than that — `/api/v1/admin/*` deletes series, and it is disabled only
+because `--web.enable-admin-api` defaults off, which is a flag someone could
+turn on years from now for an unrelated reason. The allow-list does not depend
+on that staying true.
+
+All three sit behind the same `X-API-Key` check. Nothing about the metrics route
+is reachable without the secret the backend holds.
+
 ## Security notes
 
 - `mlc` publishes no host port; the only route in is through the gateway.

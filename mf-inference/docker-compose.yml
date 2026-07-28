@@ -151,6 +151,12 @@ services:
     # developing without exposing it to the LAN.
     ports:
       - "127.0.0.1:8080:8080"
+    networks:
+      # `edge` is how the /prom route resolves `prometheus`, which runs in the
+      # mf-observability project. Without it Caddy starts fine and that one
+      # route 502s — the rest of the gateway is unaffected either way.
+      - default
+      - edge
 
   # Opt-in: `docker compose --profile tunnel up -d`.
   #
@@ -205,9 +211,10 @@ networks:
   #
   #   docker network create mf-edge
   #
-  # Only cloudflared joins it here. mlc, llamacpp and the gateway stay on the
-  # default network, so widening this seam cannot widen what is reachable from
-  # the internet.
+  # cloudflared and the gateway join it: the first so a public hostname can
+  # point at Grafana, the second so /prom can reach Prometheus. mlc and
+  # llamacpp stay on the default network — they have nothing to say to the
+  # other project, and the seam is worth keeping as narrow as its callers.
   edge:
     external: true
     name: mf-edge

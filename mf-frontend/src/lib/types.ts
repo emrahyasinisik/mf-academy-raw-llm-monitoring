@@ -325,6 +325,41 @@ export interface AdminOverview {
   active_adapter_id: string | null;
 }
 
+/** Chart spans the server knows how to step. */
+export type MetricsWindow = "1h" | "6h" | "24h";
+
+export interface MetricPoint {
+  /** Unix seconds. */
+  t: number;
+  v: number;
+}
+
+export interface MetricSeries {
+  /** Empty on single-series panels — the title already names what is plotted. */
+  label: string;
+  points: MetricPoint[];
+}
+
+export interface MetricPanel {
+  id: string;
+  title: string;
+  /** How the axis formats: "rps" | "seconds" | "count". */
+  unit: string;
+  help: string;
+  series?: MetricSeries[];
+  /**
+   * Set when this panel's query failed. Per-panel rather than per-response so
+   * one broken query costs one chart instead of the page.
+   */
+  error?: string;
+}
+
+export interface MetricsResponse {
+  window: MetricsWindow;
+  step_seconds: number;
+  panels: MetricPanel[];
+}
+
 export interface AdminLogEntry {
   id: string;
   user_email: string;

@@ -3,6 +3,12 @@
 Admin panelindeki Grafana linkini çalışır hale getiren tek oturumluk kılavuz.
 Baştan sona kutuda koşulur; son adım Vercel'de.
 
+> **Yalnız Metrikler sekmesi lazımsa** adım 2 ve 4 yeterli: uygulamadaki
+> grafikler Prometheus'u gateway üzerinden okuyor, o da `mf-edge` ağını ve
+> yeniden oluşturulmuş konteynerleri istiyor. Cloudflare adımlarının (1, 6, 7)
+> tamamı Grafana'nın kendi arayüzünü yayına almak içindir — grafikler onlarsız
+> da çalışır, çünkü tünelde zaten `mlc` hostname'i var.
+
 Docker komutları **WSL2 içindeki bash'te** çalışır, PowerShell'de değil —
 [`peft/PERSONA_RUNBOOK.md`](../mf-inference/peft/PERSONA_RUNBOOK.md) ile aynı
 kural. Docker Desktop açık olmalı.
@@ -82,10 +88,23 @@ geri döner.
 docker network inspect mf-edge --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}'
 ```
 
-Listede hem `grafana` hem `cloudflared` olmalı. İkisi de aynı ağdaysa isim
+Listede `grafana`, `cloudflared` ve `gateway` olmalı — sonuncusu uygulamadaki
+Metrikler sekmesi için, Prometheus'u o okuyor. Hepsi aynı ağdaysa isim
 çözümlemesi çalışır; kabuk gerektirmeden bunu doğrulamanın yolu bu.
 
 Biri eksikse adım 4'ü o proje için tekrarla.
+
+Metrik yolunu da burada dene — anahtar `mf-inference/.env`'deki `LLM_API_KEY`:
+
+```bash
+curl -s -H "X-API-Key: $LLM_API_KEY" \
+  'http://127.0.0.1:8080/prom/api/v1/query?query=up' | head -c 200
+```
+
+`"status":"success"` bekleniyor. `401` anahtarın yanlış olduğunu, `502`
+gateway'in `prometheus`'u çözemediğini (adım 4'te gateway yeniden
+oluşturulmamış), `403` ise izin verilen iki uçtan biri dışında bir yol
+denendiğini söyler.
 
 ## 6. Public hostname'i ekle
 

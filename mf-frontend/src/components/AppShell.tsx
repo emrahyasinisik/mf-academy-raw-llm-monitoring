@@ -11,8 +11,9 @@ import { AuthView } from "./views/AuthView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
+import { MetricsView } from "./views/MetricsView";
 
-export type MasterView = "codegen" | "persona" | "admin";
+export type MasterView = "codegen" | "persona" | "metrics" | "admin";
 
 // The generator leads because it is what the served model does: the compiled
 // build is the Flutter fine-tune, and a brief is the only prompt shape it was
@@ -21,9 +22,16 @@ export type MasterView = "codegen" | "persona" | "admin";
 // reports the inference host, it does not crash) while that model is not the one
 // being served. Admin is listed for everyone: the view itself explains the role
 // requirement, friendlier than a nav item that vanishes.
+// Metrics sits beside Yönetim and follows the same rule: listed for everyone,
+// with the view explaining the role it needs. It is a separate master view
+// rather than a fifth admin tab because it is the one screen here that reads
+// from the metrics store rather than the database — when the inference box is
+// off, this goes quiet while every admin tab keeps working, and a tab that
+// empties for reasons its neighbours do not share belongs on its own.
 const NAV: { id: MasterView; label: string; icon: string }[] = [
   { id: "codegen", label: "Üreteç", icon: "</>" },
   { id: "persona", label: "Persona", icon: "◈" },
+  { id: "metrics", label: "Metrikler", icon: "◠" },
   { id: "admin", label: "Yönetim", icon: "⚙" },
 ];
 
@@ -145,6 +153,7 @@ export function AppShell() {
       <main className="flex-1 min-h-0">
         {view === "codegen" && <CodegenView />}
         {view === "persona" && <PersonaView />}
+        {view === "metrics" && <MetricsView />}
         {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
       </main>
     </div>

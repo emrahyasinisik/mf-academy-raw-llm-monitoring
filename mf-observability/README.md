@@ -104,6 +104,26 @@ docker compose exec prometheus wget -qO- http://localhost:9090/api/v1/targets \
 Empty panels with no error almost always means the datasource uid does not
 match what the dashboard references — both are pinned to `prometheus` here.
 
+## The app's own charts
+
+The product has a **Metrikler** tab, admin-only, with four panels over the same
+metrics: request rate, 5xx rate, p95 latency, and generation p95 split by
+target. They are drawn by the frontend from data the backend fetches here —
+`GET /admin/metrics?window=1h|6h|24h`, reaching Prometheus through the inference
+gateway's `/prom` route.
+
+The queries live in the backend, not in the browser. An endpoint that forwarded
+arbitrary PromQL would be a Prometheus console with our login in front of it:
+a caller could ask for a year at one-second resolution, or read series the panel
+was never meant to show. A fixed set has a known cost per request.
+
+This does not replace Grafana and is not meant to. Four panels answer the
+questions worth answering without leaving the product; Grafana answers the ones
+nobody anticipated, which is why it stays.
+
+When the box is off, the tab says so and the rest of the admin panel — which
+reads the database, not this — keeps working.
+
 ## Reaching Grafana from the admin UI
 
 The admin panel links to Grafana. It does not embed it, and that is the
