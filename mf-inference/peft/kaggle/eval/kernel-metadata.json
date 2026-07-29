@@ -1,0 +1,21 @@
+{
+  "id": "emrahik/rubric-eval",
+  "title": "rubric-eval",
+  "code_file": "rubric-eval.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "emrahik/rubric-dataset"
+  ],
+  "kernel_sources": [
+    "emrahik/rubric-qlora"
+  ],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

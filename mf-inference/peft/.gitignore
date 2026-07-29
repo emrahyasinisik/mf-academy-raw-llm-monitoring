@@ -1,2 +1,8 @@
 data/
 out/
+
+# push.sh assembles the Kaggle upload here: the jsonl splits plus copies of the
+# scripts. Everything in it is derived, and it carries the same data files that
+# data/ is excluded for — the generator plus a fixed seed is the reproducible
+# artefact, a copied file is not.
+kaggle/.stage/
