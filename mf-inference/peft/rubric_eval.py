@@ -16,31 +16,47 @@ answers "did this adapter learn the behaviour" in the same session that trained
 it. It does not answer "does the product get better reports", and no number here
 should be quoted as if it did.
 
+What the base actually measures
+-------------------------------
+Everything below used to be written around a base that scored 0 on absent_rate
+and 0 on schema_valid. That base was gemma-2-2b-it, measured through the product
+route by baseline-trial.sh (see ../README.md). This line serves
+Qwen/Qwen3-4B-Instruct-2507, and those two numbers were carried across without
+being measured again. Measured (out/base_gate.json, 20 rows, 2026-07-29):
+
+    absent_rate 0.89 · schema_valid 0.95 · completed 0.95
+    present_score_mae 0.77 · hallucinated_quotes 0.013
+
+So the gap this adapter was built to close is largely not there on this base,
+and the two numbers that are still wrong are the rating itself and the
+occasional invented quote. The gates at the bottom of this file are written
+against that, not against the Gemma-era premise.
+
 What is measured, in the order it matters
 -----------------------------------------
+present_score_mae  Mean absolute error of the rating, over findings whose ground
+                truth has evidence. 0.77 on a 1-5 scale means the base agrees
+                that the evidence is there and then rates it nearly a band off,
+                which is the part of a report a reader acts on. This is what has
+                to move.
+
 absent_rate     Of the findings whose ground truth is "the case is silent on
                 this criterion", the share the model marked evidence_found=false
-                with a null score. The base measures 0: it writes 'the text
-                contains no information about competitors' in the rationale and
-                rates it 3 out of 5 anyway. Every report therefore carries
-                fabricated ratings and coverage always claims 1.0, which makes
-                the product's central promise — that a rejection is defensible —
-                untrue. If this does not move, nothing else on this list counts.
+                with a null score. On Gemma this was 0 and was the whole reason
+                for the adapter; on this base it is already 0.89, so it is now a
+                floor — an adapter that trades it away for a better MAE has
+                bought the rating with the thing that makes a rejection
+                defensible, and does not ship.
 
 schema_valid    Share of answers that parsed as JSON with the expected keys and
-                no repair. The base measures 0 because it fences every answer in
-                ```json. Pure format discipline, and the cheapest thing a LoRA
-                learns — which is exactly why it must not be mistaken for the
-                result.
-
-present_score_mae  Mean absolute error of the rating, over findings whose ground
-                truth has evidence. Guards the other direction: an adapter that
-                learned to answer 'absent' to everything would score 1.0 on
-                absent_rate and be worse than the base.
+                no repair. Also a floor now (0.95). Pure format discipline is
+                the cheapest thing a LoRA learns, which is exactly why a gain
+                here must not be mistaken for the result.
 
 hallucinated_quotes  Share of cited evidence spans that do not appear verbatim
                 in the case. The generator guarantees every ground-truth quote
-                does, so anything above 0 is invention.
+                does, so anything above 0 is invention. The base sits at 1.3%:
+                small, but it is the promise that citations are real.
 
 Both sides run the same prompts in the same order with greedy decoding, so a
 difference between them is the adapter and not the sampler.
@@ -415,7 +431,12 @@ def main() -> None:
             result["adapter_contrast"] = after_c
 
         print("\ndelta")
-        for k in ("absent_rate", "schema_valid", "completed"):
+        mae_b, mae_a = before["present_score_mae"], after["present_score_mae"]
+        if mae_b is not None and mae_a is not None:
+            print(f"  {'present_score_mae':20} {mae_b:.2f} → {mae_a:.2f}"
+                  f"   ({mae_a - mae_b:+.2f}, lower is better)")
+        for k in ("absent_rate", "schema_valid", "completed",
+                  "hallucinated_quotes"):
             print(f"  {k:20} {before[k]:.1%} → {after[k]:.1%}"
                   f"   ({after[k] - before[k]:+.1%})")
         base_c = result.get("base_contrast")
@@ -424,24 +445,36 @@ def main() -> None:
                 print(f"  {k:20} {base_c[k]:.1%} → {after_c[k]:.1%}"
                       f"   ({after_c[k] - base_c[k]:+.1%})")
 
-        # The gates. absent_rate is why this adapter is being built; an adapter
-        # that only learned to drop the ```json fence is a formatting patch
-        # being presented as a capability, and shipping it would let the product
-        # keep making up ratings while looking like it had been fixed.
-        if after["absent_rate"] <= before["absent_rate"]:
-            print("\nabsent_rate did not improve — do not ship this adapter")
+        # The gates. present_score_mae leads because it is the one number this
+        # base gets wrong (see the header): absent_rate led while the base was
+        # gemma-2-2b-it and measured 0, and leaving it in that seat now would
+        # pass any adapter that nudged 0.89 to 0.90 while the ratings stayed a
+        # band off. absent_rate and schema_valid become floors — an adapter that
+        # only learned to drop the ```json fence is a formatting patch being
+        # presented as a capability.
+        if mae_b is None or mae_a is None:
+            print("\npresent_score_mae is missing on one side — this adapter "
+                  "cannot be judged; do not ship it")
+        elif mae_a >= mae_b:
+            print("\npresent_score_mae did not improve — do not ship this adapter")
+        elif after["absent_rate"] < before["absent_rate"] - 0.05:
+            print("\nthe rating improved but absent-evidence behaviour "
+                  "regressed — a report that rates well and hides what it "
+                  "could not find is worse; do not ship this adapter")
+        elif after["schema_valid"] < before["schema_valid"] - 0.05:
+            print("\nschema_valid regressed — do not ship this adapter")
         elif after["hallucinated_quotes"] > before["hallucinated_quotes"]:
             print("\nquote invention got worse — do not ship this adapter")
         elif after_c and base_c and after_c["consistency"] <= base_c["consistency"]:
-            # absent_rate can rise on memorisation alone: every eval case is
-            # built from the same fifty-one fragments the adapter trained on, so
+            # The held-out gain can be memorisation: every eval case is built
+            # from the same fifty-one fragments the adapter trained on, so
             # recognising them is enough. The contrast pairs are the same cases
             # with one paragraph changed, and recognition does not survive that.
-            # A rise in absent_rate with no rise here is the shape of a model
-            # that learned the bank rather than the rule.
+            # A better MAE with no rise here is the shape of a model that
+            # learned the bank rather than the rule.
             print("\ncontrast consistency did not improve — the gain on the "
                   "held-out set may be fragment recognition rather than "
-                  "judgement; do not ship on absent_rate alone")
+                  "judgement; do not ship on present_score_mae alone")
 
     if args.out:
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

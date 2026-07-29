@@ -15,17 +15,30 @@ birden öğreniyor.
 
 ## Ölçüm — temel modelin hali
 
-Bu hattın var olma sebebi, ve Flutter hattından farkı burada:
+Bu hattın var olma sebebi burada, ve **bir kez yanlış yazıldı**. Sayılar
+`Qwen/Qwen3-4B-Instruct-2507` üzerinde ölçülmüş hali (`out/base_gate.json`,
+20 satır, 2026-07-29):
 
 | ölçüm | base | ne diyor |
 |---|---|---|
-| `absent_rate` | **0** | Kanıtı olmayan kritere gerekçesinde "metinde bilgi yok" yazıp yine de 3/5 veriyor. Sonuç: `coverage` her raporda 1.0 ve ürünün merkezî iddiası — bir reddin savunulabilir olması — pratikte yanlış. |
-| `schema_valid` | **0** | Her cevabı ` ```json ` bloğuna sarıyor. Saf biçim disiplini, bir LoRA'nın öğrendiği en ucuz şey — o yüzden sonuç sanılmamalı. |
-| `stddev_score` | 0 | Tutarlılık zaten iyi; kazanılacak bir şey yok, kaybedilecek var. |
+| `present_score_mae` | **0,77** | Kanıtın orada olduğunu görüyor, sonra 1-5 ölçeğinde neredeyse bir bant kaçırıyor. Raporun okurun karar verdiği kısmı bu. Eğitilecek şey bu. |
+| `hallucinated_quotes` | **%1,3** | 151 alıntının 2'si vakada birebir geçmiyor. Küçük, ama "atıflar gerçek" iddiasının kendisi. |
+| `absent_rate` | **%89** | Kanıt yoksa zaten söylüyor. Kazanılacak yer değil, **taban** — düşerse build yayına alınmaz. |
+| `schema_valid` | **%95** | Biçim disiplini zaten var. Yine taban. |
 
-Flutter v8'de base zaten kanıtı takip ediyordu ve ölçüm tavana çarptı. Burada
-boşluk ölçülmüş ve gerçek — `absent_rate` **kapı bekçisi**, o artmadıysa build
-yayına alınmaz.
+Önceki hali `absent_rate 0 / schema_valid 0` diyordu. O ölçüm gerçekti ama
+başka bir modelin: `gemma-2-2b-it`, ürün rotasından, [`../README.md`](../README.md).
+Base Qwen3-4B'ye geçince sayılar taşınmadı, cümleler taşındı — ve hattın tüm
+gerekçesi ölçülmemiş bir kusurun üstünde durdu.
+
+Bunu yakalaması gereken kapı vardı ve doğru ölçtü: eğitim notebook'unun 1.
+bölümü. Ama sonucu `out/base_gate.json`'a yazıp geçiyordu, hiçbir hücre
+okumuyordu, ve ilk koşu tabanın işi zaten yaptığı bilgisinin üstünden eğitime
+girdi. Kapı artık `assert`.
+
+Yani Flutter v8 ile fark, sanıldığı kadar büyük değil: orada da base zaten
+kanıtı takip ediyordu. Aradaki tek gerçek fark, bunun burada eğitimden **önce**
+görülmüş olması.
 
 ## Dosyalar
 

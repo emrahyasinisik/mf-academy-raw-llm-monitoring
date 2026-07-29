@@ -19,16 +19,23 @@ Kaynak: [`build_dataset.py`](../build_dataset.py) ·
 
 **Veri seti hangi amaçla oluşturuldu? Hangi boşluğu dolduruyor?**
 
-Ürünün rubrik motorunu çalıştıran modelde, ölçülmüş iki davranış eksiği var:
+Ürünün rubrik motorunu çalıştıran modelde ölçülmüş eksikler
+(`Qwen/Qwen3-4B-Instruct-2507`, 20 satır, 2026-07-29):
 
 | ölçüm | temel model | anlamı |
 |---|---|---|
-| `absent_rate` | 0 | Kanıtı olmayan kritere gerekçesinde "metinde bilgi yok" yazıp yine de 3/5 veriyor |
-| `schema_valid` | 0 | Her cevabı ` ```json ` bloğuna sarıyor |
+| `present_score_mae` | 0,77 | Kanıtı görüyor, sonra 1-5 ölçeğinde neredeyse bir bant kaçırıyor |
+| `hallucinated_quotes` | %1,3 | 151 alıntının 2'si vakada birebir geçmiyor |
+| `absent_rate` | %89 | Kanıt yoksa **zaten** söylüyor — öğretilecek değil, korunacak |
+| `schema_valid` | %95 | Biçim disiplini **zaten** var — yine korunacak |
 
-Birincisi ürünün merkezî iddiasını — bir reddin savunulabilir olması — pratikte
-yanlış kılıyor: `coverage` her raporda 1.0 çıkıyor ve her rapor uydurma
-puanlar taşıyor. Veri seti bu iki davranışı öğretmek için var.
+Veri setinin ilk sürümü ilk iki satırı değil, son iki satırı öğretmek için
+tasarlandı: o zamanki gerekçe `absent_rate 0 / schema_valid 0` idi, ve o ölçüm
+başka bir modele — `gemma-2-2b-it` — aitti. Base değişti, sayılar yeniden
+ölçülmedi. Set olduğu gibi hâlâ geçerli (kanıt kasten saklanıyor, `score`
+etiket, alıntılar birebir), ama **hangi davranışın kazanç olduğu** değişti:
+öğretilen şey artık kanıt yokluğunu ilan etmek değil, kanıt varken doğru bandı
+vermek. Bkz. [`README.md`](README.md).
 
 **Kim oluşturdu, kimin adına?**
 
