@@ -164,7 +164,7 @@ func main() {
 	// honest.
 	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.SearchTimeout())
 	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens, cfg.LLMTimeout)
-	decisionHandler := decision.NewHandler(decisionAgent)
+	decisionHandler := decision.NewHandler(decisionAgent, decision.NewStore(pool))
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
 	// does rather than a parallel implementation: an MCP client and a browser
