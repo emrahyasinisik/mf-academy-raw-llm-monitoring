@@ -222,9 +222,24 @@ altı kriterin dilini gördü.
 
 ## 6. Dağıtım
 
-Kaggle'da `emrahik/rubric-dataset`, **private**. Eğitim script'leri veri setinin
-içinde taşınıyor ([`push.sh`](push.sh)) — Flutter hattında notebook yalnız
-Kaggle'ın sürüm geçmişinde kalmış ve kurtarıldığında eğitim kodu yok olmuştu.
+İki yerde, iki ayrı iş için:
+
+| nerede | görünürlük | ne için | nasıl |
+|---|---|---|---|
+| Kaggle `emrahik/rubric-dataset` | private | eğitimin veri kaynağı | [`push.sh`](push.sh) |
+| HF `Emrahisik/rubric-dataset` | public, CC-BY-4.0 | şeffaflık / yayın kopyası | elle, [`../hf/UPLOAD.md`](../hf/UPLOAD.md) |
+
+Kaggle tarafında eğitim script'leri veri setinin **içinde** taşınıyor — Flutter
+hattında notebook yalnız Kaggle'ın sürüm geçmişinde kalmış ve kurtarıldığında
+eğitim kodu yok olmuştu. HF tarafında bu gerekmiyor: kod bu depoda ve card ona
+link veriyor.
+
+HF kopyası elle yükleniyor ve bu, script'lemeye karşı bilinçli bir seçim. Bedeli
+şu: veri yeniden üretildiğinde HF'teki sürüm sessizce ayrışır ve hiçbir şey bunu
+yakalamaz. Karşı önlem, card'ın ([`../hf/CARD.md`](../hf/CARD.md)) bu depoda
+sürümlenmesi ve içine üreteç commit'i ile tohumun yazılması — yani §7'deki
+"yeniden üretilebilirlik üreteç + tohum + commit'te" cümlesi HF kopyası için de
+geçerli kalıyor. Card yalnız HF'in web editöründe düzenlenirse bu bağ kopar.
 
 ---
 
