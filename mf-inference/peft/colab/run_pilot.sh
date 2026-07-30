@@ -38,15 +38,23 @@ say() { printf '\n=== %s ===\n' "$*"; }
 run() {
   if [[ -n "${DRY_RUN:-}" ]]; then printf '  [dry] %s\n' "$*"; else "$@"; fi
 }
-# Heredoc-fed exec: `run` cannot carry stdin through, so dry-run prints instead.
+# Run a heredoc of Python on the VM.
+#
+# Via a temp file and -f, never a pipe. `colab exec` fed on stdin hangs
+# indefinitely and ignores its own --timeout: it was waiting on a read that
+# never returns, and the phase sat there for eleven minutes with a T4 on the
+# meter. -f is also what the CLI's own documentation calls the preferred path.
 run_stdin() {
-  local code
-  code="$(cat)"
+  local timeout="${1:-60}" tmp
+  tmp="$(mktemp -t colab_pilot).py"
+  cat > "$tmp"
   if [[ -n "${DRY_RUN:-}" ]]; then
-    printf '  [dry] colab exec -s %s <<< %d bytes of python\n' "$SESSION" "${#code}"
+    printf '  [dry] colab exec -s %s -f <%d bytes of python>\n' \
+      "$SESSION" "$(wc -c < "$tmp")"
   else
-    printf '%s' "$code" | colab exec -s "$SESSION" --timeout "${1:-60}"
+    colab exec -s "$SESSION" -f "$tmp" --timeout "$timeout"
   fi
+  rm -f "$tmp"
 }
 
 phase_session() {
