@@ -85,7 +85,7 @@ Alternatifi store'u genişletmek, ve bu ekran için bedeli faydasından büyük.
 `analysis` yolunda girdi uzunluğu koruması **yok**. `decision`'da var
 (`agent.go:78`), analizde yok. `LLM_MAX_PROMPT_TOKENS` varsayılanı 1200 ve
 dönüşüm oranı 2.2 karakter/token (`agent.go:132`, Türkçe'nin kötü
-tokenleşmesine göre temkinli seçilmiş), yani pratik sınır **~2640 karakter**.
+tokenleşmesine göre temkinli seçilmiş), yani pratik sınır **~2640 karakter (kaba üst sınır; gerçek vaka bütçesi bundan çok daha dar — plana bak)**.
 
 Bunu aşan metin doğrudan mlc'ye gidiyor ve ham 400 olarak dönüyor. Ekranın ilk
 yaptığı iş deck yapıştırmak olduğu için bu, kullanıcının göreceği ilk hata olur.
@@ -202,7 +202,7 @@ Hepsi okunabilir olmalı; hiçbiri ekranı çökertmemeli.
 
 Sırayla, ve hiçbiri bu spec'te değil:
 
-1. Sentetik yatırım vakası — ~2640 karakter sınırına sığacak şekilde tasarlanmış,
+1. Sentetik yatırım vakası — ~2640 karakter (kaba üst sınır; gerçek vaka bütçesi bundan çok daha dar — plana bak) sınırına sığacak şekilde tasarlanmış,
    sentetik olduğu dosyada ve raporda etiketli.
 2. Kutuya sade taban Qwen3-4B, ve backend'deki dört `defaultModel` sabitinin
    düzeltilmesi (`analysis`, `wiki`, `decision`, `admin/mcp`).

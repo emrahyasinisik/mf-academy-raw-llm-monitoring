@@ -107,22 +107,31 @@ test("bos rubrik null dondurur, cokmez", () => {
 
 // ---- Prompt butcesi ----
 
+// Asagidaki sistem prompt uzunluklari calisan backend'den olculdu
+// (GET /analysis/domains/{slug}/prompt, 30 Temmuz 2026), migration'dan
+// tahmin edilmedi — tahmin ikisini de kisa cikarmisti ve butceyi oldugundan
+// genis gostermisti.
+const INVESTABILITY_SYSTEM_CHARS = 2795;
+const MARKETING_SYSTEM_CHARS = 2195;
+
 test("gonderilen rubrikler icin butce, olculen degerler", () => {
-  // startup-investability: 2527 karakter sistem prompt'u.
   // Backend'in varsayilan penceresi 1200 token (LLM_MAX_PROMPT_TOKENS).
-  assert.equal(caseBudgetChars(1200, 2527), 606);
-  // digital-marketing: 1962 karakter.
-  assert.equal(caseBudgetChars(1200, 1962), 1001);
+  // Yatirilabilirlikte vakaya 420 karakter kaliyor — yaklasik 60 kelime.
+  assert.equal(caseBudgetChars(1200, INVESTABILITY_SYSTEM_CHARS), 420);
+  assert.equal(caseBudgetChars(1200, MARKETING_SYSTEM_CHARS), 838);
 });
 
 test("operator pencereyi acarsa butce buyur", () => {
   // Motorun gercekte verdigi tavan 1366 token; operator LLM_MAX_PROMPT_TOKENS'i
   // oraya cekerse ekran bunu sunucudan ogrenir ve butce buyur.
-  assert.equal(caseBudgetChars(1366, 2527), 953);
+  assert.equal(caseBudgetChars(1366, INVESTABILITY_SYSTEM_CHARS), 767);
 });
 
 test("daha kucuk rubrik daha buyuk butce birakir", () => {
-  assert.ok(caseBudgetChars(1200, 1962) > caseBudgetChars(1200, 2527));
+  assert.ok(
+    caseBudgetChars(1200, MARKETING_SYSTEM_CHARS) >
+      caseBudgetChars(1200, INVESTABILITY_SYSTEM_CHARS),
+  );
 });
 
 test("butce hicbir zaman negatif donmez", () => {

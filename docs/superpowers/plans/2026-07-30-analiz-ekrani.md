@@ -333,10 +333,10 @@ Vaka alanına yapıştırılan metin motorun penceresine sığmazsa istek ham 40
 
 | pencere | nereden | yatırılabilirlik | pazarlama |
 |---|---|---|---|
-| **1200** | `LLM_MAX_PROMPT_TOKENS` varsayılanı — ekranın göreceği sayı | **606 karakter** | 1001 karakter |
-| 1366 | motorun gerçekte verdiği tavan | 953 karakter | 1348 karakter |
+| **1200** | `LLM_MAX_PROMPT_TOKENS` varsayılanı — ekranın göreceği sayı | **420 karakter** | 838 karakter |
+| 1366 | motorun gerçekte verdiği tavan | 767 karakter | 1185 karakter |
 
-Gönderilen varsayılanla vakaya kalan yer **606 karakter** — yaklaşık 90 kelime. Bu sayı küçük ve dipnot olamaz; ekranın ana öğesi.
+Gönderilen varsayılanla vakaya kalan yer **420 karakter** — yaklaşık 60 kelime. (Sistem prompt uzunlukları çalışan backend'den ölçüldü: 2795 ve 2195 karakter. Migration'dan tahmin edilen 2527/1962 değerleri kısaydı ve bütçeyi olduğundan geniş gösteriyordu.) Bu sayı küçük ve dipnot olamaz; ekranın ana öğesi.
 
 **Files:**
 - Modify: `mf-frontend/src/lib/rubric.ts` (dosyanın sonuna eklenir)
@@ -1012,7 +1012,7 @@ Run: `cd mf-frontend && npm run dev`
 
 Beklenen:
 - Rubrik seçicide iki rubrik, yatırılabilirlik seçili.
-- Sayaç `0 / 606 karakter` gösteriyor; pazarlama rubriğine geçince 1001'e **çıkıyor**.
+- Sayaç `0 / 420 karakter` gösteriyor; pazarlama rubriğine geçince 838'e **çıkıyor**.
 - Sınırı aşan bir metin yapıştırıldığında sayaç kırmızıya dönüyor, uyarı çıkıyor, buton pasifleşiyor.
 
 - [ ] **Step 5: Tip kontrolü, lint, build**
@@ -1651,8 +1651,8 @@ git commit -m "fix(frontend): close the gaps found running the screen end to end
 
 Spec'te yazılı ve bilerek dışarıda:
 
-1. **Sentetik örnek vaka.** 606 karakter bütçesine sığacak şekilde tasarlanmalı, ve sentetik olduğu hem dosyada hem raporda etiketli olmalı.
+1. **Sentetik örnek vaka.** 420 karakter bütçesine sığacak şekilde tasarlanmalı, ve sentetik olduğu hem dosyada hem raporda etiketli olmalı.
 2. **Kutuya sade taban Qwen3-4B** ve backend'deki dört `defaultModel` sabitinin düzeltilmesi (`analysis`, `wiki`, `decision`, `admin/mcp`) — hepsi şu an Flutter üretecini işaret ediyor.
 3. **Örnek raporun üretilip PDF'e alınması.** §7 madde 1 burada kapanır.
-4. **Pencere kararı.** 606 karakter bir deck almaz — 1366'ya çekilse bile 953. Kriter başına ayrı çağrı, sistem prompt'unu kırpmak, ya da vakayı özet olarak konumlandırmak — üçü de ayrı kararlar ve örnek raporun ne olacağını belirliyorlar.
+4. **Pencere kararı.** 420 karakter bir deck almaz — 1366'ya çekilse bile 767. Kriter başına ayrı çağrı, sistem prompt'unu kırpmak, ya da vakayı özet olarak konumlandırmak — üçü de ayrı kararlar ve örnek raporun ne olacağını belirliyorlar.
 5. **`analysis` yoluna backend tarafında girdi uzunluğu koruması.** `decision`'da var, analizde yok; ekrandaki uyarı hatayı okunabilir kılmaya yeter ama korumanın yerini tutmaz.
