@@ -73,6 +73,24 @@ phase_preflight() {
 phase_deps() {
   say "phase: deps"
   run colab install -s "$SESSION" -r colab/requirements-colab.txt
+
+  # torchao is removed, not upgraded. peft's LoRA dispatcher asks
+  # is_torchao_available() for every non-quantised Linear it wraps, and that
+  # function *raises* on an incompatible version rather than returning False —
+  # Colab ships 0.10.0, peft wants >0.16.0, and the fp16 arm died on it after
+  # the model had loaded. Absent, the same call returns False and the ordinary
+  # Linear dispatcher runs. Nothing here trains a torchao-quantised model, so
+  # the dependency has no work to do; upgrading it would drag a second CUDA
+  # kernel package onto an sm_75 card for a code path we never take.
+  #
+  # The 4-bit arm never hit this: bitsandbytes matches its Linear4bit first.
+  run_stdin 300 <<'PY'
+import subprocess, sys
+r = subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "torchao"],
+                   capture_output=True, text=True)
+print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "torchao absent")
+PY
+
   # Again after installing: the gate is only worth anything on the versions
   # that will actually load the model.
   run colab exec -s "$SESSION" -f colab/preflight.py --timeout 120
