@@ -104,3 +104,51 @@ export function breakdown(criteria: Criterion[], findings: Finding[]): Breakdown
     totalWeight,
   };
 }
+
+// ---- Prompt bütçesi ----
+//
+// Vaka metni motorun girdi penceresine sığmak zorunda, ve `analysis` yolunda
+// bunu kontrol eden bir koruma yok (`decision`'da var — agent.go:78). Sığmayan
+// bir istek mlc'den ham 400 olarak dönüyor, yani kullanıcı sebebini göremiyor.
+// Bu yüzden sayaç göndermeden önce uyarıyor.
+//
+// Aşağıdaki üç oran tahmin değil, ölçüm: Qwen3-4B-Instruct-2507'nin kendi
+// tokenizer'ıyla, 30 Temmuz 2026'da alındı. Tekrar ölçülmeden değiştirilmemeli.
+
+/**
+ * Türkçe düzyazının ölçülen sıkışması. İngilizce ortalamasından belirgin
+ * biçimde kötü: eklemeli yapı ve çoğu İngilizce olan bir kelime dağarcığı
+ * birleşince aynı cümle daha çok token ediyor.
+ */
+export const PROSE_CHARS_PER_TOKEN = 2.09;
+
+/**
+ * Sistem prompt'unun sıkışması. Düzyazıdan iyi, çünkü içeriği ASCII anahtarlar,
+ * JSON şeması ve tekrar eden kalıplar — hepsi tokenizer'ın iyi bildiği şeyler.
+ */
+export const PROMPT_CHARS_PER_TOKEN = 3.0;
+
+/** Kullanıcı mesajının sabit sarmalayıcısı (UserPrompt'un <<< >>> bloğu). */
+export const WRAPPER_TOKENS = 43;
+
+/** Sohbet şablonunun tur işaretleri ve yuvarlama için pay. */
+const MARGIN_TOKENS = 24;
+
+/** Metnin kaç token edeceğinin tahmini. Yukarı yuvarlar: düşük tahmin isteği kaybettirir. */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(text.length / PROSE_CHARS_PER_TOKEN);
+}
+
+/**
+ * Vaka metnine kalan karakter sayısı.
+ *
+ * @param windowTokens motorun kabul ettiği girdi penceresi (backend'den gelir)
+ * @param systemPromptChars seçili rubriğin sistem prompt'unun uzunluğu
+ */
+export function caseBudgetChars(windowTokens: number, systemPromptChars: number): number {
+  const systemTokens = Math.ceil(systemPromptChars / PROMPT_CHARS_PER_TOKEN);
+  const left = windowTokens - systemTokens - WRAPPER_TOKENS - MARGIN_TOKENS;
+  if (left <= 0) return 0;
+  return Math.floor(left * PROSE_CHARS_PER_TOKEN);
+}

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { breakdown } from "./rubric.ts";
+import {
+  breakdown,
+  caseBudgetChars,
+  estimateTokens,
+  PROSE_CHARS_PER_TOKEN,
+} from "./rubric.ts";
 import type { Criterion, Finding } from "./types.ts";
 
 const c = (key: string, weight: number, scale_max = 5): Criterion => ({
@@ -98,4 +103,37 @@ test("bos rubrik null dondurur, cokmez", () => {
   assert.equal(b.overall, null);
   assert.equal(b.coverage, 0);
   assert.deepEqual(b.rows, []);
+});
+
+// ---- Prompt butcesi ----
+
+test("gonderilen rubrikler icin butce, olculen degerler", () => {
+  // startup-investability: 2527 karakter sistem prompt'u.
+  // Backend'in varsayilan penceresi 1200 token (LLM_MAX_PROMPT_TOKENS).
+  assert.equal(caseBudgetChars(1200, 2527), 606);
+  // digital-marketing: 1962 karakter.
+  assert.equal(caseBudgetChars(1200, 1962), 1001);
+});
+
+test("operator pencereyi acarsa butce buyur", () => {
+  // Motorun gercekte verdigi tavan 1366 token; operator LLM_MAX_PROMPT_TOKENS'i
+  // oraya cekerse ekran bunu sunucudan ogrenir ve butce buyur.
+  assert.equal(caseBudgetChars(1366, 2527), 953);
+});
+
+test("daha kucuk rubrik daha buyuk butce birakir", () => {
+  assert.ok(caseBudgetChars(1200, 1962) > caseBudgetChars(1200, 2527));
+});
+
+test("butce hicbir zaman negatif donmez", () => {
+  assert.equal(caseBudgetChars(100, 9000), 0);
+});
+
+test("token tahmini olculen duzyazi oranini kullanir", () => {
+  const text = "a".repeat(209);
+  assert.equal(estimateTokens(text), Math.ceil(209 / PROSE_CHARS_PER_TOKEN));
+});
+
+test("bos metin sifir token", () => {
+  assert.equal(estimateTokens(""), 0);
 });
