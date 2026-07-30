@@ -44,8 +44,9 @@ görülmüş olması.
 
 | dosya | ne |
 |---|---|
-| [`train/rubric-train.ipynb`](train/rubric-train.ipynb) | Ucuz taban kapısı → eğitim. ~5,5 saat |
+| [`train/rubric-train.ipynb`](train/rubric-train.ipynb) | Ucuz taban kapısı → eğitim. **Ölçülen maliyetle 38-47 saat**, aşağıya bak — bu haliyle bir oturuma sığmıyor |
 | [`eval/rubric-eval.ipynb`](eval/rubric-eval.ipynb) | Taban + adapter, tek oturumda, contrast dahil. ~3 saat |
+| [`probe/rubric-probe.ipynb`](probe/rubric-probe.ipynb) | Adım maliyetini ölçer, eğitmez. ~15 dakika |
 | `*/kernel-metadata.json` | GPU tipi ve girdiler. `machine_shape` **atlanamaz** — atlanırsa Kaggle P100 verir, sm_60, 4-bit NF4 çalışmaz |
 | [`DATASHEET.md`](DATASHEET.md) | Veri setinin künyesi — Gebru'nun 7 kategorisi. Bilinen zayıflıklar dahil |
 | [`push.sh`](push.sh) | Veri setini + script'leri yayınlar; notebook ayrı push'lanır |
@@ -54,6 +55,48 @@ görülmüş olması.
 | [`../rubric_eval.py`](../rubric_eval.py) | Kaggle'da koşan ölçüm. `compare.py`'nin kardeşi, yerine geçeni değil |
 | [`../measure_tokens.py`](../measure_tokens.py) | `--max-seq-len`'i ölçer; tokenizer'lar arası taşınmaz |
 | [`../merge_rubric_sets.py`](../merge_rubric_sets.py) | İki rubriğin setlerini deterministik karıştırır |
+
+## Adım maliyeti — bir oturuma sığmıyor
+
+Bu bölümdeki "~5,5 saat" uzun süre bir **tahmindi** ve Gemma-2-2B hattından
+geldi. Ölçüldüğünde yanlış çıktı, ve yanlışlığı bir oturuma mal oldu.
+
+`emrahik/rubric-qlora`'nın 29 Temmuz koşusu OOM değildi — temiz eğitiyordu,
+**adım başına ~910 saniye**. 11 saat 24 dakikada 150 adımın 45'ine geldi, sonra
+Kaggle'ın 12 saatlik oturum duvarı iptal etti. Hiçbir ağırlık yazılmadı, yani
+eval notebook'unun `kernel_sources` ile alacağı bir şey de olmadı.
+
+Logdaki ilk ipucu şuydu: `train_qlora_qwen.py` kendi aritmetiğiyle `~300
+optimizer adımı` bastı, Trainer'ın bar'ı `150`'ye koştu. Trainer'ın sayısı tam
+olarak iki cihaz gördüğünde yarıya iner, ve gerçekten iki cihaz var:
+`machine_shape: NvidiaTeslaT4` bir **2×T4** makine veriyor (`device_count: 2`).
+Buradan çıkan hipotez, `device_map={"": 0}` ile tek karta sabitlenmiş 4-bit
+modelin `DataParallel`'e sarılıp her microbatch'te replike edildiğiydi.
+
+[`probe/rubric-probe.ipynb`](probe/rubric-probe.ipynb) bunu 15 dakikada ölçtü ve
+**hipotezi çürüttü**. Aynı oturumda, aynı 8 satır, aynı kütüphane sürümleri:
+
+| rejim | s/satır | `train_runtime` (8 satır) |
+|---|---|---|
+| pinlemesiz, iptal edilen koşu gibi | 26,0 | 274,9 s |
+| `CUDA_VISIBLE_DEVICES=0` | 21,2 | 281,6 s |
+
+Cihaz sayısı adım maliyetini belirlemiyor: pinleme en iyi halde 1,2x, Trainer'ın
+kendi runtime'ına göre hiç. Gerçek maliyet **~1880 token'lık satır başına 28-35
+saniye**, ve 910 s/adım oradan geliyor (910 / 32 satır = 28,4). Tam koşu 4800
+satır geçişi, yani **38-47 saat**.
+
+Yani sığdırmanın iki yolu var ve ikisi de henüz ölçülmedi: verimi düzeltmek —
+`torchrun` ile iki T4 üzerinde DDP (~2x, kartlar zaten elimizde),
+`gradient_checkpointing` kapalı, `paged_adamw_8bit` yerine paging yapmayan bir
+optimizer — ya da koşuyu oturumlara bölüp `resume_from_checkpoint` ile devam
+etmek.
+
+Sığdırmanın **yolu olmayan** hali `--epochs` ya da `--max-seq-len` kırpmak:
+kırpma soldan olduğu için vakanın başını atar ve modele görmediği kanıta atıf
+yapmayı öğretir, üstelik normal görünen bir loss'la. Yukarıdaki
+"Skor ölçeğinde 3 neden var" bölümü aynı türden bir hatanın ölçümle nasıl
+görünmez olduğunu anlatıyor.
 
 ## Contrast set — held-out'un cevaplayamadığı soru
 
@@ -191,10 +234,16 @@ koparsa üreteç açılışta durur, döngünün ortasında `KeyError` ile deği
 ```bash
 source ../.env && ./push.sh              # veri + script'ler
 # sürüm işlenmesi bitsin, sonra:
-kaggle kernels push -p train             # ~5,5 saat
+kaggle kernels push -p probe             # ~15 dk, adım maliyetini ölçer
+# projeksiyon 12 saatin altına inmiyorsa train'i push ETME:
+kaggle kernels push -p train             # ölçülen haliyle 38-47 saat
 # bitsin ve Save Version alınsın, sonra:
 kaggle kernels push -p eval              # ~3 saat
 ```
+
+`probe` sıraya sonradan girdi çünkü onun olmadığı hal 12 saat ve haftalık GPU
+kotasının üçte birine mal oldu. Bir üstteki "Adım maliyeti" bölümü ne ölçtüğünü
+anlatıyor.
 
 ### Neden iki notebook
 

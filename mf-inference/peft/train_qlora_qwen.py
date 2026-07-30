@@ -297,10 +297,14 @@ def main() -> None:
 
     print(f"\nadapter written to {args.out_dir}")
     print(f"final eval loss: {metrics.get('eval_loss'):.4f}")
-    print("\nThe loss is not the result. This adapter exists to move two rates "
-          "the base model scores 0 on — absent_rate and schema_valid — and only "
-          "rubric_eval.py measures those. Run it against the held-out set, and "
-          "against the base in the same session, before shipping anything.")
+    print("\nThe loss is not the result. What this adapter has to move is "
+          "present_score_mae — the base rates evidence it agrees is there nearly "
+          "a band off, 0.77 on a 1-5 scale — and the 1.3% of quotes it invents. "
+          "absent_rate and schema_valid are floors, not targets: the base "
+          "already scores 0.89 and 0.95 there, and an adapter that trades them "
+          "away for a better MAE does not ship. Only rubric_eval.py measures "
+          "any of it. Run it against the held-out set, and against the base in "
+          "the same session, before shipping anything.")
 
 
 if __name__ == "__main__":
