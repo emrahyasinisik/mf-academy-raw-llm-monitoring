@@ -15,7 +15,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { breakdown, caseBudgetChars, estimateTokens } from "@/lib/rubric";
 import { useMachine } from "@/store/machine";
-import type { AnalysisDomain, AppLimits, Assessment } from "@/lib/types";
+import type {
+  AnalysisDomain,
+  AppLimits,
+  Assessment,
+  AssessmentSummary,
+} from "@/lib/types";
 
 export function AnalizView() {
   const { begin } = useMachine();
@@ -41,6 +46,8 @@ export function AnalizView() {
   // kötü. Böyle tutulunca eskimiş ölçüm render'da elenmiş oluyor.
   const [prompt, setPrompt] = useState<{ slug: string; chars: number } | null>(null);
 
+  const [history, setHistory] = useState<AssessmentSummary[]>([]);
+
   const loadDomains = useCallback(() => {
     api
       .analysisDomains()
@@ -59,6 +66,21 @@ export function AnalizView() {
   }, []);
 
   useEffect(loadDomains, [loadDomains]);
+
+  const refreshHistory = useCallback(
+    () =>
+      api
+        .analysisList(20)
+        .then((r) => setHistory(r.assessments))
+        .catch(() => {
+          /* Geçmiş ikincil: alınamaması ekranın geri kalanını durdurmaz. */
+        }),
+    [],
+  );
+
+  useEffect(() => {
+    void refreshHistory();
+  }, [refreshHistory]);
 
   // Pencere: sunucunun bildirdiği sayı, alınamazsa backend'in kendi varsayılanı.
   useEffect(() => {
@@ -116,13 +138,15 @@ export function AnalizView() {
         subject_title: title.trim() || "Adsız vaka",
       });
       setAssessment(result);
+      // Yeni rapor listenin başına geçsin.
+      void refreshHistory();
     } catch (e: unknown) {
       setRunError(describeRunError(e));
     } finally {
       done(null);
       setRunning(false);
     }
-  }, [begin, running, slug, subject, title]);
+  }, [begin, running, slug, subject, title, refreshHistory]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -235,6 +259,40 @@ export function AnalizView() {
         )}
 
         {assessment && <Rapor assessment={assessment} />}
+
+        {history.length > 0 && (
+          <section className="mt-8 gecmis">
+            <h2 className="eyebrow">Önceki raporlar</h2>
+            <div className="mt-2 space-y-1">
+              {history.map((h) => (
+                <button
+                  key={h.id}
+                  className="card card-action w-full text-left p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
+                  onClick={() =>
+                    api
+                      .analysisGet(h.id)
+                      .then(setAssessment)
+                      .catch(() => setRunError("Rapor açılamadı."))
+                  }
+                >
+                  <span className="text-sm flex-1 min-w-0 truncate">{h.subject_title}</span>
+                  <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
+                    {h.domain_name}
+                  </span>
+                  {/* Kapsam listede de puanın yanında: aynı sayı farklı
+                      kapsamlarda farklı bulgu, ve unutulduğu yer tam burası. */}
+                  <span className="mono text-xs num" style={{ color: "var(--text-dim)" }}>
+                    {h.overall_score === null ? "—" : h.overall_score.toFixed(1)} ·{" "}
+                    {pct(h.coverage)}
+                  </span>
+                  <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
+                    {new Date(h.created_at).toLocaleDateString("tr-TR")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
