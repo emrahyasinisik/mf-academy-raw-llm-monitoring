@@ -12,6 +12,7 @@ import type {
   GenerateRunPayload,
   Score,
   AnalysisDomain,
+  AnalysisPrompt,
   Assessment,
   AssessmentList,
   LLMSettings,
@@ -218,6 +219,10 @@ export const api = {
     return request<AssessmentList>(`/analysis?${params}`);
   },
   analysisGet: (id: string) => request<Assessment>(`/analysis/${id}`),
+  // Prompt'un kendisi, gösterilmek için değil ölçülmek için: vaka alanının
+  // karakter bütçesi seçili rubriğin sistem prompt'u kadar küçülüyor.
+  analysisPrompt: (slug: string) =>
+    request<AnalysisPrompt>(`/analysis/domains/${slug}/prompt`),
 
   // ---- DeepKwiki ----
   //

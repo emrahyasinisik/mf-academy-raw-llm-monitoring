@@ -231,6 +231,27 @@ export interface AssessmentList {
   has_more: boolean;
 }
 
+/**
+ * GET /analysis/domains/{slug}/prompt — modele giden prompt'un kendisi.
+ *
+ * Ekran bunu prompt'u göstermek için değil, **ölçmek** için okuyor: vaka
+ * alanına kalan yer, pencereden sistem prompt'u düşüldükten sonra ne kalıyorsa
+ * o, ve iki rubriğin sistem prompt'u arasında 565 karakter fark var.
+ */
+export interface AnalysisPrompt {
+  domain: string;
+  version: number;
+  system_prompt: string;
+  user_prompt_example: string;
+  criteria: Criterion[];
+  temperature: number;
+}
+
+/** GET /config'in `limits` bloğu. */
+export interface AppLimits {
+  max_prompt_tokens: number;
+}
+
 // ---- Admin ----
 
 export interface LLMSettings {
