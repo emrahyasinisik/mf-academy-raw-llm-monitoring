@@ -97,4 +97,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Only a failure exits. `colab exec` runs this inside a kernel, where even
+    # sys.exit(0) is reported as "An exception has occurred" — which on the
+    # success path is noise that reads exactly like the failure it is not.
+    rc = main()
+    if rc:
+        sys.exit(rc)
