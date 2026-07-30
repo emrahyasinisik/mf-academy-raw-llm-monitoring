@@ -30,6 +30,18 @@ func (h *Handler) Config(w http.ResponseWriter, r *http.Request) {
 			"dimensions": []string{"completion", "latency", "efficiency", "keywords", "length"},
 			"grades":     []string{"A", "B", "C", "D", "F"},
 		},
+		// The prompt window the analysis screen must size its case field
+		// against. Published rather than duplicated on the client: this number
+		// is tuned per deployment, and a client-side copy would drift silently
+		// until a case that looked acceptable came back as a raw 400 from the
+		// engine — which the analysis path does not intercept, unlike decision.
+		//
+		// The chars-per-token ratios stay on the client. Those are properties
+		// of the tokenizer and of Turkish, not of this deployment, and they do
+		// not move when an operator changes the window.
+		"limits": map[string]any{
+			"max_prompt_tokens": h.cfg.LLMMaxPromptTokens,
+		},
 	})
 }
 

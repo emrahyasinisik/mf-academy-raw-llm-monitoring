@@ -1,6 +1,9 @@
 package config
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -99,5 +102,33 @@ func TestDecisionChatTimeoutCoversSearchAndGeneration(t *testing.T) {
 	}
 	if got <= cfg.LLMTimeout {
 		t.Fatalf("DecisionChatTimeout() = %v must exceed LLMTimeout %v", got, cfg.LLMTimeout)
+	}
+}
+
+// The analysis screen sizes its case field against this number, and the case
+// field is the first thing anyone touches. Published rather than duplicated on
+// the client: a client-side copy drifts silently until a case that looked
+// acceptable comes back as a raw 400 from the engine.
+func TestConfigHandlerPublishesPromptWindow(t *testing.T) {
+	h := NewHandler(Config{AppName: "mf", AppVersion: "test", Env: "test", LLMMaxPromptTokens: 1200})
+
+	req := httptest.NewRequest(http.MethodGet, "/config", nil)
+	rec := httptest.NewRecorder()
+	h.Config(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var body struct {
+		Limits struct {
+			MaxPromptTokens int `json:"max_prompt_tokens"`
+		} `json:"limits"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Limits.MaxPromptTokens != 1200 {
+		t.Errorf("max_prompt_tokens = %d, want 1200", body.Limits.MaxPromptTokens)
 	}
 }
