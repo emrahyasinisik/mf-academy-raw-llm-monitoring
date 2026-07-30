@@ -31,10 +31,14 @@ import sys
 import threading
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import pilot_math  # noqa: E402
-
 PEFT = os.environ.get("PEFT_DIR", "/content/peft")
+
+# `colab exec -f` does not run this as a script. It sends the text to the
+# kernel and executes it as a cell, where __file__ does not exist — so a
+# sys.path derived from it raises NameError before a single row is measured.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))
+                if "__file__" in globals() else os.path.join(PEFT, "colab"))
+import pilot_math  # noqa: E402
 PROBE_ROWS = 8
 EVAL_ROWS = 4
 # Model download + load, paid once per regime and identical between them.
@@ -178,4 +182,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Only a failure exits: inside a kernel even sys.exit(0) prints "An
+    # exception has occurred", which on the success path reads like the
+    # failure it is not.
+    _rc = main()
+    if _rc:
+        sys.exit(_rc)

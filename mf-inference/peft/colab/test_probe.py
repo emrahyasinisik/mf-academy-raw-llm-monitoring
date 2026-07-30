@@ -9,6 +9,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import probe_step_cost as probe
 
 
+class TestRunsAsANotebookCell(unittest.TestCase):
+    def test_imports_without_dunder_file(self):
+        # `colab exec -f` does not run the file as a script — it sends the text
+        # to the kernel and executes it as a cell, where __file__ is undefined.
+        # The first version of this module derived its sys.path entry from
+        # __file__ and died on line 34 with a NameError, before measuring
+        # anything.
+        src = open(probe.__file__, encoding="utf-8").read()
+        cell_globals = {"__name__": "not_main"}   # so main() does not fire
+        exec(compile(src, "<cell>", "exec"), cell_globals)
+        self.assertIn("pilot_math", cell_globals)
+
+
 class TestParseSmiMib(unittest.TestCase):
     def test_single_gpu(self):
         self.assertEqual(probe.parse_smi_mib("5312 MiB\n"), 5312)
