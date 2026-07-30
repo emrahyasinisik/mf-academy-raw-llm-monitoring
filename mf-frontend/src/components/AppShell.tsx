@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@/store/auth";
+import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
@@ -21,14 +22,17 @@ import { AdminView } from "./views/AdminView";
 import { MetricsView } from "./views/MetricsView";
 import { StatusRail } from "./ui/StatusRail";
 
-export type MasterView = "codegen" | "persona" | "metrics" | "admin";
+export type MasterView = "analiz" | "codegen" | "persona" | "metrics" | "admin";
 
-// The generator leads because it is what the served model does: the compiled
-// build is the Flutter fine-tune, and a brief is the only prompt shape it was
-// trained on. The persona stays reachable rather than being deleted — it is a
-// complete agent against a different base model, and it fails legibly (the view
-// reports the inference host, it does not crash) while that model is not the one
-// being served. Admin is listed for everyone: the view itself explains the role
+// Analiz leads because it is the product: a case goes in, a rubric-scored and
+// auditable report comes out. The order used to be the generator's, and the
+// reasoning was "it is what the box serves" — a sort by whatever weights were
+// loaded. That put the product second, and which model is loaded is not a
+// question nav order should be answering.
+//
+// The generator and the persona stay: both are working surfaces, and both fail
+// legibly (they report the inference host, they do not crash) when the machine
+// is off. Admin is listed for everyone: the view itself explains the role
 // requirement, friendlier than a nav item that vanishes.
 // Metrics sits beside Yönetim and follows the same rule: listed for everyone,
 // with the view explaining the role it needs. It is a separate master view
@@ -37,6 +41,7 @@ export type MasterView = "codegen" | "persona" | "metrics" | "admin";
 // off, this goes quiet while every admin tab keeps working, and a tab that
 // empties for reasons its neighbours do not share belongs on its own.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
+  { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "codegen", label: "Üreteç", Icon: IconCode },
   { id: "persona", label: "Persona", Icon: IconSpark },
   { id: "metrics", label: "Metrikler", Icon: IconChart },
@@ -96,7 +101,7 @@ function parseHash(): { view: MasterView; sub: string } | null {
 // the server and the client agree on the first paint.
 function initialRoute(): { view: MasterView; sub: string } {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? { view: "codegen", sub: "" };
+  return parsed ?? { view: "analiz", sub: "" };
 }
 
 export function AppShell() {
@@ -209,6 +214,15 @@ export function AppShell() {
             its state alive, so an in-flight generation still has a component
             to return to, and each view keeps its scroll position. The inactive
             ones are display:none, so they cost nothing to lay out. */}
+        {/* Kalıcı mount edilen grupta, Üreteç ve Persona ile birlikte: bir
+            analiz tünelin ardındaki makinede onlarca saniye sürüyor, ve view
+            söküldüğünde isteği tutan bileşen de gidiyor — iş durmuyor, kayıt
+            yine yazılıyor, ama sonucun ineceği yer kalmıyor. */}
+        {opened.has("analiz") && (
+          <Pane active={view === "analiz"}>
+            <AnalizView />
+          </Pane>
+        )}
         {opened.has("codegen") && (
           <Pane active={view === "codegen"}>
             <CodegenView />
@@ -374,6 +388,15 @@ const SVG = {
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
+
+function IconRubric() {
+  return (
+    <svg {...SVG} aria-hidden>
+      <path d="M2.5 3.5h11v9h-11z" />
+      <path d="M5 6.5h6M5 9.5h4" />
+    </svg>
+  );
+}
 
 function IconCode() {
   return (
