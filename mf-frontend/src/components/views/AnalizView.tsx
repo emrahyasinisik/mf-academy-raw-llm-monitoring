@@ -14,11 +14,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { caseBudgetChars, estimateTokens } from "@/lib/rubric";
-import type { AnalysisDomain, AppLimits } from "@/lib/types";
+import { useMachine } from "@/store/machine";
+import type { AnalysisDomain, AppLimits, Assessment } from "@/lib/types";
 
 export function AnalizView() {
+  const { begin } = useMachine();
+
   const [domains, setDomains] = useState<AnalysisDomain[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
 
   const [slug, setSlug] = useState("");
   const [title, setTitle] = useState("");
@@ -92,6 +99,30 @@ export function AnalizView() {
   const budget = systemChars === null ? null : caseBudgetChars(windowTokens, systemChars);
   const over = budget !== null && subject.length > budget;
   const canRun = slug !== "" && subject.trim() !== "" && !over;
+
+  const run = useCallback(async () => {
+    if (running) return;
+    setRunning(true);
+    setRunError(null);
+    // Durum çubuğu geçen süreyi sayabilsin diye. Bitirici `Run` bekliyor,
+    // `Assessment` o değil — null geçiliyor, yani çubuk süreyi gösterir ama
+    // son koşu özetini doldurmaz. Store'u genişletmenin bedeli bu ekran için
+    // faydasından büyük.
+    const done = begin("analiz");
+    try {
+      const result = await api.analysisRun({
+        domain: slug,
+        subject,
+        subject_title: title.trim() || "Adsız vaka",
+      });
+      setAssessment(result);
+    } catch (e: unknown) {
+      setRunError(describeRunError(e));
+    } finally {
+      done(null);
+      setRunning(false);
+    }
+  }, [begin, running, slug, subject, title]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -181,13 +212,51 @@ export function AnalizView() {
             )}
 
             <div className="flex items-center gap-3">
-              <button className="btn btn-primary" disabled={!canRun}>
-                Analiz et
+              <button
+                className="btn btn-primary"
+                disabled={!canRun || running}
+                onClick={run}
+              >
+                {running ? "Analiz ediliyor…" : "Analiz et"}
               </button>
+              {running && (
+                <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
+                  model tüm rubriği tek seferde dolduruyor; bu bir dakikayı bulabilir
+                </span>
+              )}
             </div>
+          </div>
+        )}
+
+        {runError && (
+          <div className="notice notice-bad mt-4" role="alert">
+            {runError}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+// Hataları operatörün okuyabileceği cümlelere çevirir.
+//
+// Ham gövdeyi ekrana basmak burada işe yaramıyor: bu yolun iki tipik hatası da
+// başka bir katmandan geliyor ve o katmanın diliyle konuşuyor. 503 çıkarım
+// makinesinin kapalı olması demek — desteklenen bir hal, arıza değil: API
+// ayakta kalır ve tarayıcı tarafı etkilenmez. 400 ise neredeyse her zaman
+// metnin pencereye sığmaması, ve sayaç bunu zaten önceden söylüyor olmalıydı.
+function describeRunError(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 503) {
+      return "Çıkarım makinesi şu anda ulaşılamıyor. Analiz için gerekli, ama diğer ekranlar çalışmaya devam eder.";
+    }
+    if (e.status === 400) {
+      return "Vaka metni değerlendirilmeden reddedildi — büyük olasılıkla rubriğin bıraktığı yerden uzun. Metni kısaltıp tekrar deneyin.";
+    }
+    if (e.status === 504 || e.status === 408) {
+      return "Analiz zaman aşımına uğradı. Tekrar denemek isteğin sırasını ikiye katlar; önce bir süre bekleyin.";
+    }
+    return e.message;
+  }
+  return "Analiz tamamlanamadı.";
 }
