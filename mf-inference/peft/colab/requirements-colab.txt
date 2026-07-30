@@ -1,0 +1,12 @@
+# Pinned floors for the Colab VM. Colab ships its own torch, built against the
+# VM's driver — it is deliberately NOT listed here, because replacing it is how
+# a working CUDA runtime on a rented machine becomes a CPU-only one.
+#
+# transformers is the one that matters: Qwen3 needs 4.51, and an older release
+# does not refuse the model. It fails to recognise the architecture, in a
+# message that reads like a corrupt download.
+transformers>=4.51
+peft>=0.11
+bitsandbytes>=0.43
+accelerate>=0.30
+datasets>=2.19
