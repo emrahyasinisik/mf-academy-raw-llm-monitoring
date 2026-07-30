@@ -14,16 +14,13 @@ from __future__ import annotations
 import math
 
 
-def seconds_per_row(wall_s: float, rows: int, load_s: float) -> float:
-    """Cost of one forward+backward pass, with fixed startup removed.
-
-    load_s is the model download and quantised load, which a probe pays once
-    and a real run also pays once. Leaving it in prices a short probe far
-    above a long run.
-    """
-    if rows <= 0:
-        raise ValueError("rows must be positive")
-    return max(0.0, wall_s - load_s) / rows
+# There was a seconds_per_row(wall_s, rows, load_s) here, subtracting a guessed
+# model-load time from the subprocess wall clock. It priced two runs of the
+# same eight rows at 20.6 and 10.3 s/row: the first paid an 8 GB download, the
+# second found it cached, and both had the same 240 s taken off. It is deleted
+# rather than corrected — the Trainer already reports train_runtime over the
+# training loop alone, so probe_step_cost.measured_s_per_row reads that, and
+# leaving the wall-clock version here would only invite its reuse.
 
 
 def compute_max_steps(budget_s: float, s_per_row: float,

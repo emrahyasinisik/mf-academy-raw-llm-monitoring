@@ -338,17 +338,29 @@ def main() -> None:
     limit = " (--max-steps)" if args.max_steps > 0 else ""
     print(f"\neffective batch: {args.batch_size * args.grad_accum} rows/step"
           f"  ~{steps} optimizer steps{limit}")
-    trainer.train(resume_from_checkpoint=args.resume or None)
+    train_result = trainer.train(resume_from_checkpoint=args.resume or None)
 
     model.save_pretrained(args.out_dir)
     tokenizer.save_pretrained(args.out_dir)
 
     metrics = trainer.evaluate()
+    # train_runtime is the Trainer's own clock over the training loop alone —
+    # not the model download, not tokenisation, not the final eval. It is the
+    # only cost figure here that is measured rather than inferred, and the
+    # thing a probe has to read: subtracting a guessed load time from wall
+    # clock priced two identical runs at 20.6 and 10.3 s/row, because the
+    # guess, not the work, was what differed between them.
+    rows_seen = train_result.metrics.get("train_samples_per_second", 0.0) * \
+        train_result.metrics.get("train_runtime", 0.0)
     with open(os.path.join(args.out_dir, "train_metrics.json"), "w") as fh:
-        json.dump({"eval": metrics, "trainable_params": trainable,
+        json.dump({"eval": metrics, "train": train_result.metrics,
+                   "row_passes": round(rows_seen),
+                   "trainable_params": trainable,
                    "rank": args.rank, "alpha": args.alpha,
                    "base_model": args.base_model,
                    "max_seq_len": args.max_seq_len,
+                   "max_steps": args.max_steps, "grad_accum": args.grad_accum,
+                   "batch_size": args.batch_size, "four_bit": not args.no_4bit,
                    "target_modules": targets}, fh, indent=2)
 
     print(f"\nadapter written to {args.out_dir}")

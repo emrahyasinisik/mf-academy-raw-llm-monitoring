@@ -41,14 +41,32 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))
 import pilot_math  # noqa: E402
 PROBE_ROWS = 8
 EVAL_ROWS = 4
-# Model download + load, paid once per regime and identical between them.
-# Subtracted so a short probe is not priced above the long run it predicts.
-LOAD_GUESS_S = 240.0
 # What the full run is: the merged 1600-row set, three epochs.
 FULL_ROWS, FULL_EPOCHS = 1600, 3.0
 SESSION_HOURS = 3.0  # one free-tier slice, per the design's quota note
 
 OUT = "/content/out/probe.json"
+
+
+def measured_s_per_row(metrics: dict, rows: int = 0) -> float:
+    """Cost of one row from the Trainer's own clock.
+
+    train_runtime covers the training loop and nothing else — not the model
+    download, not tokenisation, not the closing eval. That distinction is the
+    whole measurement. The first version of this probe subtracted a guessed
+    240 s load from wall time and priced two runs of identical work at 20.6
+    and 10.3 s/row; the difference was an 8 GB download present in one and
+    cached in the other, so the guess, not the work, was what varied. The
+    Trainer read 232.4 s and 235.7 s across those same two runs.
+    """
+    runtime = metrics.get("train", {}).get("train_runtime")
+    if not runtime:
+        raise ValueError("train_metrics.json has no train.train_runtime — "
+                         "the run did not reach the end of training")
+    n = rows or metrics.get("row_passes") or 0
+    if n <= 0:
+        raise ValueError("no row count to divide by")
+    return runtime / n
 
 
 def parse_smi_mib(text: str | None) -> int:
@@ -136,17 +154,28 @@ def run_regime(label: str, extra_args: list[str]) -> dict:
     tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
     print(tail, flush=True)
 
-    per_row = (pilot_math.seconds_per_row(wall, PROBE_ROWS, LOAD_GUESS_S)
-               if proc.returncode == 0 else 0.0)
-    result = {"wall_s": round(wall, 1), "s_per_row": round(per_row, 1),
+    result = {"wall_s": round(wall, 1), "s_per_row": 0.0,
               "peak_mib": mem.peak, "returncode": proc.returncode,
               "tail": tail[-1500:]}
 
     if proc.returncode != 0:
         print(f"{label}: FAILED (exit {proc.returncode}) — no projection. "
-              f"If this is the fp16 arm and the tail says out of memory, that "
-              f"closes the branch and is worth as much as a number.", flush=True)
+              f"For the fp16 arm, out of memory closes the branch and is worth "
+              f"as much as a number; anything else is a bug to fix and rerun.",
+              flush=True)
         return result
+
+    # Measured, not inferred: read the Trainer's clock out of the run's own
+    # metrics file rather than timing the subprocess and guessing at overhead.
+    metrics_path = os.path.join(PEFT, "out", f"probe_{label}", "train_metrics.json")
+    try:
+        with open(metrics_path, encoding="utf-8") as fh:
+            per_row = measured_s_per_row(json.load(fh), rows=PROBE_ROWS)
+    except (OSError, ValueError) as exc:
+        print(f"{label}: exit 0 but no usable train_runtime ({exc})", flush=True)
+        result["returncode"] = 1
+        return result
+    result["s_per_row"] = round(per_row, 1)
 
     hours = pilot_math.project_full_run_hours(per_row, FULL_ROWS, FULL_EPOCHS)
     sessions = pilot_math.sessions_needed(hours, SESSION_HOURS)
