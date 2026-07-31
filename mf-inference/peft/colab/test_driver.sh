@@ -21,8 +21,14 @@ check "executable"  "test -x run_pilot.sh"
 
 out=$(DRY_RUN=1 ./run_pilot.sh all 2>&1)
 
-for phase in session preflight deps push data probe train watch pull eval stop; do
+for phase in session preflight deps push data probe train guard eval stop; do
   check "phase '$phase' dispatches" "grep -q \"phase: $phase\" <<< \"\$out\""
+done
+# watch and pull are not in 'all' — guard supersedes them there — but both must
+# still dispatch on their own.
+for phase in watch pull; do
+  check "phase '$phase' dispatches" \
+    "grep -q \"phase: $phase\" <<< \"\$(DRY_RUN=1 ./run_pilot.sh $phase 2>&1)\""
 done
 
 check "never calls colab pay"        "! grep -q 'colab pay' run_pilot.sh"
@@ -31,5 +37,11 @@ check "pilot out-dir, not rubric-v1" "grep -q 'out/colab-pilot' run_pilot.sh"
 check "training runs detached"       "grep -q 'start_new_session' run_pilot.sh"
 check "stops the session"            "grep -q 'colab stop' run_pilot.sh"
 check "unknown phase is an error"    "! ./run_pilot.sh nonsense >/dev/null 2>&1"
+# The two failures of the first run, as checks.
+check "budget comes from the lease"  "! grep -q 'BUDGET_S:-2700' run_pilot.sh"
+check "lease is in the arithmetic"   "grep -q 'training_budget_s' run_pilot.sh"
+check "both evals are charged"       "grep -q 'EVALS:-2' run_pilot.sh"
+check "guard pulls on sight"         "grep -q 'ADAPTER_PRESENT' run_pilot.sh"
+check "'all' guards before eval"     "grep -qE 'train guard eval stop' run_pilot.sh"
 
 exit $fail

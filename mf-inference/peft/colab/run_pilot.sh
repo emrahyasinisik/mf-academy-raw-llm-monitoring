@@ -12,23 +12,37 @@
 #   colab/run_pilot.sh preflight    # card + library gate, before any download
 #   colab/run_pilot.sh deps push data
 #   colab/run_pilot.sh probe        # ~30 min; writes out/probe.json
-#   colab/run_pilot.sh train        # derives --max-steps from the probe
-#   colab/run_pilot.sh watch        # poll until the adapter is written
-#   colab/run_pilot.sh pull eval stop
+#   colab/run_pilot.sh train        # --max-steps from the probe and the lease
+#   colab/run_pilot.sh guard        # poll, and pull the adapter on sight
+#   colab/run_pilot.sh eval stop
+#
+# `watch` prints the log once and returns; `guard` is the one that saves the
+# artifact. Use watch to look, guard to leave running.
 #
 # DRY_RUN=1 prints the plan without touching the network.
 set -euo pipefail
 
 SESSION="${SESSION:-pilot}"
 REMOTE="${REMOTE:-/content/peft}"
-# The design's arithmetic: an hour minus model download, tokenisation, eval and
-# checkpointing. This is the only number the pilot promises to hit.
-BUDGET_S="${BUDGET_S:-2700}"
+# The lease, not the loop. BUDGET_S used to be a hardcoded 2700 and the run
+# still overran: the session was leased for 3608 s (created 12:50:13,
+# terminated 13:50:21 — the keep-alive never errored, the hour simply ran out)
+# and the training loop alone spent 2943 s of it. The budget is now derived
+# from these five, in pilot_math.training_budget_s, and every one is measured.
+LEASE_S="${LEASE_S:-3600}"      # what the free tier granted. Dynamic: it had
+                                # already given 1h49m earlier the same day, so
+                                # treat this as the pessimistic case.
+LOAD_S="${LOAD_S:-250}"         # download + tokenise before step 1
+EVAL_S="${EVAL_S:-361}"         # one pass over the eval set
+EVALS="${EVALS:-2}"             # one inside train_runtime, one after it
+RESERVE_S="${RESERVE_S:-180}"   # the window that has to be left for the pull
 # 4, not the line's 16: four times the optimizer steps for the same row-passes,
 # so the loss curve has something in it to look at.
 GRAD_ACCUM="${GRAD_ACCUM:-4}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
 SAVE_STEPS="${SAVE_STEPS:-5}"
+GUARD_POLL_S="${GUARD_POLL_S:-60}"
+GUARD_MAX_S="${GUARD_MAX_S:-4200}"
 OUT_DIR="out/colab-pilot"   # never out/rubric-v1 — this build does not ship
 EVAL_LIMIT="${EVAL_LIMIT:-40}"
 
@@ -155,21 +169,26 @@ phase_train() {
   if [[ -n "${DRY_RUN:-}" ]]; then
     steps="<derived from out/probe.json>"
   else
-    steps="$(python3 - "$BUDGET_S" "$BATCH_SIZE" "$GRAD_ACCUM" <<'PY'
+    steps="$(python3 - "$LEASE_S" "$LOAD_S" "$EVAL_S" "$EVALS" "$RESERVE_S" \
+                      "$BATCH_SIZE" "$GRAD_ACCUM" <<'PY'
 import json, sys
 sys.path.insert(0, "colab")
 import pilot_math
-budget, batch, accum = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+lease, load, ev_s = float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])
+evals, reserve = int(sys.argv[4]), float(sys.argv[5])
+batch, accum = int(sys.argv[6]), int(sys.argv[7])
 ok = [r for r in json.load(open("out/probe.json"))["regimes"].values()
       if r["returncode"] == 0]
 if not ok:
     sys.exit("both probe regimes failed — no measured cost, no honest limit")
+budget = pilot_math.training_budget_s(lease, load, ev_s, evals, reserve)
 print(pilot_math.compute_max_steps(budget, min(r["s_per_row"] for r in ok),
                                    batch, accum))
 PY
 )"
   fi
-  echo "  --max-steps $steps  (budget ${BUDGET_S}s, effective batch $((BATCH_SIZE * GRAD_ACCUM)))"
+  echo "  --max-steps $steps  (lease ${LEASE_S}s less ${LOAD_S}s load, "\
+"${EVALS}x${EVAL_S}s eval, ${RESERVE_S}s reserve; effective batch $((BATCH_SIZE * GRAD_ACCUM)))"
 
   # start_new_session=True: `colab exec` returns within 30 s, and a plain child
   # of the kernel would go down with the websocket.
@@ -208,11 +227,51 @@ print("still running:", bool(subprocess.run(
 PY
 }
 
+phase_guard() {
+  say "phase: guard"
+  # The adapter is written at train_qlora_qwen.py:343, *before* the final
+  # trainer.evaluate() — so it lands on the VM minutes before the process
+  # exits. Last run it sat there for five minutes and died with the lease,
+  # because the driver was waiting for the process instead of the file.
+  # Poll, and pull on sight.
+  if [[ -n "${DRY_RUN:-}" ]]; then
+    printf '  [dry] poll every %ss (max %ss) for %s/%s/adapter_model.safetensors, then pull\n' \
+      "$GUARD_POLL_S" "$GUARD_MAX_S" "$REMOTE" "$OUT_DIR"
+    return
+  fi
+  local waited=0 out
+  while (( waited < GUARD_MAX_S )); do
+    if ! out="$(run_stdin 60 <<PY
+import os
+print("ADAPTER_PRESENT" if os.path.exists(
+    "$REMOTE/$OUT_DIR/adapter_model.safetensors") else "waiting")
+PY
+)"; then
+      echo "  session gone before the adapter appeared (${waited}s in)" >&2
+      return 1
+    fi
+    if grep -q ADAPTER_PRESENT <<< "$out"; then
+      echo "  adapter on the VM after ${waited}s — pulling now"
+      phase_pull
+      return
+    fi
+    sleep "$GUARD_POLL_S"
+    waited=$(( waited + GUARD_POLL_S ))
+  done
+  echo "  adapter never appeared within ${GUARD_MAX_S}s" >&2
+  return 1
+}
+
 phase_pull() {
   say "phase: pull"
   mkdir -p "$OUT_DIR"
+  # Tolerant per file, strict on the one that matters: guard calls this while
+  # the run is still going, and train_metrics.json is only written after the
+  # final eval. A missing metrics file must not abort the download of weights
+  # that are already on disk and about to be deleted with the VM.
   for f in adapter_model.safetensors adapter_config.json train_metrics.json train.log; do
-    run colab download -s "$SESSION" "$REMOTE/$OUT_DIR/$f" "$OUT_DIR/$f"
+    run colab download -s "$SESSION" "$REMOTE/$OUT_DIR/$f" "$OUT_DIR/$f" \
+      || echo "  not yet on the VM: $f"
   done
   # Exit code 0 is not the check. A Kaggle run once recorded COMPLETE over an
   # empty output directory, because `!`'s exit code went nowhere.
@@ -251,11 +310,11 @@ phase_stop() {
 }
 
 [[ $# -gt 0 ]] || { echo "usage: $0 <phase>...  (or 'all')" >&2; exit 2; }
-[[ "${1:-}" == "all" ]] && set -- session preflight deps push data probe train watch pull eval stop
+[[ "${1:-}" == "all" ]] && set -- session preflight deps push data probe train guard eval stop
 
 for phase in "$@"; do
   case "$phase" in
-    session|preflight|deps|push|data|probe|train|watch|pull|eval|stop)
+    session|preflight|deps|push|data|probe|train|watch|guard|pull|eval|stop)
       "phase_$phase" ;;
     *) echo "unknown phase: $phase" >&2; exit 2 ;;
   esac

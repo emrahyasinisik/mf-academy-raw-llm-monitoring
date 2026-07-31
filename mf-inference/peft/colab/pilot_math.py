@@ -23,6 +23,39 @@ import math
 # leaving the wall-clock version here would only invite its reuse.
 
 
+def training_budget_s(lease_s: float, load_s: float, eval_s: float,
+                      evals: int, reserve_s: float) -> float:
+    """How much of a session lease the training loop may actually spend.
+
+    The first pilot run passed a hardcoded 2700 s to compute_max_steps, took
+    23 steps, and lost its adapter. The session log says why: created 12:50:13,
+    terminated 13:50:21 — a 3608 s lease, of which train_runtime alone took
+    2943 s. Nothing in the arithmetic knew about the rest of the hour.
+
+    What the lease pays for besides stepping:
+      * load_s    — model download and tokenisation before step 1 (~250 s
+                    measured, and consistent with the probe's 240 s load).
+      * eval_s x evals — one pass over the eval set, 361 s measured. Two of
+                    them run: eval_strategy="epoch" fires one *inside*
+                    train_runtime, and train_qlora_qwen.py calls
+                    trainer.evaluate() again afterwards. Counting neither is
+                    what pushed a 45-minute budget into a 60-minute lease.
+      * reserve_s — the window left to pull the adapter. It is written before
+                    the final eval, so it exists early; but /content dies with
+                    the session, and last time it existed for five minutes and
+                    was never fetched.
+
+    Raises rather than returning a negative or derisory budget: renting a T4
+    for an hour that buys no training is the one outcome worth refusing.
+    """
+    budget = lease_s - load_s - eval_s * evals - reserve_s
+    if budget <= 0:
+        raise ValueError(
+            f"a {lease_s:.0f}s lease buys no training after {load_s:.0f}s load, "
+            f"{evals}x{eval_s:.0f}s eval and {reserve_s:.0f}s reserve")
+    return budget
+
+
 def compute_max_steps(budget_s: float, s_per_row: float,
                       batch_size: int, grad_accum: int) -> int:
     """How many optimizer steps fit in budget_s at the measured cost.
