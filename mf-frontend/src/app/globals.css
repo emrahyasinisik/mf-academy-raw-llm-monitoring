@@ -599,6 +599,35 @@ input[type="checkbox"] {
   animation-delay: calc(var(--i, 0) * 45ms);
 }
 
+/* Auth brand panel: the hairline grid drifts one cell over a long period.
+   Slow enough to read as atmosphere, not decoration fighting the form. */
+@keyframes auth-grid-drift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 56px 28px, 28px 56px;
+  }
+}
+.auth-grid-drift {
+  animation: auth-grid-drift 48s linear infinite;
+}
+
+/* A single soft brand wash that breathes under the grid — presence without
+   the neon glow the rest of the console deliberately avoids. */
+@keyframes auth-wash-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+.auth-wash-breathe {
+  animation: auth-wash-breathe 7s var(--ease) infinite;
+}
+
 /* The working state: a trace that sweeps a track. Used on the status rail and
    anywhere a determinate progress bar would lie about knowing the duration. */
 @keyframes scan {
