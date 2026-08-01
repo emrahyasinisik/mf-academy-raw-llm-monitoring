@@ -26,7 +26,7 @@ type fakeStore struct {
 	revokeAllFn func(userID string) (int64, error)
 }
 
-func (f *fakeStore) CreateUser(context.Context, string, string, string) (User, error) {
+func (f *fakeStore) CreateUser(context.Context, string, string, string, string) (User, error) {
 	return f.user, nil
 }
 

@@ -79,7 +79,7 @@ func withBcryptSlot(ctx context.Context, fn func() error) error {
 // UserStore is the persistence behaviour the auth handlers need, declared on
 // the consuming side. *Store satisfies it implicitly.
 type UserStore interface {
-	CreateUser(ctx context.Context, email, passwordHash, name string) (User, error)
+	CreateUser(ctx context.Context, email, passwordHash, name, termsVersion string) (User, error)
 	GetUserByEmailWithHash(ctx context.Context, email string) (User, string, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetPasswordHash(ctx context.Context, id string) (string, error)
@@ -147,7 +147,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name))
+	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name), TermsVersion)
 	if err != nil {
 		if isUniqueViolation(err) {
 			common.Error(w, common.ErrConflict("email already registered"))
