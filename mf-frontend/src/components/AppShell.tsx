@@ -20,9 +20,11 @@ import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
 import { MetricsView } from "./views/MetricsView";
+import { GizlilikView } from "./views/GizlilikView";
 import { StatusRail } from "./ui/StatusRail";
 
-export type MasterView = "analiz" | "codegen" | "persona" | "metrics" | "admin";
+export type MasterView =
+  | "analiz" | "codegen" | "persona" | "metrics" | "admin" | "gizlilik";
 
 // Analiz leads because it is the product: a case goes in, a rubric-scored and
 // auditable report comes out. The order used to be the generator's, and the
@@ -48,7 +50,13 @@ const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] =
   { id: "admin", label: "Yönetim", Icon: IconSliders },
 ];
 
-const isMaster = (v: string): v is MasterView => NAV.some((n) => n.id === v);
+// Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
+// üyeliğine bakıyordu; gizlilik bir çalışma aracı değil, bir belge — nav'a
+// girmesi orayı sulandırır, ama derin bağlantının çalışması gerekiyor.
+const OFF_NAV: MasterView[] = ["gizlilik"];
+
+const isMaster = (v: string): v is MasterView =>
+  NAV.some((n) => n.id === v) || (OFF_NAV as string[]).includes(v);
 
 /** True when the reader has asked for less animation. Safe before hydration. */
 function reducedMotion(): boolean {
@@ -239,6 +247,11 @@ export function AppShell() {
             this morning would still be on screen tonight, silently. */}
         {view === "metrics" && <MetricsView />}
         {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
+        {view === "gizlilik" && <GizlilikView />}
+
+        <footer className="mt-10 pt-4 text-xs" style={{ color: "var(--text-faint)" }}>
+          <a href="#gizlilik">Verileriniz ve gizlilik</a>
+        </footer>
       </main>
     </div>
   );

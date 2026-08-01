@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { useAuth } from "@/store/auth";
 import { ApiError } from "@/lib/api";
+import { GizlilikView } from "./GizlilikView";
 
 type SubView = "login" | "register";
 
@@ -37,8 +38,27 @@ export function AuthView() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // AuthView renders in place of AppShell's hash router while there is no
+  // signed-in user, so a signed-out visitor following `#gizlilik` never
+  // reaches that router. This local flag is the same deep link handled here
+  // instead: read once on mount so a direct load of `#gizlilik` lands on the
+  // privacy page immediately rather than flashing the login form first.
+  const [showPrivacy, setShowPrivacy] = useState(
+    typeof window !== "undefined" && window.location.hash === "#gizlilik",
+  );
 
   const copy = COPY[sub];
+
+  if (showPrivacy) {
+    return (
+      <div className="p-6">
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowPrivacy(false)}>
+          ← Geri
+        </button>
+        <GizlilikView />
+      </div>
+    );
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -238,6 +258,12 @@ export function AuthView() {
               {busy ? "Bekle…" : copy.cta}
             </button>
           </form>
+
+          <p className="mt-4 text-xs" style={{ color: "var(--text-faint)" }}>
+            <a href="#gizlilik" onClick={() => setShowPrivacy(true)}>
+              Verilerinizi nasıl sakladığımızı okuyun.
+            </a>
+          </p>
         </div>
       </div>
     </div>
