@@ -166,7 +166,8 @@ func main() {
 	// honest.
 	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.SearchTimeout())
 	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens, cfg.LLMTimeout)
-	decisionHandler := decision.NewHandler(decisionAgent)
+	decisionStore := decision.NewStore(pool)
+	decisionHandler := decision.NewHandler(decisionAgent, decisionStore)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
 	// does rather than a parallel implementation: an MCP client and a browser
@@ -323,7 +324,7 @@ func main() {
 
 	// ---- background: redact content past the retention period ----
 	if cfg.RetentionEnabled() {
-		go retentionCleanup(workerCtx, analysisStore, llmStore,
+		go retentionCleanup(workerCtx, analysisStore, llmStore, decisionStore,
 			time.Duration(cfg.RetentionDays)*24*time.Hour, cfg.RetentionSweepInterval)
 	}
 
@@ -394,6 +395,7 @@ func retentionCleanup(
 	ctx context.Context,
 	a retention.AssessmentSweeper,
 	r retention.RunSweeper,
+	c retention.ConversationSweeper,
 	age, interval time.Duration,
 ) {
 	// Ten minutes, where sessionCleanup's reap gets thirty seconds, and the gap
@@ -413,13 +415,14 @@ func retentionCleanup(
 	sweep := func() {
 		sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
 		defer cancel()
-		res, err := retention.Sweep(sweepCtx, a, r, age, time.Now())
+		res, err := retention.Sweep(sweepCtx, a, r, c, age, time.Now())
 		if err != nil {
 			slog.Error("retention sweep", "error", err)
 		}
-		if res.Assessments > 0 || res.Runs > 0 {
+		if res.Assessments > 0 || res.Runs > 0 || res.Conversations > 0 {
 			slog.Info("retention sweep",
-				"assessments", res.Assessments, "runs", res.Runs)
+				"assessments", res.Assessments, "runs", res.Runs,
+				"conversations", res.Conversations)
 		}
 	}
 

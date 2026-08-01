@@ -79,7 +79,8 @@ func withBcryptSlot(ctx context.Context, fn func() error) error {
 // UserStore is the persistence behaviour the auth handlers need, declared on
 // the consuming side. *Store satisfies it implicitly.
 type UserStore interface {
-	CreateUser(ctx context.Context, email, passwordHash, name string) (User, error)
+	CreateUser(ctx context.Context, email, passwordHash, name, termsVersion string) (User, error)
+	AcceptTerms(ctx context.Context, userID, version string) error
 	GetUserByEmailWithHash(ctx context.Context, email string) (User, string, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetPasswordHash(ctx context.Context, id string) (string, error)
@@ -134,6 +135,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, err)
 		return
 	}
+	if !req.AcceptedTerms {
+		common.Error(w, common.ErrBadRequest(
+			"kullanım koşulları kabul edilmeden kayıt yapılamaz"))
+		return
+	}
 
 	// bcrypt salts and hashes the password. We never store the plaintext.
 	var hash []byte
@@ -147,7 +153,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name))
+	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name), TermsVersion)
 	if err != nil {
 		if isUniqueViolation(err) {
 			common.Error(w, common.ErrConflict("email already registered"))
@@ -268,6 +274,19 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.JSON(w, http.StatusOK, user)
+}
+
+// AcceptTerms records that the caller accepted the current terms. It exists
+// for accounts created before the terms did — new accounts accept at
+// registration, so this is the catch-up path a frontend gate calls later.
+// POST /auth/accept-terms
+func (h *Handler) AcceptTerms(w http.ResponseWriter, r *http.Request) {
+	claims, _ := common.ClaimsFromContext(r.Context())
+	if err := h.store.AcceptTerms(r.Context(), claims.UserID, TermsVersion); err != nil {
+		common.Error(w, common.ErrInternal("could not record acceptance"))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UpdateMe updates the authenticated user's profile.

@@ -24,7 +24,11 @@ export function GizlilikView() {
         <li>Analiz için yapıştırdığınız vaka metninin tamamı.</li>
         <li>Üretilen raporun bulguları ve kanıt alıntıları.</li>
         <li>Üreteç ekranında gönderdiğiniz istemler ve alınan yanıtlar.</li>
-        <li>E-posta adresiniz ve oturum kayıtlarınız.</li>
+        <li>
+          Persona ekranındaki konuşmalarınız: yazdığınız mesajlar, aldığınız
+          yanıtlar, ve o yanıtı üretirken toplanan araştırma sonuçları.
+        </li>
+        <li>Adınız, e-posta adresiniz ve oturum kayıtlarınız.</li>
       </ul>
 
       <h2 className="eyebrow mt-6">Ne için</h2>
@@ -48,11 +52,25 @@ export function GizlilikView() {
       <p className="mt-2 text-sm">
         30 gün. Sonrasında vaka metni, kanıt alıntıları ve istemler
         kendiliğinden siliniyor; geriye puan, kapsam ve tarih gibi içeriği
-        olmayan ölçüm kayıtları kalıyor. Bunun bir sonucu var ve saklamıyoruz:
-        30 günden eski bir raporun puanını görebilirsiniz ama o puanın neye
-        dayandığını artık gösteremiyoruz.
+        olmayan ölçüm kayıtları kalıyor.
       </p>
-      {/* Yukarıdaki liste dört şey sayıyor, 30 gün üçünü siliyor. Dördüncüsünü
+      <p className="mt-2 text-sm">
+        Bunun bir sonucu var ve saklamıyoruz: 30 günden eski bir raporun puanını
+        görebilirsiniz ama o puanın neye dayandığını artık gösteremiyoruz.
+      </p>
+      <p className="mt-2 text-sm">
+        Persona konuşmaları için silme daha basit: otuz gün dokunulmayan bir
+        konuşma tamamen siliniyor, mesajlarıyla birlikte, geriye kayıt
+        kalmıyor. Raporlarda içeriksiz bir ölçüm satırı kalmasının sebebi o
+        satırın ürünün kendi ölçümlerini beslemesi; bir konuşma hiçbir şey
+        beslemiyor, o yüzden saklanacak bir şeyi de yok.
+      </p>
+      <p className="mt-2 text-sm">
+        Süre, konuşmanın açıldığı tarihten değil <strong>son
+        mesajdan</strong> sayılıyor — sürdürdüğünüz bir konuşma otuzuncu
+        gününde ortasından silinmiyor.
+      </p>
+      {/* Yukarıdaki liste beş şey sayıyor, 30 gün dördünü siliyor. Beşincisini
           burada söylemek zorundayız: aksi halde metin, hiç değinmediği bir şeyi
           sildiğini ima ediyor. */}
       <p className="mt-2 text-sm">

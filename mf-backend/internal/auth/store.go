@@ -20,17 +20,33 @@ func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 // ErrNoRows is returned when a lookup finds nothing.
 var ErrNoRows = errors.New("no rows")
 
-// CreateUser inserts a user and returns the created row. A unique-violation on
-// email is surfaced so the handler can return 409 Conflict.
-func (s *Store) CreateUser(ctx context.Context, email, passwordHash, name string) (User, error) {
+// CreateUser inserts a user together with the acceptance that created them.
+//
+// One statement, not two. A separate acceptance write could fail after the
+// account exists, leaving a user who never agreed to anything and no way to
+// tell that apart from a user who registered before the terms existed.
+func (s *Store) CreateUser(ctx context.Context, email, passwordHash, name, termsVersion string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
-		`INSERT INTO users (email, password_hash, name)
-		 VALUES ($1, $2, $3)
-		 RETURNING id, email, name, role, created_at, updated_at`,
-		email, passwordHash, name,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		`INSERT INTO users (email, password_hash, name, terms_accepted_at, terms_version)
+		 VALUES ($1, $2, $3, now(), $4)
+		 RETURNING id, email, name, role, created_at, updated_at, terms_accepted_at`,
+		email, passwordHash, name, termsVersion,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	return u, err
+}
+
+// AcceptTerms records acceptance for a user who registered before the terms
+// existed.
+//
+// The WHERE clause keeps the first acceptance: re-accepting must not move the
+// date, because the date is the record. A second call changes nothing and is
+// not an error — the caller asked for a state that already holds.
+func (s *Store) AcceptTerms(ctx context.Context, userID, version string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET terms_accepted_at = now(), terms_version = $2, updated_at = now()
+		  WHERE id = $1 AND terms_accepted_at IS NULL`, userID, version)
+	return err
 }
 
 // GetUserByEmailWithHash returns the user plus password hash for login checks.
@@ -38,9 +54,9 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 	var u User
 	var hash string
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, created_at, updated_at, password_hash
+		`SELECT id, email, name, role, created_at, updated_at, terms_accepted_at, password_hash
 		 FROM users WHERE email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &hash)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrNoRows
 	}
@@ -51,8 +67,8 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, created_at, updated_at FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		`SELECT id, email, name, role, created_at, updated_at, terms_accepted_at FROM users WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
@@ -74,8 +90,8 @@ func (s *Store) UpdateName(ctx context.Context, id, name string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
 		`UPDATE users SET name = $2, updated_at = now() WHERE id = $1
-		 RETURNING id, email, name, role, created_at, updated_at`, id, name,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+		 RETURNING id, email, name, role, created_at, updated_at, terms_accepted_at`, id, name,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}

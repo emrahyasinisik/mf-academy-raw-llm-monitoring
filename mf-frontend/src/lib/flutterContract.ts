@@ -96,6 +96,30 @@ export function buildBrief(b: Brief): string {
   return lines.join("\n");
 }
 
+/**
+ * Recovers the state choice from a prompt that buildBrief produced.
+ *
+ * Needed because the lint is state-aware — it checks for the Cubit a brief asked
+ * for — and a run opened out of history is linted against whatever the form
+ * happens to be set to now, which is a different brief entirely. That mismatch
+ * would report a missing Cubit on a screen that correctly asked for none.
+ *
+ * Matched on the wire text rather than the label, because the wire text is what
+ * the prompt carries, and it is stable: the labels are UI copy and may be
+ * translated, the wire strings are part of what the adapter was trained on.
+ *
+ * Falls back to the first choice for a prompt this did not write — raw mode
+ * allows anything — which is the same default the form starts at.
+ */
+export function readStateFromPrompt(prompt: string): StateChoice {
+  const line = prompt.split("\n").find((l) => l.startsWith("State:"));
+  if (line) {
+    const match = STATE_CHOICES.find((s) => line.includes(s.wire));
+    if (match) return match.id;
+  }
+  return STATE_CHOICES[0].id;
+}
+
 // ---- reading the answer ----
 
 export interface Extracted {

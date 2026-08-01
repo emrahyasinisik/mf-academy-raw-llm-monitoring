@@ -124,7 +124,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 	// for a second COUNT query.
 	rows, err := s.db.Query(ctx,
 		`SELECT r.id, r.model, r.target, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
-		        r.latency_ms, r.created_at,
+		        r.latency_ms, r.created_at, r.redacted_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
@@ -147,7 +147,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 		var sCreated *time.Time
 
 		if err := rows.Scan(&run.ID, &run.Model, &run.Target, &run.PromptPreview, &run.PromptTokens,
-			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt,
+			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt, &run.RedactedAt,
 			&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated); err != nil {
 			return ListResult{}, err
 		}

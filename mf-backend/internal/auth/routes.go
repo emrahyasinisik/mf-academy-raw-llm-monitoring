@@ -35,6 +35,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, rateLimit func(http.Handle
 	r.Group(func(pr chi.Router) {
 		pr.Use(common.RequireAuth(verify))
 		pr.Get("/me", h.Me)
+		pr.Post("/accept-terms", h.AcceptTerms)
 		pr.Patch("/me", h.UpdateMe)
 		pr.Post("/change-password", h.ChangePassword)
 		pr.Get("/sessions", h.ListSessions)

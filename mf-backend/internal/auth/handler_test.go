@@ -24,10 +24,19 @@ type fakeStore struct {
 	lookupErr   error
 	revokedAll  int
 	revokeAllFn func(userID string) (int64, error)
+
+	created         int    // number of CreateUser calls; a refused registration must leave this at 0
+	acceptedVersion string // version passed to the most recent AcceptTerms call
 }
 
-func (f *fakeStore) CreateUser(context.Context, string, string, string) (User, error) {
+func (f *fakeStore) CreateUser(context.Context, string, string, string, string) (User, error) {
+	f.created++
 	return f.user, nil
+}
+
+func (f *fakeStore) AcceptTerms(_ context.Context, _ string, version string) error {
+	f.acceptedVersion = version
+	return nil
 }
 
 func (f *fakeStore) GetUserByEmailWithHash(_ context.Context, _ string) (User, string, error) {
@@ -73,9 +82,27 @@ func newTestHandler(store UserStore) *Handler {
 	return NewHandler(store, NewTokenService(strings.Repeat("s", 48), time.Minute, time.Hour), testHashCost)
 }
 
+// newTestHandlerWithStore is newTestHandler plus the concrete fake, for tests
+// that need to inspect what the handler did to the store afterward (call
+// counts, recorded values) rather than only the HTTP response.
+func newTestHandlerWithStore() (*Handler, *fakeStore) {
+	st := &fakeStore{}
+	return newTestHandler(st), st
+}
+
 func postJSON(h http.HandlerFunc, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", "/auth/login", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h(w, r)
+	return w
+}
+
+// authedPost issues a body-less POST carrying claims for userID, for
+// endpoints like AcceptTerms that read only the caller's identity.
+func authedPost(h http.HandlerFunc, userID string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", "/auth/accept-terms", nil)
+	r = r.WithContext(common.ContextWithClaims(r.Context(), common.AuthClaims{UserID: userID}))
 	w := httptest.NewRecorder()
 	h(w, r)
 	return w
@@ -196,5 +223,47 @@ func TestChangePasswordRevokesSessionsAndReissues(t *testing.T) {
 	}
 	if out.AccessToken == "" || out.RefreshToken == "" {
 		t.Error("response carries no fresh token pair")
+	}
+}
+
+// Registration must refuse anyone who accepted nothing — an absent field and
+// an explicit false are refused identically, since the wire has no way to
+// distinguish "never asked" from "asked and declined".
+func TestRegisterRefusesWithoutAcceptance(t *testing.T) {
+	for _, body := range []string{
+		`{"email":"a@b.co","password":"parola12345","name":"A"}`,
+		`{"email":"a@b.co","password":"parola12345","name":"A","accepted_terms":false}`,
+	} {
+		h := newTestHandler(&fakeStore{})
+		w := postJSON(h.Register, body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %s -> status %d, want 400", body, w.Code)
+		}
+	}
+}
+
+// Kabul edilmemis bir kayit hic olusmamali: 400 donup kullaniciyi yine de
+// yaratmak, kabulu olmayan bir hesap birakir ve kapi onu yakalamaz.
+func TestRegisterDoesNotCreateUserWhenRefused(t *testing.T) {
+	h, st := newTestHandlerWithStore()
+	postJSON(h.Register, `{"email":"a@b.co","password":"parola12345","name":"A"}`)
+	if st.created != 0 {
+		t.Errorf("CreateUser called %d times, want 0", st.created)
+	}
+}
+
+// AcceptTerms is the catch-up path for accounts that predate the terms. It
+// must be safe to call twice: the caller may not know whether they already
+// accepted, and a second call is success, not an error.
+func TestAcceptTermsRecordsAndIsIdempotent(t *testing.T) {
+	h, st := newTestHandlerWithStore()
+	for i := 0; i < 2; i++ {
+		w := authedPost(h.AcceptTerms, "user-1")
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("call %d -> status %d, want 204", i+1, w.Code)
+		}
+	}
+	if st.acceptedVersion != TermsVersion {
+		t.Errorf("stored version %q, want %q", st.acceptedVersion, TermsVersion)
 	}
 }
