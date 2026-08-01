@@ -42,6 +42,9 @@ type Run struct {
 	Metadata         Metadata  `json:"metadata"`
 	CreatedAt        time.Time `json:"created_at"`
 	Score            *Score    `json:"score,omitempty"`
+
+	// Non-nil once the retention sweep has blanked prompt and response.
+	RedactedAt *time.Time `json:"redacted_at"`
 }
 
 // RunSummary is the list-view projection of a Run. The large text columns

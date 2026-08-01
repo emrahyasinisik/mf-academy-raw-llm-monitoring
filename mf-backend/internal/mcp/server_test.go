@@ -262,6 +262,32 @@ func TestUnassessableReportSaysSoRatherThanScoringZero(t *testing.T) {
 	}
 }
 
+// Redaction empties findings while leaving the score and the coverage. Counting
+// unassessed criteria off that empty list yields zero, which is indistinguishable
+// from a perfectly evidenced report — so the note has to be decided by
+// redacted_at before anything is derived from the findings at all.
+func TestRedactedReportIsNotReportedAsFullyEvidenced(t *testing.T) {
+	score := 62.0
+	when := time.Now()
+	h := newTestServer(&fakeAnalyzer{report: analysis.Assessment{
+		ID: "r4", OverallScore: &score, Coverage: 0.31, SchemaValid: true,
+		Findings: []analysis.Finding{}, RedactedAt: &when,
+	}})
+	_, out := post(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call",
+	  "params":{"name":"get_report","arguments":{"id":"r4"}}}`)
+
+	text := out["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	if strings.Contains(text, "Rubriğin tamamı kanıtlandı") {
+		t.Errorf("a redacted report was presented as fully evidenced:\n%s", text)
+	}
+	if !strings.Contains(text, "silindi") {
+		t.Errorf("the note does not say the content was deleted:\n%s", text)
+	}
+	if !strings.Contains(text, "redacted_at") {
+		t.Errorf("the projection dropped redacted_at:\n%s", text)
+	}
+}
+
 // A repaired answer is still worth reading, but somebody relaying it into a
 // funding decision should know it was not clean.
 func TestRepairedReportCarriesAWarning(t *testing.T) {

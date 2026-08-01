@@ -258,6 +258,30 @@ body > * {
   transform: translateY(0);
 }
 
+/* A click target that lives inside a card instead of being one.
+   .card-action is a modifier for .card and only works there: it animates
+   border-color and lifts a card's shadow, and a bare <button> has neither a
+   border nor a background under Tailwind's preflight. Put on one anyway, it
+   hovers into a border-colour change nothing can show and draws a lifted-card
+   shadow around a transparent run of text — an affordance that reads as a
+   rendering fault. A row that shares its card with other controls (a report
+   line and its delete button) cannot take the whole-card treatment without
+   nesting one button inside another, so it gets this: the same intent, sized
+   for a row, expressed as a tint rather than a lift. Negative inline margin so
+   the label still lines up with the text above it. */
+.row-action {
+  border-radius: var(--r-xs);
+  margin-inline: -0.4rem;
+  padding: 0.2rem 0.4rem;
+  transition:
+    background var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease);
+}
+.row-action:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
 /* A recessed well: code gutters, chart plots, input fields. The inverse of a
    card — shadow inside, no highlight — so the two read as opposite depths. */
 .well {
@@ -706,5 +730,65 @@ input[type="checkbox"] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Yazdırma ------------------------------------------------------------
+   Örnek rapor buradan çıkıyor: ekran görüntüsü yerine yazdırma seçildi çünkü
+   kural bir kez yazılıyor ve çıktısı seçilebilir, aranabilir metin oluyor.
+
+   Koyu tema kağıda gitmez — mürekkep bir yana, kanıt alıntıları okunmaz. Bu
+   yüzden yazdırmada renk değişkenleri açık bir palete çevriliyor; ekranın
+   koyu-tek-seçenek olması bir tasarım kararı, kağıdın beyaz olması bir
+   kısıt. */
+@media print {
+  :root {
+    --bg: #ffffff;
+    --bg-sunk: #ffffff;
+    --panel: #ffffff;
+    --panel-2: #ffffff;
+    --panel-3: #ffffff;
+    --line: #d0d7de;
+    --line-strong: #a8b3bd;
+    --text: #10161c;
+    --text-dim: #3d4b58;
+    --text-faint: #5c6b78;
+    --brand: #a8460f;
+    --brand-line: #a8460f;
+    --bevel: none;
+    --shadow-1: none;
+    --shadow-2: none;
+    --shadow-3: none;
+  }
+
+  /* Ekranın kendisi olan şeyler kağıda gitmez. */
+  header,
+  nav,
+  .skip-link,
+  button,
+  .gecmis,
+  .card:not(.rapor) {
+    display: none !important;
+  }
+
+  /* Rapor kartı kağıtta bir çerçeve değil, sayfanın kendisi. */
+  .rapor {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Kanıtın tamamı açılır: katlanmış bir alıntı, denetlenemeyen bir alıntıdır
+     ve bu raporun tek satış argümanı denetlenebilir olması. */
+  details {
+    break-inside: avoid;
+  }
+  details > div {
+    display: block !important;
+  }
+
+  body {
+    background: #ffffff;
   }
 }

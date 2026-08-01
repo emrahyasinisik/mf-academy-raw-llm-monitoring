@@ -48,9 +48,29 @@ services:
         value: 15m
       - key: REFRESH_TOKEN_TTL
         value: 168h
-      # Vercel frontend origin (no trailing slash).
+      # Vercel frontend origins, comma separated, no trailing slash.
+      #
+      # Two of them on purpose, and the order of operations matters more than
+      # the value: attaching a new domain in Vercel serves it immediately, but
+      # every API call from it fails CORS until this list allows it. So the
+      # backend lands first and carries both, the domain is attached second,
+      # and the old origin is dropped only after the new one is verified.
+      # Reversed, the new address opens to a screen where nothing works.
+      #
+      # Tokens live in localStorage, not cookies, so there is no cookie-domain
+      # problem — but localStorage is per origin, so everyone signs in once
+      # more on the new address.
       - key: CORS_ORIGINS
-        value: https://mf-academy-raw-llm-monitoring-ten.vercel.app
+        value: https://mf-academy-raw-llm-monitoring-ten.vercel.app,https://masterfabricacademy.vercel.app
+
+      # Hosted demo keeps pasted case text for 30 days, then blanks the personal
+      # columns and leaves the measurement row. 0 disables the sweep entirely,
+      # which is a legitimate setting on an operator's own hardware and a
+      # mistake here — the server warns about it at boot.
+      - key: RETENTION_DAYS
+        value: "30"
+      - key: RETENTION_SWEEP_INTERVAL
+        value: 6h
 
       # ---- Server-side inference (mf-inference/) ----
       #

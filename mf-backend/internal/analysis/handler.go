@@ -78,6 +78,7 @@ type AssessmentStore interface {
 	GetAssessment(ctx context.Context, userID, id string) (Assessment, error)
 	ListAssessments(ctx context.Context, userID, domainSlug string, limit int, before time.Time) (ListResult, error)
 	TrialAssessments(ctx context.Context, userID, group string) ([]Assessment, error)
+	RedactAssessment(ctx context.Context, userID, id string) (bool, error)
 }
 
 // SettingsSource supplies the operator-tuned generation parameters. Reading
@@ -463,6 +464,27 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, a)
 }
 
+// Delete redacts one report. DELETE /analysis/{id}
+//
+// "Delete" in the URL and redaction in the database: the personal columns go,
+// the measurement row stays. The name follows what the caller is asking for
+// rather than what the storage does, because the caller's content really is
+// gone and a route called /redact would describe our schema to someone who has
+// no reason to know it.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims, _ := common.ClaimsFromContext(r.Context())
+	_, err := h.store.RedactAssessment(r.Context(), claims.UserID, chi.URLParam(r, "id"))
+	if errors.Is(err, ErrNoRows) {
+		common.Error(w, common.ErrNotFound("report not found"))
+		return
+	}
+	if err != nil {
+		common.Error(w, common.ErrInternal("could not delete the report"))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // List returns a page of the user's reports. GET /analysis
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())
@@ -529,6 +551,15 @@ func summarise(group string, items []Assessment) TrialResult {
 	for _, a := range items {
 		if a.SchemaValid {
 			valid++
+		}
+		// Counted, not skipped. A redacted leg still carries a real score and a
+		// real coverage — those columns are never blanked — so dropping it here
+		// would throw away measurements that are still true. What it no longer
+		// carries is findings, and PerCriterionStdDev is computed from findings;
+		// the count below is the only thing that tells a reader the spread rests
+		// on fewer observations than Trials suggests.
+		if a.RedactedAt != nil {
+			out.RedactedRuns++
 		}
 		if a.OverallScore != nil {
 			scores = append(scores, *a.OverallScore)

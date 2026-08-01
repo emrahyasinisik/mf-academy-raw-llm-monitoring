@@ -98,7 +98,32 @@ type Config struct {
 	// keyless fallback regardless of SearchProvider, so the agent still runs on
 	// a fresh deployment — just with thinner evidence.
 	SearchAPIKey string
+
+	// RetentionDays is how long pasted case text, evidence quotes and prompts
+	// are kept before the sweep redacts them. Zero disables the sweep — see
+	// RetentionEnabled.
+	RetentionDays int
+	// RetentionSweepInterval is how often the background sweep runs. Floored by
+	// Load — see minSweepInterval.
+	RetentionSweepInterval time.Duration
 }
+
+// minSweepInterval is the floor applied to RETENTION_SWEEP_INTERVAL.
+//
+// It is a floor in Load rather than a rejection in Validate, and the reason is
+// what the two do on a bad value. Validate's warnings do not stop the process,
+// and a fatal error would take the whole API down over a background chore that
+// is not on any request path. Neither is the right answer here, because the
+// failure this guards is not a policy mistake — it is time.NewTicker, which
+// panics on a non-positive duration, inside a goroutine with no recover. On
+// Render that is a crash loop, from RETENTION_SWEEP_INTERVAL=0, which
+// time.ParseDuration accepts happily.
+//
+// Zero is also not the off switch, however plausible it looks next to
+// RETENTION_DAYS=0, which is. Turning the sweep off by setting its interval to
+// zero would mean "run continuously", so the honest reading of 0 is "the
+// operator wants it eager" and the safe expression of that is the floor.
+const minSweepInterval = time.Minute
 
 // InsecureDefaultSecret is the development JWT secret. It is a known constant —
 // it appears in .env.example and therefore in the repository's history — so a
@@ -119,6 +144,16 @@ const minSecretBytes = 32
 // for local development. Only DATABASE_URL and JWT_SECRET are effectively
 // required in production.
 func Load() Config {
+	c := loadRaw()
+	// Applied after the read rather than inside getDuration, so the floor stays
+	// attached to the one setting that has a ticker behind it.
+	if c.RetentionSweepInterval < minSweepInterval {
+		c.RetentionSweepInterval = minSweepInterval
+	}
+	return c
+}
+
+func loadRaw() Config {
 	return Config{
 		Env:             getEnv("APP_ENV", "development"),
 		Port:            getEnv("PORT", "8080"),
@@ -166,8 +201,18 @@ func Load() Config {
 
 		AdminEmail:   getEnv("ADMIN_EMAIL", ""),
 		MetricsToken: getEnv("METRICS_TOKEN", ""),
+
+		RetentionDays:          getInt("RETENTION_DAYS", 30),
+		RetentionSweepInterval: getDuration("RETENTION_SWEEP_INTERVAL", 6*time.Hour),
 	}
 }
+
+// RetentionEnabled reports whether old content is swept at all.
+//
+// Zero is a legitimate setting for an operator running this on their own
+// hardware, where the storage limit is their policy and not ours. On the demo
+// it is a mistake, which is why it is a warning rather than a silent default.
+func (c Config) RetentionEnabled() bool { return c.RetentionDays > 0 }
 
 // ServerInferenceEnabled reports whether a server-side inference host is wired.
 func (c Config) ServerInferenceEnabled() bool { return c.LLMBaseURL != "" }
@@ -313,6 +358,10 @@ func (c Config) Warnings() []string {
 		if strings.HasPrefix(c.LLMBaseURL, "http://") {
 			w = append(w, "LLM_BASE_URL is plain http: the shared secret and every prompt cross the network in the clear")
 		}
+	}
+	if !c.RetentionEnabled() {
+		w = append(w, "RETENTION_DAYS is 0: pasted case text, evidence quotes and "+
+			"prompts are kept forever, and the privacy page promises they are not")
 	}
 	return w
 }

@@ -109,7 +109,7 @@ const assessmentColumns = `
 	a.subject_title, a.subject, a.findings, a.overall_score, a.coverage,
 	a.schema_valid, a.repair_attempts, a.trial_group, a.model, a.target,
 	a.adapter_id, a.latency_ms, a.prompt_tokens, a.completion_tokens,
-	a.raw_response, a.created_at`
+	a.raw_response, a.created_at, a.redacted_at`
 
 func scanAssessment(row pgx.Row) (Assessment, error) {
 	var a Assessment
@@ -118,7 +118,7 @@ func scanAssessment(row pgx.Row) (Assessment, error) {
 		&a.DomainVersion, &criteria, &a.SubjectTitle, &a.Subject, &findings,
 		&a.OverallScore, &a.Coverage, &a.SchemaValid, &a.RepairAttempts, &a.TrialGroup,
 		&a.Model, &a.Target, &a.AdapterID, &a.LatencyMs, &a.PromptTokens,
-		&a.CompletionTokens, &a.RawResponse, &a.CreatedAt)
+		&a.CompletionTokens, &a.RawResponse, &a.CreatedAt, &a.RedactedAt)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -159,7 +159,7 @@ func (s *Store) ListAssessments(
 
 	rows, err := s.db.Query(ctx,
 		`SELECT a.id, d.slug, d.name, a.subject_title, a.overall_score, a.coverage,
-		        a.schema_valid, a.model, a.latency_ms, a.created_at
+		        a.schema_valid, a.model, a.latency_ms, a.created_at, a.redacted_at
 		   FROM assessments a JOIN analysis_domains d ON d.id = a.domain_id
 		  WHERE a.user_id = $1
 		    AND ($2::text = '' OR d.slug = $2)
@@ -177,7 +177,7 @@ func (s *Store) ListAssessments(
 		var s AssessmentSummary
 		if err := rows.Scan(&s.ID, &s.DomainSlug, &s.DomainName, &s.SubjectTitle,
 			&s.OverallScore, &s.Coverage, &s.SchemaValid, &s.Model, &s.LatencyMs,
-			&s.CreatedAt); err != nil {
+			&s.CreatedAt, &s.RedactedAt); err != nil {
 			return ListResult{}, err
 		}
 		out.Assessments = append(out.Assessments, s)
@@ -193,6 +193,55 @@ func (s *Store) ListAssessments(
 		out.NextCursor = &cursor
 	}
 	return out, nil
+}
+
+// RedactAssessment blanks the personal columns of one report the caller owns.
+//
+// Two round trips in the miss case, and deliberately so. The UPDATE cannot tell
+// "this row is not yours" from "you already did this": both change zero rows.
+// Only the second is a success, and collapsing them would either 404 a
+// legitimate repeat click or 204 a probe for someone else's report id.
+func (s *Store) RedactAssessment(ctx context.Context, userID, id string) (bool, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE assessments
+		    SET subject = '', subject_title = '', findings = '[]'::jsonb,
+		        raw_response = '', redacted_at = now()
+		  WHERE id = $1 AND user_id = $2 AND redacted_at IS NULL`,
+		id, userID)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() > 0 {
+		return true, nil
+	}
+
+	var one int
+	err = s.db.QueryRow(ctx,
+		`SELECT 1 FROM assessments WHERE id = $1 AND user_id = $2`, id, userID).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNoRows
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// SweepAssessments redacts every report older than olderThan.
+//
+// The same UPDATE the owner's own button runs, with an age predicate instead of
+// an id. One statement, one meaning of "deleted": whatever the retention period
+// does to a report is exactly what the user could have done sooner.
+func (s *Store) SweepAssessments(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE assessments
+		    SET subject = '', subject_title = '', findings = '[]'::jsonb,
+		        raw_response = '', redacted_at = now()
+		  WHERE created_at < $1 AND redacted_at IS NULL`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // TrialAssessments returns every run in a consistency group, oldest first.

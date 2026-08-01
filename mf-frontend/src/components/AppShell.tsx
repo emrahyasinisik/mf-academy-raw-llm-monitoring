@@ -14,21 +14,27 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@/store/auth";
+import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
 import { MetricsView } from "./views/MetricsView";
+import { GizlilikView } from "./views/GizlilikView";
 import { StatusRail } from "./ui/StatusRail";
 
-export type MasterView = "codegen" | "persona" | "metrics" | "admin";
+export type MasterView =
+  | "analiz" | "codegen" | "persona" | "metrics" | "admin" | "gizlilik";
 
-// The generator leads because it is what the served model does: the compiled
-// build is the Flutter fine-tune, and a brief is the only prompt shape it was
-// trained on. The persona stays reachable rather than being deleted — it is a
-// complete agent against a different base model, and it fails legibly (the view
-// reports the inference host, it does not crash) while that model is not the one
-// being served. Admin is listed for everyone: the view itself explains the role
+// Analiz leads because it is the product: a case goes in, a rubric-scored and
+// auditable report comes out. The order used to be the generator's, and the
+// reasoning was "it is what the box serves" — a sort by whatever weights were
+// loaded. That put the product second, and which model is loaded is not a
+// question nav order should be answering.
+//
+// The generator and the persona stay: both are working surfaces, and both fail
+// legibly (they report the inference host, they do not crash) when the machine
+// is off. Admin is listed for everyone: the view itself explains the role
 // requirement, friendlier than a nav item that vanishes.
 // Metrics sits beside Yönetim and follows the same rule: listed for everyone,
 // with the view explaining the role it needs. It is a separate master view
@@ -37,13 +43,20 @@ export type MasterView = "codegen" | "persona" | "metrics" | "admin";
 // off, this goes quiet while every admin tab keeps working, and a tab that
 // empties for reasons its neighbours do not share belongs on its own.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
+  { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "codegen", label: "Üreteç", Icon: IconCode },
   { id: "persona", label: "Persona", Icon: IconSpark },
   { id: "metrics", label: "Metrikler", Icon: IconChart },
   { id: "admin", label: "Yönetim", Icon: IconSliders },
 ];
 
-const isMaster = (v: string): v is MasterView => NAV.some((n) => n.id === v);
+// Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
+// üyeliğine bakıyordu; gizlilik bir çalışma aracı değil, bir belge — nav'a
+// girmesi orayı sulandırır, ama derin bağlantının çalışması gerekiyor.
+const OFF_NAV: MasterView[] = ["gizlilik"];
+
+const isMaster = (v: string): v is MasterView =>
+  NAV.some((n) => n.id === v) || (OFF_NAV as string[]).includes(v);
 
 /** True when the reader has asked for less animation. Safe before hydration. */
 function reducedMotion(): boolean {
@@ -96,7 +109,7 @@ function parseHash(): { view: MasterView; sub: string } | null {
 // the server and the client agree on the first paint.
 function initialRoute(): { view: MasterView; sub: string } {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? { view: "codegen", sub: "" };
+  return parsed ?? { view: "analiz", sub: "" };
 }
 
 export function AppShell() {
@@ -204,27 +217,61 @@ export function AppShell() {
           view that happens to be open. */}
       <StatusRail />
 
-      <main id="main" className="flex-1 min-h-0">
-        {/* `hidden` and not a conditional render: React keeps the subtree and
-            its state alive, so an in-flight generation still has a component
-            to return to, and each view keeps its scroll position. The inactive
-            ones are display:none, so they cost nothing to lay out. */}
-        {opened.has("codegen") && (
-          <Pane active={view === "codegen"}>
-            <CodegenView />
-          </Pane>
-        )}
-        {opened.has("persona") && (
-          <Pane active={view === "persona"}>
-            <PersonaView />
-          </Pane>
-        )}
-        {/* The two read-only screens are still torn down and rebuilt, and that
-            is the right default: they start no work that can be interrupted,
-            and every one of their numbers ages. Kept mounted, a chart opened
-            this morning would still be on screen tonight, silently. */}
-        {view === "metrics" && <MetricsView />}
-        {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
+      {/* main is a column with two rows: the view, and the footer under it.
+          Before this it was one box with the footer as the last child, and that
+          worked only for the views that flow — Metrikler, Yönetim, Gizlilik.
+          Analiz, Üreteç and Persona all open with `h-full`, which fills main
+          exactly, so the footer was laid out after a child that had already
+          consumed the entire height and landed below the fold with nothing to
+          scroll it into view. The link in it is the only route to the privacy
+          page for a signed-in user, and it was missing on the product screen.
+
+          The view row owns the scroll now. That is what lets the footer stay a
+          sibling: the flowing views scroll inside the row instead of
+          overflowing main, and the `h-full` views still measure against a
+          definite height because `flex-1 min-h-0` gives the row one. Their own
+          inner scrollers sit exactly at that height and never overflow it, so
+          no second scrollbar appears. */}
+      <main id="main" className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* `hidden` and not a conditional render: React keeps the subtree and
+              its state alive, so an in-flight generation still has a component
+              to return to, and each view keeps its scroll position. The inactive
+              ones are display:none, so they cost nothing to lay out. */}
+          {/* Kalıcı mount edilen grupta, Üreteç ve Persona ile birlikte: bir
+              analiz tünelin ardındaki makinede onlarca saniye sürüyor, ve view
+              söküldüğünde isteği tutan bileşen de gidiyor — iş durmuyor, kayıt
+              yine yazılıyor, ama sonucun ineceği yer kalmıyor. */}
+          {opened.has("analiz") && (
+            <Pane active={view === "analiz"}>
+              <AnalizView />
+            </Pane>
+          )}
+          {opened.has("codegen") && (
+            <Pane active={view === "codegen"}>
+              <CodegenView />
+            </Pane>
+          )}
+          {opened.has("persona") && (
+            <Pane active={view === "persona"}>
+              <PersonaView />
+            </Pane>
+          )}
+          {/* The two read-only screens are still torn down and rebuilt, and that
+              is the right default: they start no work that can be interrupted,
+              and every one of their numbers ages. Kept mounted, a chart opened
+              this morning would still be on screen tonight, silently. */}
+          {view === "metrics" && <MetricsView />}
+          {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
+          {view === "gizlilik" && <GizlilikView />}
+        </div>
+
+        <footer
+          className="shrink-0 px-4 sm:px-5 py-2.5 text-xs"
+          style={{ color: "var(--text-faint)", borderTop: "1px solid var(--line)" }}
+        >
+          <a href="#gizlilik">Verileriniz ve gizlilik</a>
+        </footer>
       </main>
     </div>
   );
@@ -374,6 +421,15 @@ const SVG = {
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
+
+function IconRubric() {
+  return (
+    <svg {...SVG} aria-hidden>
+      <path d="M2.5 3.5h11v9h-11z" />
+      <path d="M5 6.5h6M5 9.5h4" />
+    </svg>
+  );
+}
 
 function IconCode() {
   return (

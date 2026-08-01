@@ -1,0 +1,21 @@
+# Pinned floors for the Colab VM. Colab ships its own torch, built against the
+# VM's driver — it is deliberately NOT listed here, because replacing it is how
+# a working CUDA runtime on a rented machine becomes a CPU-only one.
+#
+# transformers is the one that matters, and it is bounded on both sides.
+#
+# Floor: Qwen3 needs 4.51, and an older release does not refuse the model. It
+# fails to recognise the architecture, in a message that reads like a corrupt
+# download.
+#
+# Ceiling: Colab shipped 5.13.1 on 2026-07-31. The training and eval scripts
+# were written and measured against the 4.5x API (torch_dtype=, the positional
+# tokenizer on DataCollatorForSeq2Seq), and the pilot's deliverable is a s/row
+# comparable to the 28-35 s the Kaggle T4 measured on that same stack. Porting
+# the line to v5 is real work with its own verification, and doing it silently
+# inside a measurement run would make the number describe two changes at once.
+transformers>=4.51,<5
+peft>=0.11
+bitsandbytes>=0.43
+accelerate>=0.30
+datasets>=2.19

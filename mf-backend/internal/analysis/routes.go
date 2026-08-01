@@ -47,6 +47,12 @@ func (h *Handler) Routes(
 		// Registered last: a literal path must be matched before the wildcard,
 		// or "/trials/{group}" would be swallowed by "/{id}".
 		pr.With(common.Timeout(defaultTimeout)).Get("/{id}", h.Get)
+
+		// Order does not matter for this one, unlike the GET above: chi keys its
+		// tree by pattern and not by verb, so this registers a DELETE handler on
+		// the "/{id}" node the GET already created. There is no literal path with
+		// a DELETE to be shadowed — "/trials/{group}" is read-only.
+		pr.With(common.Timeout(defaultTimeout)).Delete("/{id}", h.Delete)
 	})
 
 	return r

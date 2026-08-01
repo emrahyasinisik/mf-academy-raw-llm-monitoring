@@ -115,6 +115,27 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--target-mlp", action="store_true",
                     help="also adapt gate/up/down_proj. More capacity, and more "
                          "to overfit with on a set this small — off by default")
+    # The Colab line's four flags. Every default below is the pre-pilot
+    # behaviour, so the Kaggle notebooks keep running unchanged.
+    #
+    # A step limit rather than a smaller dataset: data size *predicts* wall
+    # time, max_steps *guarantees* it, and a free-tier session wall is not
+    # somewhere you find out about by prediction.
+    ap.add_argument("--max-steps", type=int, default=0,
+                    help=">0 replaces --epochs with a hard optimizer-step "
+                         "limit; derive it from a measured s/row, never type it")
+    ap.add_argument("--save-steps", type=int, default=0,
+                    help=">0 switches to step-based checkpointing, which the "
+                         "free tier's dynamic quota makes load-bearing")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from the last checkpoint in --out-dir")
+    # 28-35 s/row is roughly 6-8x slower than the T4's FLOP budget explains,
+    # and the first suspect is bitsandbytes' NF4 dequant on every matmul. This
+    # flag is how that hypothesis gets measured instead of argued about — the
+    # same discipline that killed the DataParallel hypothesis in 15 minutes.
+    ap.add_argument("--no-4bit", action="store_true",
+                    help="load the base in fp16 instead of 4-bit NF4; may OOM "
+                         "on a 16 GB card, which is itself a result")
     ap.add_argument("--seed", type=int, default=20260727)
     return ap.parse_args()
 
@@ -201,22 +222,43 @@ def main() -> None:
         # safe because the collator masks padded label positions anyway.
         tokenizer.pad_token = tokenizer.eos_token
 
-    quant = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float16,
-    )
+    if args.no_4bit:
+        # ~8 GB of fp16 weights on a 16 GB T4, with gradient checkpointing,
+        # batch 1 and LoRA only on attention. prepare_model_for_kbit_training
+        # is skipped because there are no k-bit layers to prepare; the two
+        # things it does that still matter here — turning checkpointing on,
+        # and making the frozen embedding pass gradients through to the
+        # adapters — are done explicitly instead. Without the second, every
+        # LoRA gradient under a checkpointed block is None and the run trains
+        # nothing while reporting a loss.
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            device_map={"": 0},
+            attn_implementation="sdpa",
+            torch_dtype=torch.float16,
+        )
+        model.config.use_cache = False
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.enable_input_require_grads()
+    else:
+        quant = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16,
+        )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
-        quantization_config=quant,
-        device_map={"": 0},
-        attn_implementation="sdpa",
-        torch_dtype=torch.float16,
-    )
-    model.config.use_cache = False
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model,
+            quantization_config=quant,
+            device_map={"": 0},
+            attn_implementation="sdpa",
+            torch_dtype=torch.float16,
+        )
+        model.config.use_cache = False
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=True)
 
     targets = ["q_proj", "k_proj", "v_proj", "o_proj"]
     if args.target_mlp:
@@ -245,6 +287,14 @@ def main() -> None:
     print(f"sequence length: max {max(lengths)}, mean {sum(lengths)//len(lengths)}"
           f"  ({clipped} row(s) clipped)")
 
+    # Step-based saving and epoch-based eval cannot both be the reference for
+    # "best": Trainer requires the two strategies to match when it is asked to
+    # reload the best checkpoint. Under a step limit there is usually no epoch
+    # boundary at all, so there would be no checkpoint to reload and the run
+    # would die at the very end having trained perfectly well.
+    save_strategy = "steps" if args.save_steps > 0 else "epoch"
+    load_best = not (args.save_steps > 0 or args.max_steps > 0)
+
     trainer = Trainer(
         model=model,
         train_dataset=train_ds,
@@ -252,6 +302,9 @@ def main() -> None:
         args=TrainingArguments(
             output_dir=args.out_dir,
             num_train_epochs=args.epochs,
+            # -1 is Trainer's "no limit"; args default 0 means the same thing
+            # here, and 0 passed through would be read as "stop immediately".
+            max_steps=args.max_steps if args.max_steps > 0 else -1,
             per_device_train_batch_size=args.batch_size,
             gradient_accumulation_steps=args.grad_accum,
             per_device_eval_batch_size=args.batch_size,
@@ -261,9 +314,10 @@ def main() -> None:
             warmup_ratio=0.05,
             logging_steps=5,
             eval_strategy="epoch",
-            save_strategy="epoch",
+            save_strategy=save_strategy,
+            save_steps=args.save_steps if args.save_steps > 0 else 500,
             save_total_limit=2,
-            load_best_model_at_end=True,
+            load_best_model_at_end=load_best,
             metric_for_best_model="eval_loss",
             fp16=not supports_bf16,
             bf16=supports_bf16,
@@ -278,21 +332,35 @@ def main() -> None:
             tokenizer, padding=True, label_pad_token_id=IGNORE_INDEX),
     )
 
-    steps = max(1, int(len(train_ds) * args.epochs //
-                       (args.batch_size * args.grad_accum)))
+    steps = (args.max_steps if args.max_steps > 0 else
+             max(1, int(len(train_ds) * args.epochs //
+                        (args.batch_size * args.grad_accum))))
+    limit = " (--max-steps)" if args.max_steps > 0 else ""
     print(f"\neffective batch: {args.batch_size * args.grad_accum} rows/step"
-          f"  ~{steps} optimizer steps")
-    trainer.train()
+          f"  ~{steps} optimizer steps{limit}")
+    train_result = trainer.train(resume_from_checkpoint=args.resume or None)
 
     model.save_pretrained(args.out_dir)
     tokenizer.save_pretrained(args.out_dir)
 
     metrics = trainer.evaluate()
+    # train_runtime is the Trainer's own clock over the training loop alone —
+    # not the model download, not tokenisation, not the final eval. It is the
+    # only cost figure here that is measured rather than inferred, and the
+    # thing a probe has to read: subtracting a guessed load time from wall
+    # clock priced two identical runs at 20.6 and 10.3 s/row, because the
+    # guess, not the work, was what differed between them.
+    rows_seen = train_result.metrics.get("train_samples_per_second", 0.0) * \
+        train_result.metrics.get("train_runtime", 0.0)
     with open(os.path.join(args.out_dir, "train_metrics.json"), "w") as fh:
-        json.dump({"eval": metrics, "trainable_params": trainable,
+        json.dump({"eval": metrics, "train": train_result.metrics,
+                   "row_passes": round(rows_seen),
+                   "trainable_params": trainable,
                    "rank": args.rank, "alpha": args.alpha,
                    "base_model": args.base_model,
                    "max_seq_len": args.max_seq_len,
+                   "max_steps": args.max_steps, "grad_accum": args.grad_accum,
+                   "batch_size": args.batch_size, "four_bit": not args.no_4bit,
                    "target_modules": targets}, fh, indent=2)
 
     print(f"\nadapter written to {args.out_dir}")

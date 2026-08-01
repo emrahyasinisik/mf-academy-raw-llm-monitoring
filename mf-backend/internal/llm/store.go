@@ -42,12 +42,13 @@ func (s *Store) CreateRun(ctx context.Context, userID string, req CreateRunReque
 		    completion_tokens, latency_ms, temperature, expected_keywords, metadata)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		 RETURNING id, user_id, model, target, prompt, response, system_prompt, prompt_tokens,
-		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at`,
+		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at,
+		           redacted_at`,
 		userID, req.Model, target, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
 		req.CompletionTokens, req.LatencyMs, req.Temperature, keywords, metaJSON,
 	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
-		&run.ExpectedKeywords, &meta, &run.CreatedAt)
+		&run.ExpectedKeywords, &meta, &run.CreatedAt, &run.RedactedAt)
 	if err != nil {
 		return Run{}, err
 	}
@@ -71,14 +72,14 @@ func (s *Store) GetRun(ctx context.Context, userID, runID string) (Run, error) {
 	err := s.db.QueryRow(ctx,
 		`SELECT r.id, r.user_id, r.model, r.target, r.prompt, r.response, r.system_prompt,
 		        r.prompt_tokens, r.completion_tokens, r.latency_ms, r.temperature,
-		        r.expected_keywords, r.metadata, r.created_at,
+		        r.expected_keywords, r.metadata, r.created_at, r.redacted_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		 WHERE r.id = $1 AND r.user_id = $2`, runID, userID,
 	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
-		&run.ExpectedKeywords, &meta, &run.CreatedAt,
+		&run.ExpectedKeywords, &meta, &run.CreatedAt, &run.RedactedAt,
 		&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, ErrNoRows
@@ -190,6 +191,23 @@ func (s *Store) DeleteRun(ctx context.Context, userID, runID string) error {
 		return ErrNoRows
 	}
 	return nil
+}
+
+// SweepRuns redacts every monitoring record older than olderThan.
+//
+// system_prompt goes with prompt and response: CreateRunRequest takes it from
+// the frontend, so a user can put anything in it. Treating it as our own
+// template would be an assumption about someone else's data.
+func (s *Store) SweepRuns(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE llm_runs
+		    SET prompt = '', response = '', system_prompt = '',
+		        expected_keywords = '{}', redacted_at = now()
+		  WHERE created_at < $1 AND redacted_at IS NULL`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // UpsertScore stores (or replaces) the decision score for a run.
