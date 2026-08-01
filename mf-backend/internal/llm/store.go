@@ -193,6 +193,23 @@ func (s *Store) DeleteRun(ctx context.Context, userID, runID string) error {
 	return nil
 }
 
+// SweepRuns redacts every monitoring record older than olderThan.
+//
+// system_prompt goes with prompt and response: CreateRunRequest takes it from
+// the frontend, so a user can put anything in it. Treating it as our own
+// template would be an assumption about someone else's data.
+func (s *Store) SweepRuns(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE llm_runs
+		    SET prompt = '', response = '', system_prompt = '',
+		        expected_keywords = '{}', redacted_at = now()
+		  WHERE created_at < $1 AND redacted_at IS NULL`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // UpsertScore stores (or replaces) the decision score for a run.
 func (s *Store) UpsertScore(ctx context.Context, sc Score) (Score, error) {
 	breakdownJSON, err := json.Marshal(sc.Breakdown)

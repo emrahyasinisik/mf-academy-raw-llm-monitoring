@@ -227,6 +227,23 @@ func (s *Store) RedactAssessment(ctx context.Context, userID, id string) (bool, 
 	return false, nil
 }
 
+// SweepAssessments redacts every report older than olderThan.
+//
+// The same UPDATE the owner's own button runs, with an age predicate instead of
+// an id. One statement, one meaning of "deleted": whatever the retention period
+// does to a report is exactly what the user could have done sooner.
+func (s *Store) SweepAssessments(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE assessments
+		    SET subject = '', subject_title = '', findings = '[]'::jsonb,
+		        raw_response = '', redacted_at = now()
+		  WHERE created_at < $1 AND redacted_at IS NULL`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // TrialAssessments returns every run in a consistency group, oldest first.
 func (s *Store) TrialAssessments(ctx context.Context, userID, group string) ([]Assessment, error) {
 	rows, err := s.db.Query(ctx,
