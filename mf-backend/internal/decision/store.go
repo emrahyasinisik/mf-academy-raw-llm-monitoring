@@ -306,6 +306,26 @@ func (s *Store) Delete(ctx context.Context, userID, id string) error {
 	return nil
 }
 
+// SweepConversations removes every thread untouched for longer than olderThan.
+//
+// last_turn_at, not created_at: a thread someone is still using should not
+// vanish from under them on its thirtieth day, and "untouched for a month" is
+// what the retention period actually promises. The column is already indexed by
+// idx_conversations_user_active.
+//
+// DELETE rather than the blanking the reports get. A report row carries
+// measurements that aggregates depend on; a conversation carries none, so
+// there is nothing to preserve and an emptied row would be litter.
+// conversation_messages goes with it through ON DELETE CASCADE.
+func (s *Store) SweepConversations(ctx context.Context, olderThan time.Time) (int64, error) {
+	tag, err := s.db.Exec(ctx,
+		`DELETE FROM conversations WHERE last_turn_at < $1`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeriveTitle names a thread after its opening message.
 //
 // Taken from what the user typed rather than generated, because a titling round

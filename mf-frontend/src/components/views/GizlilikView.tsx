@@ -48,9 +48,11 @@ export function GizlilikView() {
       <p className="mt-2 text-sm">
         30 gün. Sonrasında vaka metni, kanıt alıntıları ve istemler
         kendiliğinden siliniyor; geriye puan, kapsam ve tarih gibi içeriği
-        olmayan ölçüm kayıtları kalıyor. Bunun bir sonucu var ve saklamıyoruz:
-        30 günden eski bir raporun puanını görebilirsiniz ama o puanın neye
-        dayandığını artık gösteremiyoruz.
+        olmayan ölçüm kayıtları kalıyor — Persona ekranındaki konuşmalar bunun
+        dışında: 30 gün dokunulmadan kalan bir konuşma tamamen siliniyor,
+        geriye ölçüm amaçlı bir satır bile kalmıyor. Bunun bir sonucu var ve
+        saklamıyoruz: 30 günden eski bir raporun puanını görebilirsiniz ama o
+        puanın neye dayandığını artık gösteremiyoruz.
       </p>
       {/* Yukarıdaki liste dört şey sayıyor, 30 gün üçünü siliyor. Dördüncüsünü
           burada söylemek zorundayız: aksi halde metin, hiç değinmediği bir şeyi
