@@ -317,8 +317,16 @@ export function AnalizView() {
                   key={h.id}
                   className="card w-full p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
                 >
+                  {/* row-action, not card-action: bu düğme kartın kendisi
+                      değil, kartın içinde bir hedef. card-action bir .card
+                      değiştiricisi — kenarlığı ve gölgesi olan bir yüzey
+                      varsayıyor, çıplak bir <button>'da ikisi de yok, ve orada
+                      hover görünmez bir kenarlık değişimiyle şeffaf bir metnin
+                      etrafına düşen kart gölgesine dönüşüyor. Tıklama hedefini
+                      tüm karta geri taşımak da olmazdı: satırda silme düğmesi
+                      var, düğme içinde düğme olmaz. */}
                   <button
-                    className="card-action text-left flex-1 min-w-0 truncate text-sm"
+                    className="row-action text-left flex-1 min-w-0 truncate text-sm"
                     onClick={() =>
                       api
                         .analysisGet(h.id)

@@ -51,10 +51,31 @@ export function AuthView() {
 
   if (showPrivacy) {
     return (
-      <div className="p-6">
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowPrivacy(false)}>
-          ← Geri
-        </button>
+      // Kabı yok: GizlilikView artık kendi kenar boşluğunu taşıyor, ve buradaki
+      // p-6 onun üstüne binip çift boşluk yapıyordu. Kalan tek iş, "Geri"yi
+      // metnin soluyla aynı hizaya oturtmak — o yüzden düğme aynı ölçüleri
+      // tekrarlayan kendi kabında.
+      <div>
+        <div className="mx-auto max-w-2xl px-4 sm:px-5 pt-6">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              setShowPrivacy(false);
+              // Hash de temizleniyor, yoksa "#gizlilik" adres çubuğunda kalıyor
+              // ve giriş başarılı olduğu anda AppShell'in initialRoute'u onu
+              // okuyup kullanıcıyı Analiz yerine gizlilik belgesine indiriyor.
+              // replaceState kullanılıyor: assign("#") geçmişe bir adım daha
+              // ekler ve geri tuşu aynı yere geri döndürür.
+              window.history.replaceState(
+                null,
+                "",
+                window.location.pathname + window.location.search,
+              );
+            }}
+          >
+            ← Geri
+          </button>
+        </div>
         <GizlilikView />
       </div>
     );

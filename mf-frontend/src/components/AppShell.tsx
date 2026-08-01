@@ -217,39 +217,59 @@ export function AppShell() {
           view that happens to be open. */}
       <StatusRail />
 
-      <main id="main" className="flex-1 min-h-0">
-        {/* `hidden` and not a conditional render: React keeps the subtree and
-            its state alive, so an in-flight generation still has a component
-            to return to, and each view keeps its scroll position. The inactive
-            ones are display:none, so they cost nothing to lay out. */}
-        {/* Kalıcı mount edilen grupta, Üreteç ve Persona ile birlikte: bir
-            analiz tünelin ardındaki makinede onlarca saniye sürüyor, ve view
-            söküldüğünde isteği tutan bileşen de gidiyor — iş durmuyor, kayıt
-            yine yazılıyor, ama sonucun ineceği yer kalmıyor. */}
-        {opened.has("analiz") && (
-          <Pane active={view === "analiz"}>
-            <AnalizView />
-          </Pane>
-        )}
-        {opened.has("codegen") && (
-          <Pane active={view === "codegen"}>
-            <CodegenView />
-          </Pane>
-        )}
-        {opened.has("persona") && (
-          <Pane active={view === "persona"}>
-            <PersonaView />
-          </Pane>
-        )}
-        {/* The two read-only screens are still torn down and rebuilt, and that
-            is the right default: they start no work that can be interrupted,
-            and every one of their numbers ages. Kept mounted, a chart opened
-            this morning would still be on screen tonight, silently. */}
-        {view === "metrics" && <MetricsView />}
-        {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
-        {view === "gizlilik" && <GizlilikView />}
+      {/* main is a column with two rows: the view, and the footer under it.
+          Before this it was one box with the footer as the last child, and that
+          worked only for the views that flow — Metrikler, Yönetim, Gizlilik.
+          Analiz, Üreteç and Persona all open with `h-full`, which fills main
+          exactly, so the footer was laid out after a child that had already
+          consumed the entire height and landed below the fold with nothing to
+          scroll it into view. The link in it is the only route to the privacy
+          page for a signed-in user, and it was missing on the product screen.
 
-        <footer className="mt-10 pt-4 text-xs" style={{ color: "var(--text-faint)" }}>
+          The view row owns the scroll now. That is what lets the footer stay a
+          sibling: the flowing views scroll inside the row instead of
+          overflowing main, and the `h-full` views still measure against a
+          definite height because `flex-1 min-h-0` gives the row one. Their own
+          inner scrollers sit exactly at that height and never overflow it, so
+          no second scrollbar appears. */}
+      <main id="main" className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* `hidden` and not a conditional render: React keeps the subtree and
+              its state alive, so an in-flight generation still has a component
+              to return to, and each view keeps its scroll position. The inactive
+              ones are display:none, so they cost nothing to lay out. */}
+          {/* Kalıcı mount edilen grupta, Üreteç ve Persona ile birlikte: bir
+              analiz tünelin ardındaki makinede onlarca saniye sürüyor, ve view
+              söküldüğünde isteği tutan bileşen de gidiyor — iş durmuyor, kayıt
+              yine yazılıyor, ama sonucun ineceği yer kalmıyor. */}
+          {opened.has("analiz") && (
+            <Pane active={view === "analiz"}>
+              <AnalizView />
+            </Pane>
+          )}
+          {opened.has("codegen") && (
+            <Pane active={view === "codegen"}>
+              <CodegenView />
+            </Pane>
+          )}
+          {opened.has("persona") && (
+            <Pane active={view === "persona"}>
+              <PersonaView />
+            </Pane>
+          )}
+          {/* The two read-only screens are still torn down and rebuilt, and that
+              is the right default: they start no work that can be interrupted,
+              and every one of their numbers ages. Kept mounted, a chart opened
+              this morning would still be on screen tonight, silently. */}
+          {view === "metrics" && <MetricsView />}
+          {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
+          {view === "gizlilik" && <GizlilikView />}
+        </div>
+
+        <footer
+          className="shrink-0 px-4 sm:px-5 py-2.5 text-xs"
+          style={{ color: "var(--text-faint)", borderTop: "1px solid var(--line)" }}
+        >
           <a href="#gizlilik">Verileriniz ve gizlilik</a>
         </footer>
       </main>
