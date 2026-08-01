@@ -116,12 +116,23 @@ export function AuthView() {
         className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden"
         style={{ borderRight: "1px solid var(--line)" }}
       >
+        {/* Soft brand wash under the grid — breathes so the left panel isn't
+            a static void while the form does the work. */}
+        <div
+          className="absolute inset-0 pointer-events-none auth-wash-breathe"
+          aria-hidden
+          style={{
+            background:
+              "radial-gradient(520px 380px at 18% 42%, var(--brand-wash), transparent 70%)",
+          }}
+        />
+
         {/* A hairline grid, at the same weight as the panel borders throughout
             the app. It is the one decorative surface here and it is doing the
             job the product's own panels do: making the field read as machined
-            rather than empty. */}
+            rather than empty. Slow drift keeps it from reading as wallpaper. */}
         <div
-          className="absolute inset-0 pointer-events-none"
+          className="absolute inset-0 pointer-events-none auth-grid-drift"
           aria-hidden
           style={{
             backgroundImage:
@@ -135,7 +146,7 @@ export function AuthView() {
           }}
         />
 
-        <div className="flex items-center gap-2.5 relative">
+        <div className="flex items-center gap-2.5 relative item-in" style={{ ["--i" as string]: 0 }}>
           <span
             className="grid place-items-center w-8 h-8 rounded-[var(--r-xs)] font-bold text-xs mono"
             style={{
@@ -180,14 +191,17 @@ export function AuthView() {
           </div>
         </div>
 
-        <div className="text-xs mono relative" style={{ color: "var(--text-faint)" }}>
+        <div
+          className="text-xs mono relative item-in"
+          style={{ color: "var(--text-faint)", ["--i" as string]: 5 }}
+        >
           Next.js SPA → Vercel · Go → Render
         </div>
       </div>
 
       {/* ---- form panel ---- */}
       <div className="flex items-center justify-center p-6">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm view-in">
           {/* A segmented control, not two links: these are two modes of one
               form, and the switch should not look like navigation. */}
           <div
@@ -225,16 +239,20 @@ export function AuthView() {
             })}
           </div>
 
-          <h2 className="font-display text-2xl font-bold tracking-tight mb-1.5">
-            {copy.heading}
-          </h2>
-          <p className="text-sm mb-7" style={{ color: "var(--text-dim)" }}>
-            {copy.blurb}
-          </p>
+          {/* key={sub}: Giriş ↔ Kayıt swap re-triggers the entrance so the
+              mode change is felt, not just text replacement. */}
+          <div key={sub} className="view-in">
+            <h2 className="font-display text-2xl font-bold tracking-tight mb-1.5">
+              {copy.heading}
+            </h2>
+            <p className="text-sm mb-7" style={{ color: "var(--text-dim)" }}>
+              {copy.blurb}
+            </p>
+          </div>
 
           <form onSubmit={submit} className="space-y-4">
             {sub === "register" && (
-              <div>
+              <div className="view-in">
                 <label className="label" htmlFor="auth-name">
                   Ad
                 </label>
@@ -281,7 +299,10 @@ export function AuthView() {
             </div>
 
             {sub === "register" && (
-              <label className="flex items-start gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
+              <label
+                className="flex items-start gap-2 text-xs view-in"
+                style={{ color: "var(--text-faint)" }}
+              >
                 <input
                   type="checkbox"
                   checked={accepted}
@@ -289,9 +310,21 @@ export function AuthView() {
                   className="mt-0.5"
                 />
                 <span>
-                  <a href="#kosullar" onClick={() => setShowDoc("kosullar")}>Kullanım koşullarını</a>{" "}
+                  <a
+                    href="#kosullar"
+                    onClick={() => setShowDoc("kosullar")}
+                    style={{ color: "var(--brand)", textDecoration: "underline" }}
+                  >
+                    Kullanım koşullarını
+                  </a>{" "}
                   kabul ediyorum ve{" "}
-                  <a href="#gizlilik" onClick={() => setShowDoc("gizlilik")}>aydınlatma metnini</a>{" "}
+                  <a
+                    href="#gizlilik"
+                    onClick={() => setShowDoc("gizlilik")}
+                    style={{ color: "var(--brand)", textDecoration: "underline" }}
+                  >
+                    aydınlatma metnini
+                  </a>{" "}
                   okudum.
                 </span>
               </label>
