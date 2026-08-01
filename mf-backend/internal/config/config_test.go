@@ -109,6 +109,30 @@ func TestDecisionChatTimeoutCoversSearchAndGeneration(t *testing.T) {
 // field is the first thing anyone touches. Published rather than duplicated on
 // the client: a client-side copy drifts silently until a case that looked
 // acceptable comes back as a raw 400 from the engine.
+// Env must be "production": Warnings() returns nil outside it by design, so a
+// zero-value Config would pass this test while saying nothing at all.
+func TestRetentionDisabledIsWarnedAbout(t *testing.T) {
+	c := Config{Env: "production", RetentionDays: 0}
+	if c.RetentionEnabled() {
+		t.Error("RetentionEnabled() = true for 0 days")
+	}
+	var found bool
+	for _, w := range c.Warnings() {
+		if strings.Contains(w, "RETENTION_DAYS") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Warnings() says nothing about retention being off")
+	}
+}
+
+func TestRetentionEnabledByDefaultValue(t *testing.T) {
+	if !(Config{RetentionDays: 30}).RetentionEnabled() {
+		t.Error("RetentionEnabled() = false for 30 days")
+	}
+}
+
 func TestConfigHandlerPublishesPromptWindow(t *testing.T) {
 	h := NewHandler(Config{AppName: "mf", AppVersion: "test", Env: "test", LLMMaxPromptTokens: 1200})
 

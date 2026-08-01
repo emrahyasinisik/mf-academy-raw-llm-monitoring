@@ -23,6 +23,7 @@ import (
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/mcp"
 	"github.com/emrah/mf-backend/internal/obs"
+	"github.com/emrah/mf-backend/internal/retention"
 	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/emrah/mf-backend/internal/wiki"
 	"github.com/emrah/mf-backend/migrations"
@@ -139,7 +140,8 @@ func main() {
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
 	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier)
-	analysisHandler := analysis.NewHandler(analysis.NewStore(pool), llmProvider, settingsStore)
+	analysisStore := analysis.NewStore(pool)
+	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 
 	// DeepKwiki: the searchable knowledge base and the grounded answers over it.
 	// Shares the provider and the settings with the analysis engine so both
@@ -319,6 +321,12 @@ func main() {
 	// ---- background: periodically reap expired/revoked sessions ----
 	go sessionCleanup(workerCtx, authStore)
 
+	// ---- background: redact content past the retention period ----
+	if cfg.RetentionEnabled() {
+		go retentionCleanup(workerCtx, analysisStore, llmStore,
+			time.Duration(cfg.RetentionDays)*24*time.Hour, cfg.RetentionSweepInterval)
+	}
+
 	// ---- serve with graceful shutdown (Go Day 36-40) ----
 	go func() {
 		slog.Info("server listening", "app", cfg.AppName, "port", cfg.Port, "env", cfg.Env)
@@ -370,6 +378,44 @@ func sessionCleanup(ctx context.Context, store *auth.Store) {
 			return
 		case <-ticker.C:
 			reap()
+		}
+	}
+}
+
+// retentionCleanup redacts content past the retention period, on the same
+// shape as sessionCleanup: once at boot, then on a ticker, stopping with the
+// worker context.
+//
+// Once at boot matters more here than for sessions. A deploy that has been down
+// over the weekend comes back with rows already past their limit, and waiting a
+// full interval to act on them would mean the stated period is only true when
+// the process happens to have been running.
+func retentionCleanup(
+	ctx context.Context,
+	a retention.AssessmentSweeper,
+	r retention.RunSweeper,
+	age, interval time.Duration,
+) {
+	sweep := func() {
+		res, err := retention.Sweep(ctx, a, r, age, time.Now())
+		if err != nil {
+			slog.Error("retention sweep", "error", err)
+		}
+		if res.Assessments > 0 || res.Runs > 0 {
+			slog.Info("retention sweep",
+				"assessments", res.Assessments, "runs", res.Runs)
+		}
+	}
+
+	sweep()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
 		}
 	}
 }

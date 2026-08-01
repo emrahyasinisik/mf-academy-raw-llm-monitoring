@@ -63,6 +63,15 @@ services:
       - key: CORS_ORIGINS
         value: https://mf-academy-raw-llm-monitoring-ten.vercel.app,https://masterfabricacademy.vercel.app
 
+      # Hosted demo keeps pasted case text for 30 days, then blanks the personal
+      # columns and leaves the measurement row. 0 disables the sweep entirely,
+      # which is a legitimate setting on an operator's own hardware and a
+      # mistake here — the server warns about it at boot.
+      - key: RETENTION_DAYS
+        value: "30"
+      - key: RETENTION_SWEEP_INTERVAL
+        value: 6h
+
       # ---- Server-side inference (mf-inference/) ----
       #
       # Points at the self-hosted MLC host, reached through a Cloudflare tunnel.
