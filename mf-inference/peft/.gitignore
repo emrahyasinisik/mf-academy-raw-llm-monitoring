@@ -6,3 +6,8 @@ out/
 # data/ is excluded for — the generator plus a fixed seed is the reproducible
 # artefact, a copied file is not.
 kaggle/.stage/
+
+# Same reasoning for the pilot upload, and one more: it carries a 47 MB adapter.
+# The adapter is a build output — it belongs in the Kaggle dataset it was
+# uploaded to, not in git.
+kaggle/.stage-pilot/
