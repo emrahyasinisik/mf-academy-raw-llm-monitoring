@@ -283,6 +283,16 @@ phase_pull() {
 
 phase_eval() {
   say "phase: eval"
+  # The adapter usually already exists on the VM that trained it — but a lease
+  # that ends between train and eval is the normal case, not the exception, and
+  # the second session starts with an empty /content. Upload what the local
+  # pull saved; rubric_eval.py reads the base from the hub and only needs the
+  # PEFT pair from us.
+  if [[ -z "${DRY_RUN:-}" && -s "$OUT_DIR/adapter_model.safetensors" ]]; then
+    for f in adapter_model.safetensors adapter_config.json; do
+      colab upload -s "$SESSION" "$OUT_DIR/$f" "$REMOTE/$OUT_DIR/$f"
+    done
+  fi
   # Base and adapter in one process, one session, one set of library versions —
   # which was the whole point of splitting eval out. rubric_eval.py does both
   # and prints the delta itself.
