@@ -60,3 +60,18 @@ func TestSweepRunsBothEvenWhenTheFirstFails(t *testing.T) {
 		t.Errorf("Result.Runs = %d, want the successful half reported anyway", got.Runs)
 	}
 }
+
+// Both halves can fail at once — a shared pool outage does exactly that — and
+// the report has to name both, not whichever one errored last. errors.Join is
+// only load-bearing in this case, so it is the case worth pinning.
+func TestSweepJoinsBothFailures(t *testing.T) {
+	first, second := errors.New("assessments down"), errors.New("runs down")
+	a, r := &fakeSweeper{err: first, n: 3}, &fakeSweeper{err: second, n: 7}
+	got, err := Sweep(context.Background(), a, r, time.Hour, now)
+	if !errors.Is(err, first) || !errors.Is(err, second) {
+		t.Errorf("err = %v, want it to wrap both %v and %v", err, first, second)
+	}
+	if got.Assessments != 3 || got.Runs != 7 {
+		t.Errorf("Result = %+v, want {3 7}", got)
+	}
+}

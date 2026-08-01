@@ -15,12 +15,15 @@ type AssessmentSweeper interface {
 	SweepAssessments(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
-// RunSweeper is the llm store.
+// RunSweeper is the llm store, declared here so this package does not import
+// it — the dependency runs the other way at wiring time.
 type RunSweeper interface {
 	SweepRuns(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
-// Result is what one pass redacted, per table.
+// Result tracks redactions per table so the caller knows which table succeeded
+// and which failed: a skipped table is a data sovereignty problem that demands
+// explicit visibility, not absorbed in a total.
 type Result struct {
 	Assessments int64
 	Runs        int64
