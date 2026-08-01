@@ -19,8 +19,9 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, acceptedTerms: boolean) => Promise<void>;
   logout: () => Promise<void>;
+  acceptTerms: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -54,8 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (email: string, password: string, name: string) => {
-      const data = await api.register(email, password, name);
+    async (
+      email: string,
+      password: string,
+      name: string,
+      acceptedTerms: boolean,
+    ) => {
+      const data = await api.register(email, password, name, acceptedTerms);
       setUser(data.user);
     },
     [],
@@ -66,8 +72,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Kabulden sonra kullanıcıyı sunucudan yeniden okuyoruz, elde düzeltmiyoruz:
+  // kapının dayandığı alan sunucunun yazdığı alan, ve ikisini ayrı ayrı doğru
+  // tutmaya çalışmak tam olarak bu tür bir kapının bozulma şekli.
+  const acceptTerms = useCallback(async () => {
+    await api.acceptTerms();
+    setUser(await api.me());
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, acceptTerms }}
+    >
       {children}
     </AuthContext.Provider>
   );

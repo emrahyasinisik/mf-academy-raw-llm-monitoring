@@ -11,8 +11,12 @@ import { useState } from "react";
 import { useAuth } from "@/store/auth";
 import { ApiError } from "@/lib/api";
 import { GizlilikView } from "./GizlilikView";
+import { KosullarView } from "./KosullarView";
 
 type SubView = "login" | "register";
+
+/** Which standalone document is showing over the auth form, if any. */
+type DocView = "gizlilik" | "kosullar" | null;
 
 const COPY: Record<SubView, { tab: string; heading: string; blurb: string; cta: string }> =
   {
@@ -38,34 +42,41 @@ export function AuthView() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [accepted, setAccepted] = useState(false);
   // AuthView renders in place of AppShell's hash router while there is no
-  // signed-in user, so a signed-out visitor following `#gizlilik` never
-  // reaches that router. This local flag is the same deep link handled here
-  // instead: read once on mount so a direct load of `#gizlilik` lands on the
-  // privacy page immediately rather than flashing the login form first.
-  const [showPrivacy, setShowPrivacy] = useState(
-    typeof window !== "undefined" && window.location.hash === "#gizlilik",
-  );
+  // signed-in user, so a signed-out visitor following `#gizlilik` or
+  // `#kosullar` never reaches that router. This local state is the same deep
+  // links handled here instead: read once on mount so a direct load of either
+  // hash lands on that document immediately rather than flashing the login
+  // form first. One state rather than two independent booleans — two booleans
+  // would leave undefined behaviour when both are set, and only one document
+  // is ever on screen at a time.
+  const [showDoc, setShowDoc] = useState<DocView>(() => {
+    if (typeof window === "undefined") return null;
+    if (window.location.hash === "#gizlilik") return "gizlilik";
+    if (window.location.hash === "#kosullar") return "kosullar";
+    return null;
+  });
 
   const copy = COPY[sub];
 
-  if (showPrivacy) {
+  if (showDoc) {
     return (
-      // Kabı yok: GizlilikView artık kendi kenar boşluğunu taşıyor, ve buradaki
-      // p-6 onun üstüne binip çift boşluk yapıyordu. Kalan tek iş, "Geri"yi
-      // metnin soluyla aynı hizaya oturtmak — o yüzden düğme aynı ölçüleri
-      // tekrarlayan kendi kabında.
+      // Kabı yok: GizlilikView ve KosullarView artık kendi kenar boşluklarını
+      // taşıyor, ve buradaki p-6 onların üstüne binip çift boşluk yapıyordu.
+      // Kalan tek iş, "Geri"yi metnin soluyla aynı hizaya oturtmak — o yüzden
+      // düğme aynı ölçüleri tekrarlayan kendi kabında.
       <div>
         <div className="mx-auto max-w-2xl px-4 sm:px-5 pt-6">
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => {
-              setShowPrivacy(false);
-              // Hash de temizleniyor, yoksa "#gizlilik" adres çubuğunda kalıyor
-              // ve giriş başarılı olduğu anda AppShell'in initialRoute'u onu
-              // okuyup kullanıcıyı Analiz yerine gizlilik belgesine indiriyor.
-              // replaceState kullanılıyor: assign("#") geçmişe bir adım daha
-              // ekler ve geri tuşu aynı yere geri döndürür.
+              setShowDoc(null);
+              // Hash de temizleniyor, yoksa "#gizlilik" ya da "#kosullar" adres
+              // çubuğunda kalıyor ve giriş başarılı olduğu anda AppShell'in
+              // initialRoute'u onu okuyup kullanıcıyı Analiz yerine o belgeye
+              // indiriyor. replaceState kullanılıyor: assign("#") geçmişe bir
+              // adım daha ekler ve geri tuşu aynı yere geri döndürür.
               window.history.replaceState(
                 null,
                 "",
@@ -76,7 +87,7 @@ export function AuthView() {
             ← Geri
           </button>
         </div>
-        <GizlilikView />
+        {showDoc === "kosullar" ? <KosullarView /> : <GizlilikView />}
       </div>
     );
   }
@@ -87,7 +98,7 @@ export function AuthView() {
     setBusy(true);
     try {
       if (sub === "login") await login(email, password);
-      else await register(email, password, name);
+      else await register(email, password, name, accepted);
       // On success the AppShell re-renders into the app automatically.
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bir şeyler ters gitti.");
@@ -269,19 +280,40 @@ export function AuthView() {
               />
             </div>
 
+            {sub === "register" && (
+              <label className="flex items-start gap-2 text-xs" style={{ color: "var(--text-faint)" }}>
+                <input
+                  type="checkbox"
+                  checked={accepted}
+                  onChange={(e) => setAccepted(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <a href="#kosullar" onClick={() => setShowDoc("kosullar")}>Kullanım koşullarını</a>{" "}
+                  kabul ediyorum ve{" "}
+                  <a href="#gizlilik" onClick={() => setShowDoc("gizlilik")}>aydınlatma metnini</a>{" "}
+                  okudum.
+                </span>
+              </label>
+            )}
+
             {error && (
               <div className="notice notice-bad view-in" role="alert">
                 {error}
               </div>
             )}
 
-            <button type="submit" className="btn btn-primary w-full" disabled={busy}>
+            <button
+              type="submit"
+              className="btn btn-primary w-full"
+              disabled={busy || (sub === "register" && !accepted)}
+            >
               {busy ? "Bekle…" : copy.cta}
             </button>
           </form>
 
           <p className="mt-4 text-xs" style={{ color: "var(--text-faint)" }}>
-            <a href="#gizlilik" onClick={() => setShowPrivacy(true)}>
+            <a href="#gizlilik" onClick={() => setShowDoc("gizlilik")}>
               Verilerinizi nasıl sakladığımızı okuyun.
             </a>
           </p>

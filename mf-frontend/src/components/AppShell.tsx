@@ -14,8 +14,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@/store/auth";
+import { needsTermsGate } from "@/lib/terms";
 import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
+import { OnayView } from "./views/OnayView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
@@ -176,6 +178,11 @@ export function AppShell() {
 
   // Auth master view (with its own login/register subviews) — shown logged out.
   if (!user) return <AuthView />;
+
+  // Oturum var ama kabul yok: uygulamayi degil kapiyi goster. AuthView ile ayni
+  // dallanma sekli, ayni yerde, cunku ikisi de "henuz uygulamaya giremez"in
+  // farkli sebepleri.
+  if (needsTermsGate(user)) return <OnayView />;
 
   return (
     <div className="min-h-screen flex flex-col">

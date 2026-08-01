@@ -7,6 +7,7 @@ export interface User {
   role: string;
   created_at: string;
   updated_at: string;
+  terms_accepted_at: string | null;
 }
 
 export interface TokenPair {

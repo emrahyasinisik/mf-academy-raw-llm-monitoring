@@ -129,10 +129,20 @@ export const api = {
   config: () => request<Record<string, unknown>>("/config"),
 
   // ---- auth ----
-  async register(email: string, password: string, name: string) {
+  async register(
+    email: string,
+    password: string,
+    name: string,
+    acceptedTerms: boolean,
+  ) {
     const data = await request<TokenPair>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({
+        email,
+        password,
+        name,
+        accepted_terms: acceptedTerms,
+      }),
     });
     setTokens(data.access_token, data.refresh_token);
     return data;
@@ -159,6 +169,8 @@ export const api = {
   me: () => request<User>("/auth/me"),
   sessions: () =>
     request<{ sessions: unknown[]; count: number }>("/auth/sessions"),
+  acceptTerms: () =>
+    request<void>("/auth/accept-terms", { method: "POST" }),
 
   // ---- llm ----
   // server_inference reports whether this deployment has an inference host
