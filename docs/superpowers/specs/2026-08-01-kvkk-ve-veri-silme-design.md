@@ -188,24 +188,23 @@ Redakte satırların `subject` ve `findings` alanları boş gelir; görünüm bu
 6. **Saklama süresi** — 30 gün, sonrasında içerik otomatik silinir; ölçüm
    satırı anonim olarak kalır. Denetlenebilirliğin bu pencereyle sınırlı
    olduğu açıkça belirtilir.
-7. **İlgili kişi hakları** — KVKK m.11 sayımı, ve hangisinin üründe hangi
-   düğmeye karşılık geldiği.
-8. **Başvuru kanalı** — `kvkk@visevent.com`.
+7. **İlgili kişi hakları** — silme hakkının üründe hangi düğmeye karşılık
+   geldiği, ve 30. günde aynı işlemin kendiliğinden koştuğu.
 
-Alan adı `visevent.com` seçildi çünkü sahip olunduğu doğrulanabiliyor:
-`render.yaml` inference'ı `https://mlc.visevent.com` üzerinden çağırıyor ve o
-alt alan zaten Cloudflare tüneliyle yayında. `masterfabric.co` repoda yalnızca
-giriş formundaki örnek e-postada geçiyor — sahiplik kanıtı yok, bu yüzden
-hukuki bir metne yazılmaz.
+### Kapsam dışı: başvuru kanalı
 
-Alt alan (`kvkk@mf.visevent.com`) da mümkün ama ayrı MX kaydı gerektirir ve
-hiçbir şey kazandırmaz. Alan Cloudflare'de olduğu için **Email Routing** ile
-posta sunucusu kurmadan mevcut bir kutuya yönlendirilebilir.
+E-posta tabanlı başvuru kanalı bu işin kapsamında **değil**, bilinçli olarak
+ertelendi. Site `masterfabricacademy.vercel.app` üzerinde olacak ve `.vercel.app`
+posta alamaz; bir kutu açmak ayrı bir alan adı ve ayrı bir işletme kararı
+demek.
 
-**Kabul kriteri:** kutu açılıp bir test başvurusu yanıtlanmadan bu sayfa yayına
-alınmaz. KVKK açısından önemli olan adresin ne olduğu değil, beyan edilen
-kanalın çalışmasıdır; çalışmayan bir kanal metnin tamamını yazılmış bir vaade
-indirger.
+**Bunun bıraktığı açık, kaydedilmiştir:** silme düğmesi KVKK m.11'in yalnızca
+silme maddesini karşılıyor. Bilgi talebi, düzeltme ve itiraz için bir kanal
+yok. Demo bir ürünü denemek isteyen kişilerle sınırlı kaldığı sürece
+yaşanabilir; **gerçek müşteri verisi girdiği anda kapatılması gereken bir
+eksiklik.** Metin, olmayan bir kanalı varmış gibi göstermemeli — hakların
+tamamını sayıp adres vermemektense, üründe fiilen karşılığı olan hakkı anlatıp
+diğerleri için bir kanalın henüz bulunmadığını söylemek dürüst olanı.
 
 ## Test
 
