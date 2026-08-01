@@ -21,10 +21,11 @@ import { PersonaView } from "./views/PersonaView";
 import { AdminView } from "./views/AdminView";
 import { MetricsView } from "./views/MetricsView";
 import { GizlilikView } from "./views/GizlilikView";
+import { KosullarView } from "./views/KosullarView";
 import { StatusRail } from "./ui/StatusRail";
 
 export type MasterView =
-  | "analiz" | "codegen" | "persona" | "metrics" | "admin" | "gizlilik";
+  | "analiz" | "codegen" | "persona" | "metrics" | "admin" | "gizlilik" | "kosullar";
 
 // Analiz leads because it is the product: a case goes in, a rubric-scored and
 // auditable report comes out. The order used to be the generator's, and the
@@ -53,7 +54,7 @@ const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] =
 // Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
 // üyeliğine bakıyordu; gizlilik bir çalışma aracı değil, bir belge — nav'a
 // girmesi orayı sulandırır, ama derin bağlantının çalışması gerekiyor.
-const OFF_NAV: MasterView[] = ["gizlilik"];
+const OFF_NAV: MasterView[] = ["gizlilik", "kosullar"];
 
 const isMaster = (v: string): v is MasterView =>
   NAV.some((n) => n.id === v) || (OFF_NAV as string[]).includes(v);
@@ -264,13 +265,14 @@ export function AppShell() {
           {view === "metrics" && <MetricsView />}
           {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
           {view === "gizlilik" && <GizlilikView />}
+          {view === "kosullar" && <KosullarView />}
         </div>
 
         <footer
           className="shrink-0 px-4 sm:px-5 py-2.5 text-xs"
           style={{ color: "var(--text-faint)", borderTop: "1px solid var(--line)" }}
         >
-          <a href="#gizlilik">Verileriniz ve gizlilik</a>
+          <a href="#gizlilik">Verileriniz ve gizlilik</a> · <a href="#kosullar">Kullanım koşulları</a>
         </footer>
       </main>
     </div>
