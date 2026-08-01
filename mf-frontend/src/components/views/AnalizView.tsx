@@ -22,6 +22,9 @@ import type {
   AssessmentSummary,
 } from "@/lib/types";
 
+/** Backend'in asgari vaka uzunluğu (internal/analysis/handler.go:63). */
+const MIN_SUBJECT_CHARS = 40;
+
 export function AnalizView() {
   const { begin } = useMachine();
 
@@ -120,7 +123,11 @@ export function AnalizView() {
   // sayı göstermemekten kötü.
   const budget = systemChars === null ? null : caseBudgetChars(windowTokens, systemChars);
   const over = budget !== null && subject.length > budget;
-  const canRun = slug !== "" && subject.trim() !== "" && !over;
+  // Backend 40 **bayttan** kısa vakayı reddediyor (handler.go:63). Karakter
+  // olarak saymak Türkçe'de daima güvenli tarafta kalıyor: çok baytlı harfler
+  // yüzünden 40 karakter her zaman en az 40 bayt eder.
+  const tooShort = subject.trim().length < MIN_SUBJECT_CHARS;
+  const canRun = slug !== "" && !tooShort && !over;
 
   const run = useCallback(async () => {
     if (running) return;
@@ -223,7 +230,11 @@ export function AnalizView() {
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="Değerlendirilecek metni buraya yapıştırın."
                 aria-invalid={over}
-                aria-describedby={over ? "analiz-vaka-uyari" : undefined}
+                aria-describedby={
+                  over || (tooShort && subject.trim() !== "")
+                    ? "analiz-vaka-uyari"
+                    : undefined
+                }
               />
             </div>
 
@@ -232,6 +243,12 @@ export function AnalizView() {
                 Metin bu rubriğin bıraktığı yerden {subject.length - budget} karakter
                 uzun. Rubriğin kendisi de modele gönderiliyor ve pencereden yer
                 kaplıyor; bu sınırın üstünde istek değerlendirilmeden reddedilir.
+              </div>
+            )}
+
+            {!over && tooShort && subject.trim() !== "" && (
+              <div className="notice" id="analiz-vaka-uyari" role="status">
+                Değerlendirme için en az {MIN_SUBJECT_CHARS} karakter gerekiyor.
               </div>
             )}
 
@@ -311,7 +328,11 @@ function describeRunError(e: unknown): string {
       return "Çıkarım makinesi şu anda ulaşılamıyor. Analiz için gerekli, ama diğer ekranlar çalışmaya devam eder.";
     }
     if (e.status === 400) {
-      return "Vaka metni değerlendirilmeden reddedildi — büyük olasılıkla rubriğin bıraktığı yerden uzun. Metni kısaltıp tekrar deneyin.";
+      // Yön varsayılmıyor. Bu yolda 400'ün dört sebebi var — konu çok kısa,
+      // çok uzun, rubrik seçilmemiş, ya da motorun penceresine sığmamış — ve
+      // "kısaltın" demek, çok kısa yazmış birine verilecek en kötü öğüt.
+      // Sunucunun kendi cümlesi hangisi olduğunu söylüyor.
+      return `Vaka değerlendirilmeden reddedildi: ${e.message}`;
     }
     if (e.status === 504 || e.status === 408) {
       return "Analiz zaman aşımına uğradı. Tekrar denemek isteğin sırasını ikiye katlar; önce bir süre bekleyin.";
