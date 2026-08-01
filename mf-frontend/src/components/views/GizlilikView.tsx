@@ -28,7 +28,7 @@ export function GizlilikView() {
           Persona ekranındaki konuşmalarınız: yazdığınız mesajlar, aldığınız
           yanıtlar, ve o yanıtı üretirken toplanan araştırma sonuçları.
         </li>
-        <li>E-posta adresiniz ve oturum kayıtlarınız.</li>
+        <li>Adınız, e-posta adresiniz ve oturum kayıtlarınız.</li>
       </ul>
 
       <h2 className="eyebrow mt-6">Ne için</h2>

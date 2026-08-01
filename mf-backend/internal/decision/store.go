@@ -310,8 +310,11 @@ func (s *Store) Delete(ctx context.Context, userID, id string) error {
 //
 // last_turn_at, not created_at: a thread someone is still using should not
 // vanish from under them on its thirtieth day, and "untouched for a month" is
-// what the retention period actually promises. The column is already indexed by
-// idx_conversations_user_active.
+// what the retention period actually promises. The sweep predicate is a bare
+// last_turn_at range with no leading user_id or product, so it does not ride
+// idx_conversations_user_active — that index is keyed (user_id, product,
+// last_turn_at DESC) and Postgres cannot use it for this DELETE. A seq scan
+// is acceptable here: the table is small and the job runs rarely.
 //
 // DELETE rather than the blanking the reports get. A report row carries
 // measurements that aggregates depend on; a conversation carries none, so
