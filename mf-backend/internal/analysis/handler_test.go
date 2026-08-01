@@ -116,3 +116,33 @@ func TestDeleteHidesOtherPeoplesReports(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+// A redacted leg keeps its score but loses its findings, and the per-criterion
+// spread is computed from findings. Without a count, a five-run group whose
+// spread rests on two observations is indistinguishable from one that rests on
+// five — and the spread is the number this endpoint exists to publish.
+func TestSummariseCountsRedactedLegs(t *testing.T) {
+	score := 70.0
+	when := time.Now()
+	crit := []Criterion{{Key: "a", Weight: 1, ScaleMax: 5}}
+
+	items := []Assessment{
+		{ID: "1", OverallScore: &score, Coverage: 1, SchemaValid: true,
+			CriteriaSnapshot: crit,
+			Findings:         []Finding{{Key: "a", EvidenceFound: true, Score: &score}}},
+		{ID: "2", OverallScore: &score, Coverage: 1, SchemaValid: true,
+			CriteriaSnapshot: crit, Findings: []Finding{}, RedactedAt: &when},
+		{ID: "3", OverallScore: &score, Coverage: 1, SchemaValid: true,
+			CriteriaSnapshot: crit, Findings: []Finding{}, RedactedAt: &when},
+	}
+
+	out := summarise("g1", items)
+	if out.RedactedRuns != 2 {
+		t.Errorf("RedactedRuns = %d, want 2", out.RedactedRuns)
+	}
+	// The score-side aggregates are untouched by redaction and must still count
+	// every leg: score and coverage are never blanked.
+	if out.Trials != 3 || out.ScoredRuns != 3 {
+		t.Errorf("Trials/ScoredRuns = %d/%d, want 3/3", out.Trials, out.ScoredRuns)
+	}
+}

@@ -396,8 +396,24 @@ func retentionCleanup(
 	r retention.RunSweeper,
 	age, interval time.Duration,
 ) {
+	// Ten minutes, where sessionCleanup's reap gets thirty seconds, and the gap
+	// is deliberate. That reap deletes by an indexed expiry and touches a table
+	// that is trimmed hourly, so it is always small. This one issues two UPDATEs
+	// that rewrite every row past the limit, and the first run after a deploy is
+	// the whole backlog at once — on a database that has been collecting reports
+	// for a month while this feature did not exist yet, that is every row in the
+	// table. A bound sized for the steady state would cancel exactly the sweep
+	// that matters most and leave the backlog for the next tick to fail at again.
+	//
+	// Bounded all the same: workerCtx only closes at shutdown, so an UPDATE that
+	// blocks on a lock would otherwise hold a connection for the process's life
+	// and take its lock with it.
+	const sweepTimeout = 10 * time.Minute
+
 	sweep := func() {
-		res, err := retention.Sweep(ctx, a, r, age, time.Now())
+		sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
+		defer cancel()
+		res, err := retention.Sweep(sweepCtx, a, r, age, time.Now())
 		if err != nil {
 			slog.Error("retention sweep", "error", err)
 		}

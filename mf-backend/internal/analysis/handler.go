@@ -552,6 +552,15 @@ func summarise(group string, items []Assessment) TrialResult {
 		if a.SchemaValid {
 			valid++
 		}
+		// Counted, not skipped. A redacted leg still carries a real score and a
+		// real coverage — those columns are never blanked — so dropping it here
+		// would throw away measurements that are still true. What it no longer
+		// carries is findings, and PerCriterionStdDev is computed from findings;
+		// the count below is the only thing that tells a reader the spread rests
+		// on fewer observations than Trials suggests.
+		if a.RedactedAt != nil {
+			out.RedactedRuns++
+		}
 		if a.OverallScore != nil {
 			scores = append(scores, *a.OverallScore)
 		}

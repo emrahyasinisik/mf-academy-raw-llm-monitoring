@@ -208,6 +208,18 @@ type TrialResult struct {
 	// is what needs rewriting.
 	PerCriterionStdDev map[string]float64 `json:"per_criterion_stddev"`
 
+	// RedactedRuns is how many legs of this group have had their findings
+	// blanked, by their owner or by the retention sweep.
+	//
+	// Reported because redaction is invisible in every other field here. A
+	// redacted row keeps its score, its coverage and its schema_valid, so it
+	// still counts in Trials, ScoredRuns and the ids — but its findings are
+	// gone, and PerCriterionStdDev reads ratings out of findings. Three
+	// redacted legs of five therefore produce a per-criterion spread computed
+	// from two observations that looks exactly like one computed from five.
+	// This number is what tells the two apart.
+	RedactedRuns int `json:"redacted_runs"`
+
 	AssessmentIDs []string `json:"assessment_ids"`
 	MeanLatencyMs float64  `json:"mean_latency_ms"`
 }

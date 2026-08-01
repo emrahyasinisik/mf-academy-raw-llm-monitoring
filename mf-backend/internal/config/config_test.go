@@ -156,3 +156,31 @@ func TestConfigHandlerPublishesPromptWindow(t *testing.T) {
 		t.Errorf("max_prompt_tokens = %d, want 1200", body.Limits.MaxPromptTokens)
 	}
 }
+
+// time.NewTicker panics on a non-positive duration and the sweep's ticker lives
+// in a goroutine with no recover, so RETENTION_SWEEP_INTERVAL=0 — which
+// time.ParseDuration accepts — would take the process down on boot and keep
+// taking it down. RETENTION_DAYS=0 is the documented off switch; this one is
+// not, and Load has to make that safe rather than trusting the operator to
+// notice the difference.
+func TestSweepIntervalIsFlooredToAPositiveDuration(t *testing.T) {
+	for _, raw := range []string{"0", "0s", "-1h"} {
+		t.Setenv("RETENTION_SWEEP_INTERVAL", raw)
+		got := Load().RetentionSweepInterval
+		if got <= 0 {
+			t.Errorf("RETENTION_SWEEP_INTERVAL=%q gave %v; time.NewTicker panics on this", raw, got)
+		}
+		if got != minSweepInterval {
+			t.Errorf("RETENTION_SWEEP_INTERVAL=%q gave %v, want the floor %v", raw, got, minSweepInterval)
+		}
+	}
+}
+
+// The floor must not quietly override an operator who asked for something
+// slower than it — it is a floor, not a default.
+func TestSweepIntervalKeepsAGenerousSetting(t *testing.T) {
+	t.Setenv("RETENTION_SWEEP_INTERVAL", "12h")
+	if got := Load().RetentionSweepInterval; got != 12*time.Hour {
+		t.Errorf("RetentionSweepInterval = %v, want 12h", got)
+	}
+}

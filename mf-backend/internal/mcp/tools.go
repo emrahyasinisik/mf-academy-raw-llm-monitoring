@@ -277,6 +277,12 @@ func (s *Server) listReports(ctx context.Context, userID string, args json.RawMe
 // above already say a score must not travel without its coverage, but
 // instructions are advisory and a sentence attached to the number itself is
 // not — it travels with the figure into whatever the model writes next.
+//
+// redacted_at is carried even though it is empty on almost every report. This
+// is a hand-built projection, so a column added to Assessment does not appear
+// here on its own — and the one column whose absence actively misleads is this
+// one. A redacted report keeps its score and its coverage but has an empty
+// findings list, which reads exactly like a report with nothing to say.
 func reportView(a analysis.Assessment) map[string]any {
 	view := map[string]any{
 		"id":             a.ID,
@@ -289,6 +295,7 @@ func reportView(a analysis.Assessment) map[string]any {
 		"findings":       a.Findings,
 		"model":          a.Model,
 		"created_at":     a.CreatedAt,
+		"redacted_at":    a.RedactedAt,
 	}
 	if !a.SchemaValid {
 		// Surfaced, not hidden. A report the model had to be coaxed into
@@ -301,6 +308,17 @@ func reportView(a analysis.Assessment) map[string]any {
 }
 
 func coverageNote(a analysis.Assessment) string {
+	// First, before anything derived from Findings. Redaction empties that list
+	// while leaving the score and the coverage in place, so every count below
+	// reads zero unassessed criteria and the note would announce "the whole
+	// rubric was evidenced" about a report whose evidence no longer exists —
+	// the most confident sentence this function can produce, attached to the
+	// one case where nothing can be checked.
+	if a.RedactedAt != nil {
+		return "Bu raporun içeriği silindi: puan ve kapsam duruyor, ama kriter " +
+			"kırılımı ve kanıt alıntıları kaldırıldı. Puanın neye dayandığı " +
+			"artık gösterilemiyor; bu sayıyı aktarırken bunu da söyle."
+	}
 	if a.OverallScore == nil {
 		return "Hiçbir kriter değerlendirilemedi; bu bir sıfır puan DEĞİL, puanlanamamış bir vakadır."
 	}
