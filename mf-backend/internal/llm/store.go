@@ -42,12 +42,13 @@ func (s *Store) CreateRun(ctx context.Context, userID string, req CreateRunReque
 		    completion_tokens, latency_ms, temperature, expected_keywords, metadata)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		 RETURNING id, user_id, model, target, prompt, response, system_prompt, prompt_tokens,
-		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at`,
+		           completion_tokens, latency_ms, temperature, expected_keywords, metadata, created_at,
+		           redacted_at`,
 		userID, req.Model, target, req.Prompt, req.Response, req.SystemPrompt, req.PromptTokens,
 		req.CompletionTokens, req.LatencyMs, req.Temperature, keywords, metaJSON,
 	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
-		&run.ExpectedKeywords, &meta, &run.CreatedAt)
+		&run.ExpectedKeywords, &meta, &run.CreatedAt, &run.RedactedAt)
 	if err != nil {
 		return Run{}, err
 	}
@@ -71,14 +72,14 @@ func (s *Store) GetRun(ctx context.Context, userID, runID string) (Run, error) {
 	err := s.db.QueryRow(ctx,
 		`SELECT r.id, r.user_id, r.model, r.target, r.prompt, r.response, r.system_prompt,
 		        r.prompt_tokens, r.completion_tokens, r.latency_ms, r.temperature,
-		        r.expected_keywords, r.metadata, r.created_at,
+		        r.expected_keywords, r.metadata, r.created_at, r.redacted_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
 		 WHERE r.id = $1 AND r.user_id = $2`, runID, userID,
 	).Scan(&run.ID, &run.UserID, &run.Model, &run.Target, &run.Prompt, &run.Response, &run.SystemPrompt,
 		&run.PromptTokens, &run.CompletionTokens, &run.LatencyMs, &run.Temperature,
-		&run.ExpectedKeywords, &meta, &run.CreatedAt,
+		&run.ExpectedKeywords, &meta, &run.CreatedAt, &run.RedactedAt,
 		&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, ErrNoRows
@@ -123,7 +124,7 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 	// for a second COUNT query.
 	rows, err := s.db.Query(ctx,
 		`SELECT r.id, r.model, r.target, left(r.prompt, $5), r.prompt_tokens, r.completion_tokens,
-		        r.latency_ms, r.created_at,
+		        r.latency_ms, r.created_at, r.redacted_at,
 		        sc.id, sc.score, sc.grade, sc.breakdown, sc.rationale, sc.created_at
 		 FROM llm_runs r
 		 LEFT JOIN llm_scores sc ON sc.run_id = r.id
@@ -144,9 +145,14 @@ func (s *Store) ListRuns(ctx context.Context, userID, model string, limit int, b
 		var sScore *float64
 		var sBreakdown []byte
 		var sCreated *time.Time
+		// RunSummary has no redacted_at field — this is a list projection and
+		// nothing here renders it yet — but the column still has to be scanned
+		// into something, or every column after it (the score columns) would
+		// land one position to the left with no error to catch it.
+		var redacted *time.Time
 
 		if err := rows.Scan(&run.ID, &run.Model, &run.Target, &run.PromptPreview, &run.PromptTokens,
-			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt,
+			&run.CompletionTokens, &run.LatencyMs, &run.CreatedAt, &redacted,
 			&sID, &sScore, &sGrade, &sBreakdown, &sRationale, &sCreated); err != nil {
 			return ListResult{}, err
 		}

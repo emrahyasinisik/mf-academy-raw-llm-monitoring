@@ -121,6 +121,12 @@ type Assessment struct {
 	RawResponse string `json:"raw_response,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
+
+	// Non-nil once the personal columns have been blanked, by the owner's own
+	// request or by the retention sweep. The reader needs this to tell "silindi"
+	// from "boş geldi": a redacted report has an empty subject for a reason, and
+	// showing it as missing data would misdescribe what happened to it.
+	RedactedAt *time.Time `json:"redacted_at"`
 }
 
 // AssessmentSummary is the list projection. Subject, findings and raw response
@@ -137,6 +143,12 @@ type AssessmentSummary struct {
 	Model        string    `json:"model"`
 	LatencyMs    int       `json:"latency_ms"`
 	CreatedAt    time.Time `json:"created_at"`
+
+	// Non-nil once the personal columns have been blanked, by the owner's own
+	// request or by the retention sweep. The reader needs this to tell "silindi"
+	// from "boş geldi": a redacted report has an empty subject for a reason, and
+	// showing it as missing data would misdescribe what happened to it.
+	RedactedAt *time.Time `json:"redacted_at"`
 }
 
 // ListResult is a cursor-paginated page of assessments, matching the paging

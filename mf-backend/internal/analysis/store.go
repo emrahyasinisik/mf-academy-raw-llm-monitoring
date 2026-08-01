@@ -109,7 +109,7 @@ const assessmentColumns = `
 	a.subject_title, a.subject, a.findings, a.overall_score, a.coverage,
 	a.schema_valid, a.repair_attempts, a.trial_group, a.model, a.target,
 	a.adapter_id, a.latency_ms, a.prompt_tokens, a.completion_tokens,
-	a.raw_response, a.created_at`
+	a.raw_response, a.created_at, a.redacted_at`
 
 func scanAssessment(row pgx.Row) (Assessment, error) {
 	var a Assessment
@@ -118,7 +118,7 @@ func scanAssessment(row pgx.Row) (Assessment, error) {
 		&a.DomainVersion, &criteria, &a.SubjectTitle, &a.Subject, &findings,
 		&a.OverallScore, &a.Coverage, &a.SchemaValid, &a.RepairAttempts, &a.TrialGroup,
 		&a.Model, &a.Target, &a.AdapterID, &a.LatencyMs, &a.PromptTokens,
-		&a.CompletionTokens, &a.RawResponse, &a.CreatedAt)
+		&a.CompletionTokens, &a.RawResponse, &a.CreatedAt, &a.RedactedAt)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -159,7 +159,7 @@ func (s *Store) ListAssessments(
 
 	rows, err := s.db.Query(ctx,
 		`SELECT a.id, d.slug, d.name, a.subject_title, a.overall_score, a.coverage,
-		        a.schema_valid, a.model, a.latency_ms, a.created_at
+		        a.schema_valid, a.model, a.latency_ms, a.created_at, a.redacted_at
 		   FROM assessments a JOIN analysis_domains d ON d.id = a.domain_id
 		  WHERE a.user_id = $1
 		    AND ($2::text = '' OR d.slug = $2)
@@ -177,7 +177,7 @@ func (s *Store) ListAssessments(
 		var s AssessmentSummary
 		if err := rows.Scan(&s.ID, &s.DomainSlug, &s.DomainName, &s.SubjectTitle,
 			&s.OverallScore, &s.Coverage, &s.SchemaValid, &s.Model, &s.LatencyMs,
-			&s.CreatedAt); err != nil {
+			&s.CreatedAt, &s.RedactedAt); err != nil {
 			return ListResult{}, err
 		}
 		out.Assessments = append(out.Assessments, s)
