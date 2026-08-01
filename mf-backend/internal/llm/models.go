@@ -61,7 +61,13 @@ type RunSummary struct {
 	CompletionTokens int       `json:"completion_tokens"`
 	LatencyMs        int       `json:"latency_ms"`
 	CreatedAt        time.Time `json:"created_at"`
-	Score            *Score    `json:"score,omitempty"`
+
+	// The codegen history list reads this to tell a swept run from one whose
+	// prompt was always empty. It was deliberately left off until now: the
+	// column and the field belong with the code that reads them, and until the
+	// history panel existed nothing did.
+	RedactedAt *time.Time `json:"redacted_at"`
+	Score      *Score     `json:"score,omitempty"`
 }
 
 // Score is the decision score for a run: an overall number plus a transparent

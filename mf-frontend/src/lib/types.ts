@@ -70,6 +70,7 @@ export interface RunSummary {
   completion_tokens: number;
   latency_ms: number;
   created_at: string;
+  redacted_at: string | null;
   score?: Score | null;
 }
 

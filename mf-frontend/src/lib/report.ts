@@ -14,3 +14,13 @@ export function reportTitle(
   if (isRedacted(x)) return "İçerik silindi";
   return x.subject_title || "Başlıksız";
 }
+
+// Koşumlar için aynı üç durum, farklı alan adıyla. reportTitle ile
+// birleştirilmedi: ikisi farklı API tiplerinden besleniyor ve tek bir jenerik
+// imza, çağıran tarafta hangi alanın okunduğunu görünmez yapardı.
+export function runTitle(
+  x: { redacted_at: string | null; prompt_preview: string },
+): string {
+  if (isRedacted(x)) return "İçerik silindi";
+  return x.prompt_preview || "Başlıksız";
+}

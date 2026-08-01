@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isRedacted, reportTitle } from "./report.ts";
+import { isRedacted, reportTitle, runTitle } from "./report.ts";
 
 test("redakte rapor, boş başlıkla 'veri yok' gibi görünmez", () => {
   assert.equal(
@@ -20,4 +20,23 @@ test("redakte edilmemiş rapor kendi başlığını taşır", () => {
 test("başlıksız ve silinmemiş rapor, silinmiş sayılmaz", () => {
   assert.equal(reportTitle({ redacted_at: null, subject_title: "" }), "Başlıksız");
   assert.equal(isRedacted({ redacted_at: null }), false);
+});
+
+test("redakte koşum, boş istemle 'kullanıcı bir şey yazmamış' gibi görünmez", () => {
+  assert.equal(
+    runTitle({ redacted_at: "2026-08-01T12:00:00Z", prompt_preview: "" }),
+    "İçerik silindi",
+  );
+});
+
+test("redakte edilmemiş koşum kendi önizlemesini taşır", () => {
+  assert.equal(
+    runTitle({ redacted_at: null, prompt_preview: "bir liste bileşeni yaz" }),
+    "bir liste bileşeni yaz",
+  );
+});
+
+// Boş önizleme ama silinmemiş: üçüncü durum, ve silinmiş demek yanlış olur.
+test("boş önizlemeli ama silinmemiş koşum, silinmiş sayılmaz", () => {
+  assert.equal(runTitle({ redacted_at: null, prompt_preview: "" }), "Başlıksız");
 });

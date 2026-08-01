@@ -41,6 +41,7 @@ import {
 } from "@/lib/flutterContract";
 import { DartBlock } from "@/components/ui/DartBlock";
 import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
+import { runTitle } from "@/lib/report";
 
 // 0.3 is what the trial run used. Higher wanders off the code standard the whole
 // fine-tune exists to enforce; 0 makes it repeat one layout for every brief.
@@ -189,11 +190,18 @@ export function CodegenView() {
     // The first line of the brief is the screen's name — "Ekran: Bildirim
     // tercihleri" — which is the one thing that tells two runs apart in a list.
     // The preview's remaining lines are the description and the state, and both
-    // are noise at this size.
+    // are noise at this size. But a swept run's preview is blanked to "" by the
+    // retention sweep, and stripping the prefix from an empty string reads
+    // exactly like a brief nobody typed — runTitle catches that case first via
+    // redacted_at, before this screen's own prefix-stripping ever runs.
     const first = r.prompt_preview.split("\n")[0] ?? "";
+    const title = runTitle({
+      redacted_at: r.redacted_at,
+      prompt_preview: first.replace(/^Ekran:\s*/i, "").trim(),
+    });
     return {
       id: r.id,
-      title: first.replace(/^Ekran:\s*/i, "").trim() || "Adsız ekran",
+      title,
       badge: r.score
         ? { text: r.score.grade, tone: gradeTone(r.score.grade) }
         : null,
