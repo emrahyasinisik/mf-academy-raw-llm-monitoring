@@ -190,11 +190,22 @@ Redakte satırların `subject` ve `findings` alanları boş gelir; görünüm bu
    olduğu açıkça belirtilir.
 7. **İlgili kişi hakları** — KVKK m.11 sayımı, ve hangisinin üründe hangi
    düğmeye karşılık geldiği.
-8. **Başvuru kanalı** — `kvkk@masterfabric.co`.
+8. **Başvuru kanalı** — `kvkk@visevent.com`.
 
-**Kabul kriteri:** `kvkk@masterfabric.co` kutusu açılıp yanıtlanmadan bu sayfa
-yayına alınmaz. Çalışmayan bir başvuru kanalı, metnin tamamını yazılmış bir
-vaatten ibaret bırakır.
+Alan adı `visevent.com` seçildi çünkü sahip olunduğu doğrulanabiliyor:
+`render.yaml` inference'ı `https://mlc.visevent.com` üzerinden çağırıyor ve o
+alt alan zaten Cloudflare tüneliyle yayında. `masterfabric.co` repoda yalnızca
+giriş formundaki örnek e-postada geçiyor — sahiplik kanıtı yok, bu yüzden
+hukuki bir metne yazılmaz.
+
+Alt alan (`kvkk@mf.visevent.com`) da mümkün ama ayrı MX kaydı gerektirir ve
+hiçbir şey kazandırmaz. Alan Cloudflare'de olduğu için **Email Routing** ile
+posta sunucusu kurmadan mevcut bir kutuya yönlendirilebilir.
+
+**Kabul kriteri:** kutu açılıp bir test başvurusu yanıtlanmadan bu sayfa yayına
+alınmaz. KVKK açısından önemli olan adresin ne olduğu değil, beyan edilen
+kanalın çalışmasıdır; çalışmayan bir kanal metnin tamamını yazılmış bir vaade
+indirger.
 
 ## Test
 
