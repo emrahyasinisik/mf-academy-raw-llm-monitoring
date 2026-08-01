@@ -1,16 +1,28 @@
 "use client";
 
-// The investment persona: one screen, one conversation. The user names a market,
-// brand, product or technology; the persona researches it live and works toward
-// an investability verdict, asking a clarifying question when it must. There is
-// no separate "analysis" and no separate "knowledge base" here on purpose —
-// research and decision are the same agent, and this screen is its whole surface.
+// The investment persona: one screen, one conversation at a time, and a rail of
+// the ones before it. The user names a market, brand, product or technology; the
+// persona researches it live and works toward an investability verdict, asking a
+// clarifying question when it must. There is no separate "analysis" and no
+// separate "knowledge base" here on purpose — research and decision are the same
+// agent, and this screen is its whole surface.
+//
+// The transcript is both local state and server state, and the split matters: a
+// turn is produced from what this component holds, and stored as a side effect.
+// So the screen never waits on history to answer, and a failed write costs the
+// record rather than the reply.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { DecisionSource, DecisionTurn, ResearchStep } from "@/lib/types";
+import type {
+  ConversationSummary,
+  DecisionSource,
+  DecisionTurn,
+  ResearchStep,
+} from "@/lib/types";
 import { useMachine } from "@/store/machine";
 import { RichText } from "@/components/ui/RichText";
+import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
 
 // A message as this screen keeps it: the wire turn plus, for the persona's
 // replies, what it researched to get there. The history sent to the server is
@@ -80,6 +92,8 @@ function toneFor(label: string): string {
   return "var(--brand)";
 }
 
+const HISTORY_PAGE = 20;
+
 export function PersonaView() {
   const { begin } = useMachine();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -87,6 +101,48 @@ export function PersonaView() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ---- history ----
+  // The id of the thread on screen. Null for a conversation that has not had a
+  // successful turn yet — the server assigns the id on the first one, so "new"
+  // and "unsaved" are the same state here rather than two.
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [threads, setThreads] = useState<ConversationSummary[]>([]);
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [hasMore, setHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+
+  // Promise-chained rather than async/await, and it deliberately sets no state
+  // before the request goes out. The body of an async function runs
+  // synchronously up to its first await, so a `setLoading(true)` at the top
+  // fires inside whatever called it — which for the mount fetch is an effect,
+  // and a synchronous setState there is the cascading render React warns about.
+  // Callers that need a spinner raise it themselves, from the event that asked.
+  const loadHistory = useCallback(
+    (before?: string) =>
+      api
+        .conversations(HISTORY_PAGE, before)
+        .then((res) => {
+          setThreads((prev) =>
+            before ? [...prev, ...res.conversations] : res.conversations,
+          );
+          setCursor(res.next_cursor);
+          setHasMore(res.has_more);
+          setHistoryError("");
+        })
+        .catch((e) =>
+          setHistoryError(
+            e instanceof ApiError ? e.message : "Geçmiş yüklenemedi.",
+          ),
+        )
+        .finally(() => setHistoryLoading(false)),
+    [],
+  );
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
 
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
@@ -115,7 +171,7 @@ export function PersonaView() {
         content: m.content,
       }));
       try {
-        const res = await api.decisionChat(wire);
+        const res = await api.decisionChat(wire, threadId ?? undefined);
         setMessages((prev) => [
           ...prev,
           {
@@ -126,6 +182,18 @@ export function PersonaView() {
             model: res.model,
           },
         ]);
+
+        // An empty conversation_id means the turn was answered but not
+        // recorded. Keeping whatever id we already had is deliberate: adopting
+        // "" would detach the rest of this conversation from a thread the
+        // server does have, turning one lost turn into a lost thread.
+        if (res.conversation_id) {
+          setThreadId(res.conversation_id);
+          // Refresh rather than patch locally: the row carries a title the
+          // server derived and a verdict it parsed, and re-deriving either here
+          // would be a second implementation of both.
+          void loadHistory();
+        }
       } catch (e) {
         setError(
           e instanceof ApiError
@@ -139,7 +207,74 @@ export function PersonaView() {
         setRunning(false);
       }
     },
-    [messages, running, begin],
+    [messages, running, begin, threadId, loadHistory],
+  );
+
+  // Open a stored thread. Refused mid-turn: the reply in flight belongs to the
+  // conversation being left, and letting it land in another one would file
+  // research under the wrong subject.
+  const openThread = useCallback(
+    async (id: string) => {
+      if (running || id === threadId) return;
+      setError("");
+      try {
+        const c = await api.conversation(id);
+        setMessages(
+          c.messages.map((m) =>
+            m.role === "user"
+              ? { role: "user", content: m.content }
+              : {
+                  role: "assistant",
+                  content: m.content,
+                  sources: m.sources ?? [],
+                  research: m.research ?? [],
+                  model: m.model,
+                },
+          ),
+        );
+        setThreadId(c.id);
+      } catch (e) {
+        setError(
+          e instanceof ApiError ? e.message : "Konuşma açılamadı.",
+        );
+      }
+    },
+    [running, threadId],
+  );
+
+  const newThread = useCallback(() => {
+    if (running) return;
+    setMessages([]);
+    setThreadId(null);
+    setError("");
+    setInput("");
+  }, [running]);
+
+  const renameThread = useCallback(async (id: string, title: string) => {
+    // Optimistic: a rename is the user's own text going into a field they can
+    // see. Waiting for a round trip to redraw it would make the rail feel like
+    // it is arguing with them.
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title } : t)),
+    );
+    try {
+      await api.renameConversation(id, title);
+    } catch {
+      void loadHistory();
+    }
+  }, [loadHistory]);
+
+  const deleteThread = useCallback(
+    async (id: string) => {
+      setThreads((prev) => prev.filter((t) => t.id !== id));
+      if (id === threadId) newThread();
+      try {
+        await api.deleteConversation(id);
+      } catch {
+        void loadHistory();
+      }
+    },
+    [threadId, newThread, loadHistory],
   );
 
   const send = useCallback(() => ask(input.trim()), [ask, input]);
@@ -151,14 +286,48 @@ export function PersonaView() {
     }
   };
 
-  const reset = () => {
-    setMessages([]);
-    setError("");
-    setInput("");
-  };
+  const historyItems: HistoryItem[] = threads.map((t) => ({
+    id: t.id,
+    title: t.title,
+    // The badge is the decision, when there is one. A thread still asking
+    // clarifying questions gets none rather than a placeholder — "henüz karar
+    // yok" in every row would be noise in the column that exists to be scanned.
+    badge: t.verdict
+      ? {
+          text:
+            t.verdict_score !== null
+              ? `${t.verdict} · ${t.verdict_score}`
+              : t.verdict,
+          tone: toneFor(t.verdict),
+        }
+      : null,
+    timestamp: t.last_turn_at,
+    // Exchanges, not rows: the table stores a user turn and a reply separately,
+    // and "6 mesaj" for three questions reads as twice the work it was.
+    detail: `${Math.ceil(t.turns / 2)} tur`,
+  }));
 
   return (
-    <div className="h-full flex flex-col max-w-3xl mx-auto w-full px-4 sm:px-5">
+    <div className="h-full flex min-h-0">
+      <HistoryPanel
+        items={historyItems}
+        activeId={threadId}
+        onSelect={openThread}
+        onNew={newThread}
+        onRename={renameThread}
+        onDelete={deleteThread}
+        onLoadMore={() => {
+          setHistoryLoading(true);
+          void loadHistory(cursor);
+        }}
+        hasMore={hasMore}
+        loading={historyLoading}
+        error={historyError}
+        newLabel="+ Yeni"
+        emptyText="Henüz değerlendirme yok. İlk konusunu yazdığında burada birikmeye başlar."
+      />
+
+      <div className="h-full flex-1 min-w-0 flex flex-col max-w-3xl mx-auto w-full px-4 sm:px-5">
       {messages.length === 0 ? (
         <Intro onPick={ask} disabled={running} />
       ) : (
@@ -202,14 +371,17 @@ export function PersonaView() {
             style={{ color: "var(--text)" }}
           />
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* No longer "Sıfırla": the conversation is kept now, so clearing
+                the screen starts a second one rather than discarding the first.
+                The old label promised a destruction that no longer happens. */}
             {messages.length > 0 && (
               <button
-                className="btn btn-quiet btn-sm"
-                onClick={reset}
+                className="btn btn-quiet btn-sm lg:hidden"
+                onClick={newThread}
                 disabled={running}
-                title="Konuşmayı temizle ve yeni bir değerlendirmeye başla"
+                title="Bu değerlendirmeyi bırak ve yenisine başla"
               >
-                Sıfırla
+                Yeni
               </button>
             )}
             <button
@@ -226,6 +398,7 @@ export function PersonaView() {
           kaynaklara bağlar. <span className="mono">Enter</span> gönderir,{" "}
           <span className="mono">Shift+Enter</span> satır atlar.
         </p>
+      </div>
       </div>
     </div>
   );

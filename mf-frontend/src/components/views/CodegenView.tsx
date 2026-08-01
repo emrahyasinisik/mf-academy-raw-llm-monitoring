@@ -25,9 +25,9 @@
 // also unreliable: the sentence was a guess, while the status rail above now
 // counts the real elapsed seconds of the real run.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { Run } from "@/lib/types";
+import type { Run, RunSummary } from "@/lib/types";
 import { useMachine } from "@/store/machine";
 import {
   FLUTTER_SYSTEM_PROMPT,
@@ -35,10 +35,12 @@ import {
   buildBrief,
   extractDart,
   lintDart,
+  readStateFromPrompt,
   type Finding,
   type StateChoice,
 } from "@/lib/flutterContract";
 import { DartBlock } from "@/components/ui/DartBlock";
+import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
 
 // 0.3 is what the trial run used. Higher wanders off the code standard the whole
 // fine-tune exists to enforce; 0 makes it repeat one layout for every brief.
@@ -47,6 +49,8 @@ const DEFAULT_TEMPERATURE = 0.3;
 // Above the ~1200 tokens a screen took in testing, because a truncated widget is
 // this model's first failure mode and the extra headroom costs only time.
 const DEFAULT_MAX_TOKENS = 2048;
+
+const HISTORY_PAGE = 20;
 
 export function CodegenView() {
   const { models, host, begin } = useMachine();
@@ -86,6 +90,65 @@ export function CodegenView() {
 
   const ready = rawMode ? raw.trim().length > 10 : screen.trim().length > 2;
 
+  // ---- history ----
+  //
+  // No new storage for this side. Every generation has gone through
+  // POST /llm/generate since the first one, and that route has recorded the run
+  // in llm_runs all along — what was missing here was a screen, not a schema.
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [hasMore, setHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+
+  // Promise-chained and setting no state before the request goes out — see the
+  // same function in PersonaView for why an async body would fire a synchronous
+  // setState inside the mount effect.
+  const loadHistory = useCallback(
+    (before?: string) =>
+      api
+        .listRuns(HISTORY_PAGE, before)
+        .then((res) => {
+          setRuns((prev) => (before ? [...prev, ...res.runs] : res.runs));
+          setCursor(res.next_cursor);
+          setHasMore(res.has_more);
+          setHistoryError("");
+        })
+        .catch((e) =>
+          setHistoryError(
+            e instanceof ApiError ? e.message : "Geçmiş yüklenemedi.",
+          ),
+        )
+        .finally(() => setHistoryLoading(false)),
+    [],
+  );
+
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
+  // The state choice a shown run was actually generated under. Read back from
+  // its own prompt rather than taken from the form, because the form has moved
+  // on: linting a stored run against the currently-selected state would report a
+  // missing Cubit on a screen that correctly asked for none.
+  const shownState = useMemo(
+    () => (run ? readStateFromPrompt(run.prompt) : state),
+    [run, state],
+  );
+
+  const openRun = useCallback(
+    async (id: string) => {
+      if (running || run?.id === id) return;
+      setError("");
+      try {
+        setRun(await api.getRun(id));
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "Üretim açılamadı.");
+      }
+    },
+    [running, run?.id],
+  );
+
   const generate = useCallback(async () => {
     if (!ready || running || !model) return;
     setRunning(true);
@@ -104,6 +167,10 @@ export function CodegenView() {
       });
       setRun(res);
       done(res);
+      // The run is already stored by the time this resolves — /llm/generate
+      // records it before answering — so the rail is re-read rather than
+      // patched with a locally-built row that would only approximate one.
+      void loadHistory();
     } catch (e) {
       done();
       setError(
@@ -114,12 +181,46 @@ export function CodegenView() {
     } finally {
       setRunning(false);
     }
-  }, [ready, running, model, prompt, temperature, begin]);
+  }, [ready, running, model, prompt, temperature, begin, loadHistory]);
 
   const offline = host === "offline";
 
+  const historyItems: HistoryItem[] = runs.map((r) => {
+    // The first line of the brief is the screen's name — "Ekran: Bildirim
+    // tercihleri" — which is the one thing that tells two runs apart in a list.
+    // The preview's remaining lines are the description and the state, and both
+    // are noise at this size.
+    const first = r.prompt_preview.split("\n")[0] ?? "";
+    return {
+      id: r.id,
+      title: first.replace(/^Ekran:\s*/i, "").trim() || "Adsız ekran",
+      badge: r.score
+        ? { text: r.score.grade, tone: gradeTone(r.score.grade) }
+        : null,
+      timestamp: r.created_at,
+      detail: `${(r.latency_ms / 1000).toFixed(1)} s · ${r.completion_tokens} tok`,
+    };
+  });
+
   return (
-    <div className="h-full overflow-y-auto scrollbar-thin">
+    <div className="h-full flex min-h-0">
+      <HistoryPanel
+        items={historyItems}
+        activeId={run?.id ?? null}
+        onSelect={openRun}
+        onNew={() => setRun(null)}
+        onLoadMore={() => {
+          setHistoryLoading(true);
+          void loadHistory(cursor);
+        }}
+        hasMore={hasMore}
+        loading={historyLoading}
+        error={historyError}
+        newLabel="Temizle"
+        emptyText="Henüz üretim yok. İlk ekranını ürettiğinde burada birikmeye başlar."
+      />
+
+      <div className="h-full flex-1 min-w-0 overflow-y-auto scrollbar-thin">
       <div className="max-w-[1400px] mx-auto w-full px-4 sm:px-5 py-6 grid gap-5 lg:grid-cols-[minmax(340px,400px)_1fr]">
         {/* ---- control column ---- */}
         <div className="space-y-4 min-w-0">
@@ -302,11 +403,31 @@ export function CodegenView() {
             aria-live so the outcome is announced when it lands: the reader who
             started a minute-long generation is not necessarily still watching. */}
         <div className="min-w-0" aria-live="polite">
-          {running ? <Working /> : run ? <Result run={run} state={state} /> : <Empty />}
+          {running ? (
+            <Working />
+          ) : run ? (
+            <Result run={run} state={shownState} />
+          ) : (
+            <Empty />
+          )}
         </div>
+      </div>
       </div>
     </div>
   );
+}
+
+/**
+ * The colour of a score's letter grade. Kept next to the history rail rather
+ * than in the scoring module because it is a presentation choice about this
+ * list, and the same grade is rendered without colour elsewhere.
+ */
+function gradeTone(grade: string): string | undefined {
+  const g = grade.trim().toUpperCase();
+  if (g.startsWith("A")) return "var(--ok)";
+  if (g.startsWith("B") || g.startsWith("C")) return "var(--warn)";
+  if (g.startsWith("D") || g.startsWith("F")) return "var(--bad)";
+  return undefined;
 }
 
 function Field({

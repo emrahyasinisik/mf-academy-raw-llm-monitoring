@@ -29,6 +29,8 @@ import type {
   ActivationResult,
   DecisionTurn,
   DecisionResult,
+  Conversation,
+  ConversationList,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -263,14 +265,40 @@ export const api = {
 
   // ---- Decision persona ----
   //
-  // The whole conversation goes up each turn; the server is stateless between
+  // The whole conversation goes up each turn; the agent is stateless between
   // turns and researches live from the transcript. Slow by design: it waits on
   // a web search and then the GPU across a tunnel.
-  decisionChat: (messages: DecisionTurn[]) =>
+  //
+  // conversation_id names the thread to record the turn in, and is omitted to
+  // open a new one. It does not change what the agent sees — the transcript
+  // above is still the input — so a turn whose history write fails still
+  // answers, and says so by returning an empty conversation_id.
+  decisionChat: (messages: DecisionTurn[], conversationId?: string) =>
     request<DecisionResult>("/decision/chat", {
       method: "POST",
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({
+        messages,
+        ...(conversationId ? { conversation_id: conversationId } : {}),
+      }),
     }),
+
+  // Cursor-paginated, ordered by last activity rather than by creation: a thread
+  // resumed after a week belongs at the top of the list, not buried under ones
+  // nobody has opened since.
+  conversations: (limit = 20, before?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", before);
+    return request<ConversationList>(`/decision/conversations?${params}`);
+  },
+  conversation: (id: string) =>
+    request<Conversation>(`/decision/conversations/${id}`),
+  renameConversation: (id: string, title: string) =>
+    request<void>(`/decision/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteConversation: (id: string) =>
+    request<void>(`/decision/conversations/${id}`, { method: "DELETE" }),
 
   // Which MCP servers this browser is allowed to connect to. Answered by the
   // server rather than bundled, so switching one off actually switches it off.

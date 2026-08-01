@@ -459,7 +459,15 @@ export interface WikiAnswer {
 
 export type DecisionRole = "user" | "assistant";
 
-/** One message in the persona conversation. The client owns the whole history. */
+/**
+ * One message in the persona conversation.
+ *
+ * The client still owns the transcript for the purposes of a turn — the whole
+ * history goes up each time and the agent reads it from the request, not the
+ * database. Persistence is a side effect of a turn, so this stays the wire
+ * shape; `Conversation` below is what the server kept, and it is only read when
+ * resuming a thread.
+ */
 export interface DecisionTurn {
   role: DecisionRole;
   content: string;
@@ -486,4 +494,61 @@ export interface DecisionResult {
   sources: DecisionSource[];
   research: ResearchStep[];
   model: string;
+  /**
+   * The thread this turn was recorded in — the server's, and new on the first
+   * turn of a conversation.
+   *
+   * Empty when the turn could not be recorded. That is a signal, not an
+   * omission: the answer above is real and must be shown, but storing this id
+   * would later resume a thread the server does not have. Callers keep whatever
+   * id they already held rather than overwriting it with "".
+   */
+  conversation_id: string;
+}
+
+// ---- Persona history ----
+
+/**
+ * One row of the history list. No message bodies: a transcript runs to tens of
+ * kilobytes of evidence-laden replies, and the list renders a title, a badge and
+ * a time. Read a full thread with api.conversation(id).
+ */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  /** The decision this thread reached, or null while it is still researching. */
+  verdict: string | null;
+  verdict_score: number | null;
+  /** Messages, counting both sides — so one exchange is two. */
+  turns: number;
+  last_turn_at: string;
+  created_at: string;
+}
+
+/** A stored turn. Sources and research are empty on the user's own messages. */
+export interface ConversationMessage {
+  role: DecisionRole;
+  content: string;
+  sources: DecisionSource[];
+  research: ResearchStep[];
+  model: string;
+}
+
+/** A thread with its full transcript, for resuming it. */
+export interface Conversation {
+  id: string;
+  title: string;
+  verdict: string | null;
+  verdict_score: number | null;
+  messages: ConversationMessage[];
+  last_turn_at: string;
+  created_at: string;
+}
+
+/** Cursor-paginated page of threads. Pass next_cursor back as `before`. */
+export interface ConversationList {
+  conversations: ConversationSummary[];
+  limit: number;
+  next_cursor?: string;
+  has_more: boolean;
 }
