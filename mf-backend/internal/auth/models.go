@@ -39,6 +39,9 @@ type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+	// No omitempty and no default: an acceptance the server infers is not an
+	// acceptance. Absent reads as false and is refused like an explicit false.
+	AcceptedTerms bool `json:"accepted_terms"`
 }
 
 type LoginRequest struct {

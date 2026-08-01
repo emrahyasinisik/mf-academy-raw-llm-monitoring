@@ -36,6 +36,19 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, name, terms
 	return u, err
 }
 
+// AcceptTerms records acceptance for a user who registered before the terms
+// existed.
+//
+// The WHERE clause keeps the first acceptance: re-accepting must not move the
+// date, because the date is the record. A second call changes nothing and is
+// not an error — the caller asked for a state that already holds.
+func (s *Store) AcceptTerms(ctx context.Context, userID, version string) error {
+	_, err := s.db.Exec(ctx,
+		`UPDATE users SET terms_accepted_at = now(), terms_version = $2, updated_at = now()
+		  WHERE id = $1 AND terms_accepted_at IS NULL`, userID, version)
+	return err
+}
+
 // GetUserByEmailWithHash returns the user plus password hash for login checks.
 func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User, string, error) {
 	var u User
