@@ -47,6 +47,10 @@ func (h *Handler) Routes(
 		// Registered last: a literal path must be matched before the wildcard,
 		// or "/trials/{group}" would be swallowed by "/{id}".
 		pr.With(common.Timeout(defaultTimeout)).Get("/{id}", h.Get)
+
+		// Same wildcard caveat as the GET above: registered after the literal
+		// paths, or "/trials/{group}" would be swallowed by "/{id}".
+		pr.With(common.Timeout(defaultTimeout)).Delete("/{id}", h.Delete)
 	})
 
 	return r

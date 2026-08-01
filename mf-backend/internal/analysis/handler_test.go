@@ -1,8 +1,14 @@
 package analysis
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/emrah/mf-backend/internal/common"
+	"github.com/go-chi/chi/v5"
 )
 
 // The default chat budget must not be allowed to truncate a rubric answer.
@@ -48,5 +54,65 @@ func TestTrialTimeoutCoversEveryRun(t *testing.T) {
 func TestTrialTimeoutIsCapped(t *testing.T) {
 	if got := TrialTimeout(time.Second * 600); got > time.Minute*30 {
 		t.Errorf("trialTimeout = %v, want capping at 30m", got)
+	}
+}
+
+// redactStore is the only part of AssessmentStore these tests touch. The rest
+// of the interface is embedded so this stays compiling when the interface
+// grows, without pretending to implement methods the handler never calls here.
+type redactStore struct {
+	AssessmentStore
+	changed bool
+	err     error
+	gotUser string
+	gotID   string
+}
+
+func (s *redactStore) RedactAssessment(_ context.Context, userID, id string) (bool, error) {
+	s.gotUser, s.gotID = userID, id
+	return s.changed, s.err
+}
+
+func deleteRequest(t *testing.T, h *Handler, id string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodDelete, "/analysis/"+id, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	r = r.WithContext(common.ContextWithClaims(
+		context.WithValue(r.Context(), chi.RouteCtxKey, rctx),
+		common.AuthClaims{UserID: "user-1"}))
+	w := httptest.NewRecorder()
+	h.Delete(w, r)
+	return w
+}
+
+func TestDeleteRedactsAndReturns204(t *testing.T) {
+	st := &redactStore{changed: true}
+	w := deleteRequest(t, NewHandler(st, nil, nil), "rep-1")
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204", w.Code)
+	}
+	if st.gotUser != "user-1" || st.gotID != "rep-1" {
+		t.Errorf("store called with (%q,%q), want (user-1,rep-1)", st.gotUser, st.gotID)
+	}
+}
+
+// Idempotent on purpose: a second click, a double-submitted form or a retried
+// request must not read as a failure. The data is already gone, which is the
+// outcome the caller asked for.
+func TestDeleteIsIdempotent(t *testing.T) {
+	st := &redactStore{changed: false}
+	if w := deleteRequest(t, NewHandler(st, nil, nil), "rep-1"); w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204 for an already-redacted report", w.Code)
+	}
+}
+
+// 404 rather than 403 for someone else's report: a 403 confirms the id exists,
+// which is a fact the caller is not entitled to. GetAssessment already answers
+// this way and the two must not disagree.
+func TestDeleteHidesOtherPeoplesReports(t *testing.T) {
+	st := &redactStore{err: ErrNoRows}
+	if w := deleteRequest(t, NewHandler(st, nil, nil), "rep-1"); w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
 	}
 }

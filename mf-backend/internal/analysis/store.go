@@ -195,6 +195,38 @@ func (s *Store) ListAssessments(
 	return out, nil
 }
 
+// RedactAssessment blanks the personal columns of one report the caller owns.
+//
+// Two round trips in the miss case, and deliberately so. The UPDATE cannot tell
+// "this row is not yours" from "you already did this": both change zero rows.
+// Only the second is a success, and collapsing them would either 404 a
+// legitimate repeat click or 204 a probe for someone else's report id.
+func (s *Store) RedactAssessment(ctx context.Context, userID, id string) (bool, error) {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE assessments
+		    SET subject = '', subject_title = '', findings = '[]'::jsonb,
+		        raw_response = '', redacted_at = now()
+		  WHERE id = $1 AND user_id = $2 AND redacted_at IS NULL`,
+		id, userID)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() > 0 {
+		return true, nil
+	}
+
+	var one int
+	err = s.db.QueryRow(ctx,
+		`SELECT 1 FROM assessments WHERE id = $1 AND user_id = $2`, id, userID).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNoRows
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 // TrialAssessments returns every run in a consistency group, oldest first.
 func (s *Store) TrialAssessments(ctx context.Context, userID, group string) ([]Assessment, error) {
 	rows, err := s.db.Query(ctx,
