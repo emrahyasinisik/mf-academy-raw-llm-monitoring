@@ -209,6 +209,7 @@ export interface Assessment {
   prompt_tokens: number;
   completion_tokens: number;
   created_at: string;
+  redacted_at: string | null;
 }
 
 export interface AssessmentSummary {
@@ -222,6 +223,7 @@ export interface AssessmentSummary {
   model: string;
   latency_ms: number;
   created_at: string;
+  redacted_at: string | null;
 }
 
 export interface AssessmentList {

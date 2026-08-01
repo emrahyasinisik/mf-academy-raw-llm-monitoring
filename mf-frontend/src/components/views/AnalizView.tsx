@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { isRedacted, reportTitle } from "@/lib/report";
 import { breakdown, caseBudgetChars, estimateTokens } from "@/lib/rubric";
 import { useMachine } from "@/store/machine";
 import type {
@@ -50,6 +51,7 @@ export function AnalizView() {
   const [prompt, setPrompt] = useState<{ slug: string; chars: number } | null>(null);
 
   const [history, setHistory] = useState<AssessmentSummary[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const loadDomains = useCallback(() => {
     api
@@ -154,6 +156,32 @@ export function AnalizView() {
       setRunning(false);
     }
   }, [begin, running, slug, subject, title, refreshHistory]);
+
+  // İki adımlı onay, tarayıcının confirm() kutusu değil: bu arayüz koyu tema ve
+  // kendi diliyle konuşuyor, ve confirm() ikisini de terk ediyor.
+  //
+  // Silinen satır listeden çıkarılmıyor, redakte işaretleniyor. Neyin silindiğini
+  // göstermek, satırı yok etmekten dürüst — ve zaten sunucuda da olan bu.
+  const remove = useCallback(async (id: string) => {
+    setPendingDelete(null);
+    try {
+      await api.analysisDelete(id);
+    } catch {
+      setRunError("Rapor silinemedi.");
+      return;
+    }
+    const stamp = new Date().toISOString();
+    setHistory((prev) =>
+      prev.map((h) =>
+        h.id === id ? { ...h, redacted_at: stamp, subject_title: "" } : h,
+      ),
+    );
+    setAssessment((cur) =>
+      cur && cur.id === id
+        ? { ...cur, redacted_at: stamp, subject_title: "", subject: "", findings: [] }
+        : cur,
+    );
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -280,19 +308,26 @@ export function AnalizView() {
         {history.length > 0 && (
           <section className="mt-8 gecmis">
             <h2 className="eyebrow">Önceki raporlar</h2>
+            <p className="text-xs mt-1" style={{ color: "var(--text-faint)" }}>
+              Rapor içerikleri 30 gün sonra otomatik silinir. Puan kaydı kalır.
+            </p>
             <div className="mt-2 space-y-1">
               {history.map((h) => (
-                <button
+                <div
                   key={h.id}
-                  className="card card-action w-full text-left p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
-                  onClick={() =>
-                    api
-                      .analysisGet(h.id)
-                      .then(setAssessment)
-                      .catch(() => setRunError("Rapor açılamadı."))
-                  }
+                  className="card w-full p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
                 >
-                  <span className="text-sm flex-1 min-w-0 truncate">{h.subject_title}</span>
+                  <button
+                    className="card-action text-left flex-1 min-w-0 truncate text-sm"
+                    onClick={() =>
+                      api
+                        .analysisGet(h.id)
+                        .then(setAssessment)
+                        .catch(() => setRunError("Rapor açılamadı."))
+                    }
+                  >
+                    {reportTitle(h)}
+                  </button>
                   <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
                     {h.domain_name}
                   </span>
@@ -305,7 +340,30 @@ export function AnalizView() {
                   <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
                     {new Date(h.created_at).toLocaleDateString("tr-TR")}
                   </span>
-                </button>
+
+                  {!isRedacted(h) && (
+                    pendingDelete === h.id ? (
+                      <span className="flex items-center gap-2">
+                        <button className="btn btn-danger btn-sm" onClick={() => remove(h.id)}>
+                          Silinsin
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setPendingDelete(null)}
+                        >
+                          Vazgeç
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setPendingDelete(h.id)}
+                      >
+                        Sil
+                      </button>
+                    )
+                  )}
+                </div>
               ))}
             </div>
           </section>
@@ -354,6 +412,18 @@ const pct = (x: number) => `%${Math.round(x * 100)}`;
  * ile 0.3 kapsamdaki 68'i aynı şey gibi gösterir.
  */
 function Rapor({ assessment }: { assessment: Assessment }) {
+  if (isRedacted(assessment)) {
+    return (
+      <article className="card mt-5 p-4">
+        <h2 className="eyebrow">Rapor</h2>
+        <p className="mt-2 text-sm">
+          Bu raporun içeriği silindi. Puan ve kapsam kaydı duruyor, vaka metni ve
+          kanıt alıntıları kaldırıldı.
+        </p>
+      </article>
+    );
+  }
+
   const b = breakdown(assessment.criteria_snapshot, assessment.findings);
 
   return (

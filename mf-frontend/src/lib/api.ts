@@ -219,6 +219,9 @@ export const api = {
     return request<AssessmentList>(`/analysis?${params}`);
   },
   analysisGet: (id: string) => request<Assessment>(`/analysis/${id}`),
+  // 204 döner; request() zaten gövdesiz yanıtı undefined'a çeviriyor.
+  analysisDelete: (id: string) =>
+    request<void>(`/analysis/${id}`, { method: "DELETE" }),
   // Prompt'un kendisi, gösterilmek için değil ölçülmek için: vaka alanının
   // karakter bütçesi seçili rubriğin sistem prompt'u kadar küçülüyor.
   analysisPrompt: (slug: string) =>
