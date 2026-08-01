@@ -289,6 +289,16 @@ phase_eval() {
   # pull saved; rubric_eval.py reads the base from the hub and only needs the
   # PEFT pair from us.
   if [[ -z "${DRY_RUN:-}" && -s "$OUT_DIR/adapter_model.safetensors" ]]; then
+    # The directory first. `colab upload` into a missing parent answers 500
+    # Internal Server Error, not "no such directory" — which reads exactly like
+    # a size limit on a 47 MB file, and cost a detour into splitting it into
+    # chunks that failed the same way at 5 MB. phase_push makes out/, not
+    # out/colab-pilot/, because on the training path the Trainer makes it.
+    run_stdin 60 <<PY
+import os
+os.makedirs("$REMOTE/$OUT_DIR", exist_ok=True)
+print("adapter dir ready")
+PY
     for f in adapter_model.safetensors adapter_config.json; do
       colab upload -s "$SESSION" "$OUT_DIR/$f" "$REMOTE/$OUT_DIR/$f"
     done
