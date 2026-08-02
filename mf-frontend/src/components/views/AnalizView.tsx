@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { isRedacted, reportTitle } from "@/lib/report";
 import { breakdown, caseBudgetChars, estimateTokens } from "@/lib/rubric";
+import { CriterionContinuum } from "@/components/ui/CriterionContinuum";
 import { useMachine } from "@/store/machine";
 import type {
   AnalysisDomain,
@@ -185,26 +186,51 @@ export function AnalizView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-4 sm:px-5 py-6">
-        <h1 className="font-display text-lg font-semibold">Analiz</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--text-dim)" }}>
-          Bir vaka girin, rubrik-puanlı bir rapor alın.
-        </p>
+      <div className="mx-auto max-w-6xl px-4 sm:px-5 py-7 sm:py-9">
+        <header className="reveal-up" style={{ ["--i" as string]: 0 }}>
+          <p className="eyebrow">Rubrik</p>
+          <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight mt-2">
+            Analiz
+          </h1>
+          <p
+            className="text-[0.95rem] mt-2.5 max-w-xl leading-relaxed"
+            style={{ color: "var(--text-dim)" }}
+          >
+            Bir vaka girin — model rubriği doldurur, ağırlıklı toplam açık
+            hesaplanır. Her puanın yanında kanıt; karar sizde.
+          </p>
+        </header>
 
         {loadError && (
-          <div className="notice notice-bad mt-4" role="alert">
+          <div className="notice notice-bad mt-5 reveal-up" role="alert" style={{ ["--i" as string]: 1 }}>
             {loadError}
           </div>
         )}
 
         {!loadError && domains.length === 0 && (
-          <p className="mono text-xs mt-4" style={{ color: "var(--text-faint)" }}>
+          <p className="mono text-xs mt-5" style={{ color: "var(--text-faint)" }}>
             rubrikler yükleniyor…
           </p>
         )}
 
         {domains.length > 0 && (
-          <div className="card mt-5 p-4 space-y-4">
+          <div
+            className="mt-7 p-5 sm:p-6 space-y-5 reveal-up"
+            style={{
+              ["--i" as string]: 1,
+              background: "var(--panel)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r-lg)",
+              boxShadow: "var(--bevel), var(--shadow-2)",
+            }}
+          >
+            <div>
+              <h2 className="font-display text-lg tracking-tight">Yeni değerlendirme</h2>
+              <p className="text-xs mt-1" style={{ color: "var(--text-faint)" }}>
+                Rubrik seçin, vakayı yapıştırın, sonucu denetleyin.
+              </p>
+            </div>
+
             <div>
               <label className="label" htmlFor="analiz-rubrik">
                 Rubrik
@@ -280,13 +306,24 @@ export function AnalizView() {
               </div>
             )}
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 className="btn btn-primary"
                 disabled={!canRun || running}
                 onClick={run}
               >
-                {running ? "Analiz ediliyor…" : "Analiz et"}
+                {running ? (
+                  <span className="flex items-center gap-2">
+                    Analiz ediliyor
+                    <span className="flex gap-1" aria-hidden>
+                      <span className="dot" />
+                      <span className="dot" />
+                      <span className="dot" />
+                    </span>
+                  </span>
+                ) : (
+                  "Analiz et"
+                )}
               </button>
               {running && (
                 <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
@@ -306,25 +343,29 @@ export function AnalizView() {
         {assessment && <Rapor assessment={assessment} />}
 
         {history.length > 0 && (
-          <section className="mt-8 gecmis">
+          <section className="mt-10 gecmis reveal-up" style={{ ["--i" as string]: 2 }}>
             <h2 className="eyebrow">Önceki raporlar</h2>
             <p className="text-xs mt-1" style={{ color: "var(--text-faint)" }}>
               Rapor içerikleri 30 gün sonra otomatik silinir. Puan kaydı kalır.
             </p>
-            <div className="mt-2 space-y-1">
-              {history.map((h) => (
+            <div
+              className="mt-3 overflow-hidden"
+              style={{
+                background: "var(--panel)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--r-md)",
+                boxShadow: "var(--bevel)",
+              }}
+            >
+              {history.map((h, i) => (
                 <div
                   key={h.id}
-                  className="card w-full p-3 flex flex-wrap items-center gap-x-4 gap-y-1"
+                  className="item-in w-full px-3.5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1"
+                  style={{
+                    ["--i" as string]: Math.min(i, 8),
+                    borderTop: i === 0 ? undefined : "1px solid var(--line)",
+                  }}
                 >
-                  {/* row-action, not card-action: bu düğme kartın kendisi
-                      değil, kartın içinde bir hedef. card-action bir .card
-                      değiştiricisi — kenarlığı ve gölgesi olan bir yüzey
-                      varsayıyor, çıplak bir <button>'da ikisi de yok, ve orada
-                      hover görünmez bir kenarlık değişimiyle şeffaf bir metnin
-                      etrafına düşen kart gölgesine dönüşüyor. Tıklama hedefini
-                      tüm karta geri taşımak da olmazdı: satırda silme düğmesi
-                      var, düğme içinde düğme olmaz. */}
                   <button
                     className="row-action text-left flex-1 min-w-0 truncate text-sm"
                     onClick={() =>
@@ -339,8 +380,6 @@ export function AnalizView() {
                   <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
                     {h.domain_name}
                   </span>
-                  {/* Kapsam listede de puanın yanında: aynı sayı farklı
-                      kapsamlarda farklı bulgu, ve unutulduğu yer tam burası. */}
                   <span className="mono text-xs num" style={{ color: "var(--text-dim)" }}>
                     {h.overall_score === null ? "—" : h.overall_score.toFixed(1)} ·{" "}
                     {pct(h.coverage)}
@@ -422,7 +461,7 @@ const pct = (x: number) => `%${Math.round(x * 100)}`;
 function Rapor({ assessment }: { assessment: Assessment }) {
   if (isRedacted(assessment)) {
     return (
-      <article className="card mt-5 p-4">
+      <article className="card mt-6 p-5 view-in">
         <h2 className="eyebrow">Rapor</h2>
         <p className="mt-2 text-sm">
           Bu raporun içeriği silindi. Puan ve kapsam kaydı duruyor, vaka metni ve
@@ -433,35 +472,58 @@ function Rapor({ assessment }: { assessment: Assessment }) {
   }
 
   const b = breakdown(assessment.criteria_snapshot, assessment.findings);
+  const scorePct = b.overall === null ? 0 : Math.min(100, b.overall);
+  const coveragePct = Math.round(b.coverage * 100);
 
   return (
-    <article className="card mt-5 p-4 rapor">
+    <article
+      className="mt-6 p-5 sm:p-6 rapor view-in"
+      style={{
+        background: "var(--panel)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--r-lg)",
+        boxShadow: "var(--bevel), var(--shadow-2)",
+      }}
+    >
       <header
-        className="flex flex-wrap items-start justify-between gap-4 pb-4"
+        className="flex flex-wrap items-start justify-between gap-5 pb-5"
         style={{ borderBottom: "1px solid var(--line)" }}
       >
-        <div className="min-w-0">
-          <h2 className="font-display text-base font-semibold truncate">
+        <div className="min-w-0 flex-1">
+          <p className="eyebrow mb-2">Rapor</p>
+          <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight truncate">
             {assessment.subject_title}
           </h2>
-          <p className="mono text-xs mt-1" style={{ color: "var(--text-faint)" }}>
+          <p className="mono text-xs mt-1.5" style={{ color: "var(--text-faint)" }}>
             {assessment.domain_name} · v{assessment.domain_version} ·{" "}
             {new Date(assessment.created_at).toLocaleString("tr-TR")}
           </p>
+          <CriterionContinuum
+            className="mt-4 max-w-xs"
+            count={Math.min(12, Math.max(6, b.rows.length))}
+            mode="fill"
+            filled={b.coverage}
+          />
         </div>
 
-        <div className="flex items-baseline gap-4 shrink-0">
-          <div>
+        <div className="flex items-start gap-6 shrink-0">
+          <div className="min-w-[4.5rem]">
             <div className="eyebrow">Toplam</div>
-            <div className="num font-display text-2xl">
+            <div className="num font-display text-3xl mt-1 tracking-tight">
               {b.overall === null ? "—" : b.overall.toFixed(1)}
             </div>
+            <div className="score-fill mt-2" style={{ ["--p" as string]: scorePct }}>
+              <span />
+            </div>
           </div>
-          {/* Kapsam puanın yanından ayrılmaz: aynı sayı farklı kapsamlarda
-              farklı bulgudur. */}
-          <div>
+          <div className="min-w-[4.5rem]">
             <div className="eyebrow">Kapsam</div>
-            <div className="num font-display text-2xl">{pct(b.coverage)}</div>
+            <div className="num font-display text-3xl mt-1 tracking-tight">
+              {pct(b.coverage)}
+            </div>
+            <div className="score-fill mt-2" style={{ ["--p" as string]: coveragePct }}>
+              <span />
+            </div>
           </div>
         </div>
       </header>
@@ -473,10 +535,15 @@ function Rapor({ assessment }: { assessment: Assessment }) {
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
-        {b.rows.map((row) => (
-          <details key={row.criterion.key} className="well p-3" open>
-            <summary className="flex flex-wrap items-center gap-x-3 gap-y-1 cursor-pointer">
+      <div className="mt-5 space-y-2">
+        {b.rows.map((row, i) => (
+          <details
+            key={row.criterion.key}
+            className="well p-3.5 item-in"
+            style={{ ["--i" as string]: Math.min(i, 10) }}
+            open
+          >
+            <summary className="flex flex-wrap items-center gap-x-3 gap-y-1.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
               <span className="font-medium text-sm flex-1 min-w-0">
                 {row.criterion.label}
               </span>
@@ -491,8 +558,6 @@ function Rapor({ assessment }: { assessment: Assessment }) {
                     {row.clamped} /{" "}
                     {row.criterion.scale_max > 0 ? row.criterion.scale_max : 5}
                   </span>
-                  {/* Katkı kolonu: bu sayıların toplamı yukarıdaki toplam
-                      puana eşittir. Raporun savunulabilir olmasının sebebi. */}
                   <span className="mono text-xs num" style={{ color: "var(--text-dim)" }}>
                     +{row.points.toFixed(1)}
                   </span>
@@ -517,12 +582,9 @@ function Rapor({ assessment }: { assessment: Assessment }) {
 
               {row.finding && row.finding.evidence.length > 0 ? (
                 <ul className="space-y-1.5">
-                  {row.finding.evidence.map((q, i) => (
-                    // Birebir alıntı, parafraz değil: parafraz kaynağa karşı
-                    // doğrulanamaz, ve doğrulanamayan bir atıf sağlam göründüğü
-                    // için hiç atıf olmamasından kötüdür.
+                  {row.finding.evidence.map((q, qi) => (
                     <li
-                      key={i}
+                      key={qi}
                       className="text-sm pl-3"
                       style={{
                         borderLeft: "2px solid var(--brand-line)",
@@ -548,7 +610,7 @@ function Rapor({ assessment }: { assessment: Assessment }) {
       </div>
 
       <footer
-        className="mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-1 mono text-xs"
+        className="mt-5 pt-3.5 flex flex-wrap gap-x-4 gap-y-1 mono text-xs"
         style={{ borderTop: "1px solid var(--line)", color: "var(--text-faint)" }}
       >
         <span>model {assessment.model}</span>
@@ -556,8 +618,6 @@ function Rapor({ assessment }: { assessment: Assessment }) {
         <span className="num">
           {assessment.prompt_tokens} + {assessment.completion_tokens} token
         </span>
-        {/* Gizlenmiyor: şemayı tutturamamış bir cevap operatörün bilmesi
-            gereken bir şey, ve rapor yine de okunabilir kalıyor. */}
         {!assessment.schema_valid && <span style={{ color: "var(--warn)" }}>şema onarıldı</span>}
       </footer>
     </article>

@@ -35,10 +35,10 @@ export type MasterView =
 // loaded. That put the product second, and which model is loaded is not a
 // question nav order should be answering.
 //
-// The generator and the persona stay: both are working surfaces, and both fail
-// legibly (they report the inference host, they do not crash) when the machine
-// is off. Admin is listed for everyone: the view itself explains the role
-// requirement, friendlier than a nav item that vanishes.
+// The persona stays: it is a working surface, and it fails legibly (it reports
+// the inference host, it does not crash) when the machine is off. Admin is
+// listed for everyone: the view itself explains the role requirement,
+// friendlier than a nav item that vanishes.
 // Metrics sits beside Yönetim and follows the same rule: listed for everyone,
 // with the view explaining the role it needs. It is a separate master view
 // rather than a fifth admin tab because it is the one screen here that reads
@@ -47,7 +47,6 @@ export type MasterView =
 // empties for reasons its neighbours do not share belongs on its own.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
   { id: "analiz", label: "Analiz", Icon: IconRubric },
-  { id: "codegen", label: "Üreteç", Icon: IconCode },
   { id: "persona", label: "Persona", Icon: IconSpark },
   { id: "metrics", label: "Metrikler", Icon: IconChart },
   { id: "admin", label: "Yönetim", Icon: IconSliders },
@@ -56,7 +55,19 @@ const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] =
 // Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
 // üyeliğine bakıyordu; gizlilik bir çalışma aracı değil, bir belge — nav'a
 // girmesi orayı sulandırır, ama derin bağlantının çalışması gerekiyor.
-const OFF_NAV: MasterView[] = ["gizlilik", "kosullar"];
+//
+// `codegen` buraya 2 Ağu 2026'da indi, silinerek değil. Flutter ekran üreteci
+// çalışıyor ve bozulmadı; kaldırılma sebebi ürün odağı. Kod üretiminde rakip
+// büyük modeller, ve 6 GB kartta 4B modelle o kavga kaybediliyor — CLAUDE.md
+// "best model" iddiasını zaten yasaklıyor. Yatırım tarafının eksenleri (rubrik
+// şeffaflığı, veri egemenliği, tutarlılık) ise rakibin model boyutuyla
+// erimiyor. Ölçüm de bunu destekliyordu: adapter'ın kazancı ev stilinde
+// (clean 81 → 95.2%), kanıt okuma iddiası doğrulanmamıştı.
+//
+// Rota adreslenebilir kaldı — #codegen hâlâ açılıyor — çünkü geri getirmenin
+// maliyeti bu dizide bir satır olsun istiyoruz, ve gömülü bağlantısı olan
+// kimse 404 görmesin.
+const OFF_NAV: MasterView[] = ["gizlilik", "kosullar", "codegen"];
 
 const isMaster = (v: string): v is MasterView =>
   NAV.some((n) => n.id === v) || (OFF_NAV as string[]).includes(v);
@@ -85,10 +96,10 @@ function Pane({ active, children }: { active: boolean; children: React.ReactNode
     if (!active || !ref.current || reducedMotion()) return;
     ref.current.animate(
       [
-        { opacity: 0, transform: "translateY(6px)" },
-        { opacity: 1, transform: "none" },
+        { opacity: 0, transform: "translateY(12px)", filter: "blur(3px)" },
+        { opacity: 1, transform: "none", filter: "blur(0)" },
       ],
-      { duration: 300, easing: "cubic-bezier(.2,.8,.3,1)" },
+      { duration: 380, easing: "cubic-bezier(.16,1,.3,1)" },
     );
   }, [active]);
 
@@ -191,13 +202,8 @@ export function AppShell() {
       </a>
 
       <header
-        className="sticky top-0 z-20"
-        style={{
-          background: "color-mix(in srgb, var(--panel) 88%, transparent)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          borderBottom: "1px solid var(--line)",
-        }}
+        className="sticky top-0 z-20 glass"
+        style={{ borderBottom: "1px solid var(--line)" }}
       >
         <div className="flex items-center justify-between gap-4 px-4 sm:px-5 h-14">
           <div className="flex items-center gap-5 min-w-0">
@@ -276,10 +282,24 @@ export function AppShell() {
         </div>
 
         <footer
-          className="shrink-0 px-4 sm:px-5 py-2.5 text-xs"
+          className="shrink-0 px-4 sm:px-5 py-2.5 text-xs flex flex-wrap gap-x-1"
           style={{ color: "var(--text-faint)", borderTop: "1px solid var(--line)" }}
         >
-          <a href="#gizlilik">Verileriniz ve gizlilik</a> · <a href="#kosullar">Kullanım koşulları</a>
+          <a
+            href="#gizlilik"
+            className="hover:text-[var(--text-dim)] transition-colors"
+            style={{ transitionDuration: "var(--dur-2)" }}
+          >
+            Verileriniz ve gizlilik
+          </a>
+          <span aria-hidden> · </span>
+          <a
+            href="#kosullar"
+            className="hover:text-[var(--text-dim)] transition-colors"
+            style={{ transitionDuration: "var(--dur-2)" }}
+          >
+            Kullanım koşulları
+          </a>
         </footer>
       </main>
     </div>
@@ -341,11 +361,25 @@ function MasterNav({
             className="relative flex items-center gap-2 px-2.5 sm:px-3 h-9 rounded-[var(--r-sm)] text-sm font-medium"
             style={{
               color: on ? "var(--text)" : "var(--text-dim)",
-              transition: "color var(--dur-2) var(--ease), background var(--dur-2) var(--ease)",
+              transition:
+                "color var(--dur-2) var(--ease), background var(--dur-2) var(--ease), transform var(--dur-1) var(--ease)",
               background: on ? "var(--panel-2)" : "transparent",
             }}
+            onMouseEnter={(e) => {
+              if (!on) e.currentTarget.style.background = "var(--panel-2)";
+            }}
+            onMouseLeave={(e) => {
+              if (!on) e.currentTarget.style.background = "transparent";
+            }}
           >
-            <span style={{ color: on ? "var(--brand)" : "inherit", display: "flex" }}>
+            <span
+              style={{
+                color: on ? "var(--brand)" : "inherit",
+                display: "flex",
+                transition: "color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease)",
+                transform: on ? "scale(1.05)" : undefined,
+              }}
+            >
               <Icon />
             </span>
             <span className="hidden sm:inline">{label}</span>
@@ -353,8 +387,7 @@ function MasterNav({
         );
       })}
 
-      {/* The travelling indicator. Rendered only once measured, so it never
-          animates in from the left edge on first paint. */}
+      {/* Travelling indicator — copper underline that slides between items. */}
       {box && (
         <span
           aria-hidden
@@ -362,10 +395,11 @@ function MasterNav({
           style={{
             left: 0,
             width: box.width,
-            background: "var(--brand)",
+            background: "linear-gradient(90deg, var(--brand-lo), var(--brand-hi))",
+            boxShadow: "0 0 8px color-mix(in srgb, var(--brand) 28%, transparent)",
             transform: `translateX(${box.left}px)`,
             transition:
-              "transform var(--dur-3) var(--ease), width var(--dur-3) var(--ease)",
+              "transform var(--dur-3) var(--ease-out), width var(--dur-3) var(--ease-out)",
           }}
         />
       )}
@@ -386,7 +420,7 @@ function Wordmark() {
       >
         MF
       </span>
-      <span className="font-display font-semibold text-sm hidden lg:block">
+      <span className="font-display text-sm hidden lg:block tracking-tight">
         MasterFabric
       </span>
     </div>
@@ -397,18 +431,22 @@ function Wordmark() {
 function Booting() {
   return (
     <div className="min-h-screen grid place-items-center">
-      <div className="flex flex-col items-center gap-3">
-        <span
-          className="grid place-items-center w-9 h-9 rounded-[var(--r-sm)] font-bold text-xs mono animate-pulse-soft"
-          style={{
-            background: "linear-gradient(180deg, var(--brand-hi), var(--brand-lo))",
-            color: "var(--brand-ink)",
-          }}
-        >
-          MF
+      <div className="flex flex-col items-center gap-4 view-in">
+        <span className="relative">
+          <span className="boot-ring" aria-hidden />
+          <span
+            className="grid place-items-center w-10 h-10 rounded-[var(--r-sm)] font-bold text-xs mono"
+            style={{
+              background: "linear-gradient(180deg, var(--brand-hi), var(--brand-lo))",
+              color: "var(--brand-ink)",
+              boxShadow: "var(--bevel), var(--shadow-2)",
+            }}
+          >
+            MF
+          </span>
         </span>
-        <span className="mono text-xs" style={{ color: "var(--text-faint)" }}>
-          oturum çözümleniyor…
+        <span className="mono text-xs tracking-wider uppercase" style={{ color: "var(--text-faint)" }}>
+          oturum çözümleniyor
         </span>
       </div>
     </div>
@@ -440,6 +478,10 @@ function IconRubric() {
   );
 }
 
+// Üreteç nav'dan çıktığı için çağıranı kalmadı. Silinmedi: rota OFF_NAV'da
+// adreslenebilir duruyor ve geri gelmesi NAV dizisine bir satır olsun istiyoruz
+// — ikonu da silmek o satırı yeniden çizmek demek olurdu.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function IconCode() {
   return (
     <svg {...SVG} aria-hidden>

@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { useAuth } from "@/store/auth";
 import { ApiError } from "@/lib/api";
+import { CriterionContinuum } from "@/components/ui/CriterionContinuum";
 import { GizlilikView } from "./GizlilikView";
 import { KosullarView } from "./KosullarView";
 
@@ -23,13 +24,13 @@ const COPY: Record<SubView, { tab: string; heading: string; blurb: string; cta: 
     login: {
       tab: "Giriş",
       heading: "Tekrar hoş geldin",
-      blurb: "Konsoluna giriş yap.",
+      blurb: "Hesabınla oturum aç, vakayı değerlendir.",
       cta: "Giriş yap",
     },
     register: {
       tab: "Kayıt",
       heading: "Hesap oluştur",
-      blurb: "Birkaç saniyede başla.",
+      blurb: "Hesap aç; ilk vakayı rubriğe göre değerlendir.",
       cta: "Hesabı oluştur",
     },
   };
@@ -48,9 +49,7 @@ export function AuthView() {
   // `#kosullar` never reaches that router. This local state is the same deep
   // links handled here instead: read once on mount so a direct load of either
   // hash lands on that document immediately rather than flashing the login
-  // form first. One state rather than two independent booleans — two booleans
-  // would leave undefined behaviour when both are set, and only one document
-  // is ever on screen at a time.
+  // form first.
   const [showDoc, setShowDoc] = useState<DocView>(() => {
     if (typeof window === "undefined") return null;
     if (window.location.hash === "#gizlilik") return "gizlilik";
@@ -62,21 +61,12 @@ export function AuthView() {
 
   if (showDoc) {
     return (
-      // Kabı yok: GizlilikView ve KosullarView artık kendi kenar boşluklarını
-      // taşıyor, ve buradaki p-6 onların üstüne binip çift boşluk yapıyordu.
-      // Kalan tek iş, "Geri"yi metnin soluyla aynı hizaya oturtmak — o yüzden
-      // düğme aynı ölçüleri tekrarlayan kendi kabında.
       <div>
         <div className="mx-auto max-w-2xl px-4 sm:px-5 pt-6">
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => {
               setShowDoc(null);
-              // Hash de temizleniyor, yoksa "#gizlilik" ya da "#kosullar" adres
-              // çubuğunda kalıyor ve giriş başarılı olduğu anda AppShell'in
-              // initialRoute'u onu okuyup kullanıcıyı Analiz yerine o belgeye
-              // indiriyor. replaceState kullanılıyor: assign("#") geçmişe bir
-              // adım daha ekler ve geri tuşu aynı yere geri döndürür.
               window.history.replaceState(
                 null,
                 "",
@@ -99,7 +89,6 @@ export function AuthView() {
     try {
       if (sub === "login") await login(email, password);
       else await register(email, password, name, accepted);
-      // On success the AppShell re-renders into the app automatically.
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bir şeyler ters gitti.");
     } finally {
@@ -108,102 +97,142 @@ export function AuthView() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
-      {/* ---- brand panel ----
-          Hidden below lg: on a phone it would push the form off the fold, and
-          the form is the only thing anyone came here to use. */}
+    <div className="min-h-screen grid lg:grid-cols-[1.15fr_1fr]">
+      {/* Brand panel — one composition: brand, one thesis, one supporting line,
+          signature continuum. Hidden below lg so the form stays above the fold. */}
       <div
-        className="hidden lg:flex flex-col justify-between p-12 relative overflow-hidden"
+        className="hidden lg:flex flex-col justify-between p-12 xl:p-16 relative overflow-hidden"
         style={{ borderRight: "1px solid var(--line)" }}
       >
-        {/* Soft brand wash under the grid — breathes so the left panel isn't
-            a static void while the form does the work. */}
         <div
           className="absolute inset-0 pointer-events-none auth-wash-breathe"
           aria-hidden
           style={{
             background:
-              "radial-gradient(520px 380px at 18% 42%, var(--brand-wash), transparent 70%)",
+              "radial-gradient(620px 440px at 22% 38%, var(--brand-wash), transparent 72%), radial-gradient(480px 360px at 78% 72%, var(--steel-wash), transparent 70%)",
           }}
         />
 
-        {/* A hairline grid, at the same weight as the panel borders throughout
-            the app. It is the one decorative surface here and it is doing the
-            job the product's own panels do: making the field read as machined
-            rather than empty. Slow drift keeps it from reading as wallpaper. */}
         <div
           className="absolute inset-0 pointer-events-none auth-grid-drift"
           aria-hidden
           style={{
             backgroundImage:
               "linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px)",
-            backgroundSize: "56px 56px",
-            opacity: 0.35,
+            backgroundSize: "64px 64px",
+            opacity: 0.4,
             maskImage:
-              "radial-gradient(680px 480px at 22% 34%, #000 0%, transparent 78%)",
+              "radial-gradient(720px 520px at 28% 36%, #000 0%, transparent 78%)",
             WebkitMaskImage:
-              "radial-gradient(680px 480px at 22% 34%, #000 0%, transparent 78%)",
+              "radial-gradient(720px 520px at 28% 36%, #000 0%, transparent 78%)",
           }}
         />
 
-        <div className="flex items-center gap-2.5 relative item-in" style={{ ["--i" as string]: 0 }}>
+        <div
+          className="flex items-center gap-3.5 relative reveal-up"
+          style={{ ["--i" as string]: 0 }}
+        >
           <span
-            className="grid place-items-center w-8 h-8 rounded-[var(--r-xs)] font-bold text-xs mono"
+            className="grid place-items-center w-11 h-11 rounded-[var(--r-sm)] font-bold text-sm mono"
             style={{
               background: "linear-gradient(180deg, var(--brand-hi), var(--brand-lo))",
               color: "var(--brand-ink)",
-              boxShadow: "var(--bevel), var(--shadow-1)",
+              boxShadow: "var(--bevel), var(--shadow-2)",
             }}
           >
             MF
           </span>
-          <span className="font-display font-semibold">MasterFabric Academy</span>
+          <span className="font-display text-2xl tracking-tight">MasterFabric</span>
         </div>
 
-        <div className="max-w-lg relative view-in">
-          <h1 className="font-display text-[2.75rem] font-bold leading-[1.08] tracking-tight">
-            Üreteç ve
+        <div className="max-w-xl relative">
+          <p
+            className="eyebrow reveal-up mb-4"
+            style={{ ["--i" as string]: 1 }}
+          >
+            Rubrik analiz konsolu
+          </p>
+          <h1
+            className="font-display text-[3.1rem] xl:text-[3.5rem] font-bold leading-[1.02] tracking-tight reveal-up"
+            style={{ ["--i" as string]: 2 }}
+          >
+            İlk geçişte
             <br />
-            Karar Konsolu
+            <span style={{ color: "var(--brand)" }}>aynı ölçüt.</span>
           </h1>
           <p
-            className="mt-5 text-[0.95rem] leading-7"
-            style={{ color: "var(--text-dim)" }}
+            className="mt-6 text-[1.02rem] leading-7 max-w-md reveal-up"
+            style={{ color: "var(--text-dim)", ["--i" as string]: 3 }}
           >
-            Kendi barındırdığın modeli çalıştır, ürettiği ekranları projenin kod
-            standardına göre denetle, çıkarım sunucusunun telemetrisini tek yerden
-            izle.
+            Vakayı verirsiniz; model rubriği doldurur — her kritere puan ve
+            kanıt. Ağırlıklı toplam açık aritmetiktir. Karar sizde kalır.
           </p>
-          <div className="mt-8 flex flex-wrap gap-2">
-            {[
-              "Kendi barındırılan çıkarım",
-              "Go + Postgres API",
-              "Canlı telemetri",
-            ].map((t, i) => (
-              <span
-                key={t}
-                className="pill item-in"
-                style={{ ["--i" as string]: i + 2 }}
-              >
-                {t}
-              </span>
-            ))}
+
+          <div
+            className="mt-10 reveal-up"
+            style={{ ["--i" as string]: 4 }}
+          >
+            <CriterionContinuum count={12} mode="wave" />
+            <p
+              className="mono text-[0.65rem] mt-3 tracking-wider uppercase"
+              style={{ color: "var(--text-faint)" }}
+            >
+              kriter · kanıt · tutarlılık
+            </p>
           </div>
         </div>
 
-        <div
-          className="text-xs mono relative item-in"
-          style={{ color: "var(--text-faint)", ["--i" as string]: 5 }}
+        <ul
+          className="relative reveal-up flex flex-col gap-2.5 mono text-[0.7rem] tracking-wider uppercase"
+          style={{ ["--i" as string]: 5, color: "var(--text-faint)" }}
         >
-          Next.js SPA → Vercel · Go → Render
-        </div>
+          {["Rubrik şeffaflığı", "Kanıt denetlenebilir", "Veri sizde kalır"].map(
+            (t) => (
+              <li key={t} className="flex items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className="block w-3 h-px shrink-0"
+                  style={{ background: "var(--brand)" }}
+                />
+                {t}
+              </li>
+            ),
+          )}
+        </ul>
       </div>
 
-      {/* ---- form panel ---- */}
-      <div className="flex items-center justify-center p-6">
-        <div className="w-full max-w-sm view-in">
-          {/* A segmented control, not two links: these are two modes of one
-              form, and the switch should not look like navigation. */}
+      {/* Form panel */}
+      <div className="flex items-center justify-center p-6 sm:p-10 relative">
+        <div
+          className="absolute inset-0 pointer-events-none lg:hidden"
+          aria-hidden
+          style={{
+            background:
+              "radial-gradient(420px 280px at 50% 0%, var(--brand-wash), transparent 70%)",
+          }}
+        />
+
+        <div className="w-full max-w-sm view-in relative">
+          <div className="flex items-center gap-2.5 mb-3 lg:hidden">
+            <span
+              className="grid place-items-center w-8 h-8 rounded-[var(--r-xs)] font-bold text-[0.7rem] mono"
+              style={{
+                background: "linear-gradient(180deg, var(--brand-hi), var(--brand-lo))",
+                color: "var(--brand-ink)",
+                boxShadow: "var(--bevel), var(--shadow-1)",
+              }}
+            >
+              MF
+            </span>
+            <span className="font-display font-semibold">MasterFabric</span>
+          </div>
+          <p
+            className="lg:hidden font-display text-xl font-bold tracking-tight mb-7 leading-snug"
+          >
+            İlk geçişte{" "}
+            <span style={{ color: "var(--brand)" }}>aynı ölçüt.</span>
+          </p>
+
           <div
             className="inline-flex p-1 rounded-[var(--r-sm)] mb-7"
             style={{
@@ -217,6 +246,7 @@ export function AuthView() {
               return (
                 <button
                   key={s}
+                  type="button"
                   onClick={() => {
                     setSub(s);
                     setError(null);
@@ -239,8 +269,6 @@ export function AuthView() {
             })}
           </div>
 
-          {/* key={sub}: Giriş ↔ Kayıt swap re-triggers the entrance so the
-              mode change is felt, not just text replacement. */}
           <div key={sub} className="view-in">
             <h2 className="font-display text-2xl font-bold tracking-tight mb-1.5">
               {copy.heading}

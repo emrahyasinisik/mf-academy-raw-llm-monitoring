@@ -23,6 +23,7 @@ import type {
 import { useMachine } from "@/store/machine";
 import { RichText } from "@/components/ui/RichText";
 import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
+import { CriterionContinuum } from "@/components/ui/CriterionContinuum";
 
 // A message as this screen keeps it: the wire turn plus, for the persona's
 // replies, what it researched to get there. The history sent to the server is
@@ -394,7 +395,7 @@ export function PersonaView() {
           </div>
         </div>
         <p className="text-xs mt-2 px-1" style={{ color: "var(--text-faint)" }}>
-          Persona her turda canlı web ve DeepKwiki üzerinden araştırır, kararını
+          Persona her turda canlı web ve DeepKwiki üzerinden araştırır; okumasını
           kaynaklara bağlar. <span className="mono">Enter</span> gönderir,{" "}
           <span className="mono">Shift+Enter</span> satır atlar.
         </p>
@@ -435,22 +436,25 @@ function Intro({
             <path d="M8 1.75 9.7 6.3 14.25 8 9.7 9.7 8 14.25 6.3 9.7 1.75 8 6.3 6.3z" />
           </svg>
         </div>
-        <h2 className="font-display text-xl font-semibold tracking-tight mb-2">
+        <h2 className="font-display text-xl font-bold tracking-tight mb-2">
           Yatırım Personası
         </h2>
         <p
-          className="text-sm leading-relaxed mb-6"
+          className="text-sm leading-relaxed mb-5"
           style={{ color: "var(--text-dim)" }}
         >
           Değerlendirmek istediğin pazarı, markayı, ürünü veya teknolojiyi yaz.
           Persona canlı araştırma yapar, gerekirse tek bir soru sorar ve
-          yatırılabilirlik kararını kaynaklarıyla verir.
+          kaynaklarıyla birlikte bir ilk-geçiş okuması sunar — karar sende.
         </p>
+
+        <CriterionContinuum count={10} mode="wave" className="justify-center mb-6 opacity-70" />
 
         <div className="flex flex-wrap justify-center gap-2">
           {OPENERS.map((o, i) => (
             <button
               key={o}
+              type="button"
               onClick={() => onPick(o)}
               disabled={disabled}
               className="item-in card card-action px-3 py-1.5 text-xs text-left"
@@ -522,7 +526,7 @@ function PersonaBubble({
         </div>
       )}
 
-      <div className="card p-4">
+      <div className="well p-4">
         <RichText text={verdict ? stripVerdictLines(msg.content) : msg.content} />
       </div>
 
@@ -630,7 +634,7 @@ function Thinking() {
         </div>
       </div>
       <span className="text-sm" style={{ color: "var(--text-dim)" }}>
-        Canlı araştırıyor ve kararını oluşturuyor…
+        Canlı araştırıyor ve ilk-geçiş okumasını hazırlıyor…
       </span>
     </div>
   );

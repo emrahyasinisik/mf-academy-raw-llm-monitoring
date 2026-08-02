@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Sans, JetBrains_Mono, Syne } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -11,20 +11,21 @@ import { Providers } from "./providers";
 // in that subset while ç, ö and ü do not — omit it and every other word renders
 // half in the webfont and half in a fallback.
 
-// Display: mechanical, slightly engineered letterforms. Chosen over another
-// grotesque because the product is an instrument panel, and its headings should
-// not look like the body text set larger.
-const spaceGrotesk = Space_Grotesk({
+// Display: geometric, slightly condensed — the ledger's headline voice.
+// Chosen over a generic grotesque so product headings carry presence without
+// borrowing Inter's default SaaS look.
+const syne = Syne({
   subsets: ["latin", "latin-ext"],
-  variable: "--font-space-grotesk",
+  variable: "--font-syne",
   display: "swap",
 });
 
-// Body and UI: neutral on purpose, so the display face and the numbers are the
-// only things with a voice.
-const inter = Inter({
+// Body and UI: IBM Plex — professional without being the Inter default every
+// dark dashboard ships with.
+const plex = IBM_Plex_Sans({
   subsets: ["latin", "latin-ext"],
-  variable: "--font-inter",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plex",
   display: "swap",
 });
 
@@ -37,15 +38,13 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MasterFabric — Üreteç ve Karar Konsolu",
+  title: "MasterFabric — Rubrik Analiz Konsolu",
   description:
-    "Kendi barındırdığın modeli çalıştır, ürettiği ekranları standarda göre denetle, çıkarım sunucusunun telemetrisini izle.",
+    "Vakayı girin, tanımlı rubriğe göre kriter kriter puanlanmış ve kanıtı gösterilen bir rapor alın. İlk geçiş taramasında tutarlılık — karar sizin.",
 };
 
 export const viewport: Viewport = {
-  // Matches --bg, so the mobile browser chrome continues the canvas instead of
-  // capping it with a white bar.
-  themeColor: "#0a0e13",
+  themeColor: "#070b10",
   colorScheme: "dark",
 };
 
@@ -55,7 +54,7 @@ export default function RootLayout({
   return (
     <html
       lang="tr"
-      className={`h-full ${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className={`h-full ${plex.variable} ${syne.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-full">
         <Providers>{children}</Providers>

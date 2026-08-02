@@ -66,7 +66,7 @@ export function StatusRail() {
     <div
       className="flex items-center gap-3 px-4 sm:px-5 h-9 text-xs overflow-hidden"
       style={{
-        background: "var(--panel-2)",
+        background: "color-mix(in srgb, var(--panel-2) 92%, var(--brand-wash))",
         borderBottom: "1px solid var(--line)",
         boxShadow: "var(--bevel)",
       }}
