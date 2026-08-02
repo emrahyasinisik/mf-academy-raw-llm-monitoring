@@ -162,7 +162,7 @@ func (s *Store) Record(
 	// badge: the follow-up answer may be a clarifying question, and blanking the
 	// decision because the newest message did not repeat it would lose a
 	// conclusion the conversation genuinely reached.
-	v := parseVerdict(reply.Reply)
+	v := parseVerdict(reply.Reply, len(reply.Sources))
 	if v.Found {
 		var score *int
 		if v.Score >= 0 {

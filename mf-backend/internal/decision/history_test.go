@@ -61,7 +61,9 @@ func TestParseVerdict(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseVerdict(tc.reply)
+			// Three sources: these cases are about reading the format, not
+			// about the evidence rule, which has its own tests below.
+			got := parseVerdict(tc.reply, 3)
 			if got.Found != tc.wantFound {
 				t.Fatalf("Found = %v, want %v", got.Found, tc.wantFound)
 			}
@@ -75,10 +77,40 @@ func TestParseVerdict(t *testing.T) {
 	}
 }
 
+// The product's own rule, applied to the persona: absence of information is not
+// a low score. With both tools empty the model is told to say it cannot decide,
+// and a 2B model asked for a KARAR/SKOR block obliges anyway — "SKOR: 0" on a
+// turn that read nothing. Stored, that 0 is indistinguishable from a measured
+// "certainly not", which is the one thing the badge must never lie about.
+func TestVerdictScoreIsNotRecordedWithoutEvidence(t *testing.T) {
+	reply := "Karar için yeterli kanıt yok.\n\nKARAR: Yatırılamaz\nSKOR: 0\nGEREKÇE: Kanıt eksik."
+
+	got := parseVerdict(reply, 0)
+
+	if got.Score != -1 {
+		t.Errorf("Score = %d on zero sources, want -1 (no number recorded)", got.Score)
+	}
+	if !got.Found || got.Label != "Yatırılamaz" {
+		t.Errorf("the label the model committed to must survive, got %+v", got)
+	}
+}
+
+// The converse, so the rule above cannot be satisfied by dropping every score:
+// 0 read off two real sources is a measurement and is stored as one.
+func TestVerdictScoreIsKeptWhenEvidenceBackedIt(t *testing.T) {
+	reply := "Pazar doygun [1], moat yok [2].\n\nKARAR: Yatırılamaz\nSKOR: 0\nGEREKÇE: İki kaynak da olumsuz."
+
+	got := parseVerdict(reply, 2)
+
+	if got.Score != 0 {
+		t.Errorf("Score = %d, want 0 — a scored verdict on real sources", got.Score)
+	}
+}
+
 // A model that ignores the format can put a paragraph after "KARAR:", and that
 // string is stored and then rendered in a badge.
 func TestParseVerdictBoundsTheLabel(t *testing.T) {
-	got := parseVerdict("KARAR: " + strings.Repeat("uzun ", 200))
+	got := parseVerdict("KARAR: "+strings.Repeat("uzun ", 200), 1)
 	if !got.Found {
 		t.Fatal("expected a verdict")
 	}

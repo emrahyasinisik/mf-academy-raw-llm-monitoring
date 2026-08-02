@@ -61,7 +61,12 @@ func NewSearcher(provider, apiKey string, timeout time.Duration) Searcher {
 type tavilySearcher struct {
 	apiKey string
 	client *http.Client
+	// endpoint is the API's address, injected only so the tests can point it at
+	// a local server. Empty means the real one.
+	endpoint string
 }
+
+const tavilyEndpoint = "https://api.tavily.com/search"
 
 func (t *tavilySearcher) Name() string { return "tavily" }
 
@@ -69,8 +74,9 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
+	// search_depth basic is one credit per call; advanced is two and returns
+	// more of each page than a 1366-token evidence budget can carry anyway.
 	body, err := json.Marshal(map[string]any{
-		"api_key":      t.apiKey,
 		"query":        query,
 		"max_results":  limit,
 		"search_depth": "basic",
@@ -78,11 +84,21 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(body))
+	endpoint := t.endpoint
+	if endpoint == "" {
+		endpoint = tavilyEndpoint
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The key goes in the header, not the body. Tavily accepted an `api_key`
+	// body field in an earlier version of this API and this package was written
+	// against that one; a current key sent that way comes back 401, which — now
+	// that a failed tool is reported as failed — surfaces as "web · çalışmadı"
+	// rather than as a subject nobody has written about.
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -122,7 +138,12 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 
 type ddgSearcher struct {
 	client *http.Client
+	// endpoint is the search page's address, injected only by the tests. Empty
+	// means the real one.
+	endpoint string
 }
+
+const ddgEndpoint = "https://html.duckduckgo.com/html/"
 
 func (d *ddgSearcher) Name() string { return "duckduckgo" }
 
@@ -140,8 +161,11 @@ func (d *ddgSearcher) Search(ctx context.Context, query string, limit int) ([]Se
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	endpoint := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	base := d.endpoint
+	if base == "" {
+		base = ddgEndpoint
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?q="+url.QueryEscape(query), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +208,27 @@ func (d *ddgSearcher) Search(ctx context.Context, query string, limit int) ([]Se
 			Snippet: snippet,
 		})
 	}
+
+	// A page with no results on it is two different answers, and the status code
+	// tells them apart in neither case — both are 200. DuckDuckGo says so in
+	// words when a query genuinely matches nothing, and says nothing at all when
+	// it has decided we are a bot: the rate-limit and challenge interstitials
+	// carry no results and no notice.
+	//
+	// Silence is therefore reported as a failure. It costs a false alarm if the
+	// markup is ever renamed, which is the cheaper mistake — the alternative is
+	// what shipped: a scrape blocked at a datacentre IP arriving on screen as a
+	// subject nobody has written about, under a verdict.
+	if len(out) == 0 && !ddgSaidNoResults(page) {
+		return nil, fmt.Errorf("duckduckgo returned a page with neither results nor a no-results notice (blocked, or the markup changed)")
+	}
 	return out, nil
+}
+
+// ddgSaidNoResults reports whether the page states, in DuckDuckGo's own markup,
+// that the query matched nothing.
+func ddgSaidNoResults(page string) bool {
+	return strings.Contains(page, "no-results") || strings.Contains(page, "result--no-result")
 }
 
 // unwrapDDG turns a //duckduckgo.com/l/?uddg=<encoded>&… redirect into the real

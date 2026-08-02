@@ -113,3 +113,22 @@ services:
       # 4096-2500=1596 tokens of the window for the rubric's own output.
       - key: LLM_MAX_PROMPT_TOKENS
         value: 2500
+      # Live web research for the persona. Keyless by choice: no account, no
+      # card, nothing to rotate — and the scrape returns result snippets rather
+      # than extracted page content, which a 2500-token prompt window was going
+      # to truncate anyway.
+      #
+      # Set explicitly even though it is what NewSearcher picks by default, so
+      # the deployment states which provider it runs instead of leaving it to be
+      # inferred from an unset variable. Switching to Tavily is two changes and
+      # no code: `value: tavily` here, and SEARCH_API_KEY (sync: false) in the
+      # dashboard. Without the key that switch is a no-op — NewSearcher falls
+      # back here rather than failing.
+      #
+      # The open question this setting carries: DuckDuckGo answers a residential
+      # address (measured) and may refuse a datacentre one. If it does, the
+      # research trail now says "web · çalışmadı" instead of "web · 0" — the
+      # scraper reports a page it could not read rather than reporting an empty
+      # market. Watch that pill on the first turn after this deploys.
+      - key: SEARCH_PROVIDER
+        value: duckduckgo

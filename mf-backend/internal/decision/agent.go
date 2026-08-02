@@ -110,6 +110,11 @@ const (
 	maxSnippetLen  = 500
 )
 
+// wikiProvider names the retrieval side in a ResearchStep. The web side asks its
+// Searcher for a name because that one can change with configuration; this one
+// cannot — there is a single corpus behind it.
+const wikiProvider = "deepkwiki"
+
 // The prompt budget.
 //
 // The engine enforces a hard input limit and rejects an over-long prompt with a
@@ -175,10 +180,23 @@ type Source struct {
 
 // ResearchStep records a tool the persona ran this turn, so the UI can show
 // that the verdict came from live research rather than the model's memory.
+//
+// Results alone cannot carry that claim. Zero results is two different facts —
+// the tool ran and the subject has no coverage, or the tool never answered —
+// and for a while the screen showed both as "0". A keyless DuckDuckGo scrape
+// blocked at the datacentre IP and an unseeded DeepKwiki corpus both read as
+// "nothing out there about this company", which is the one reading that makes
+// an empty verdict look like a measurement. Error separates them; Provider says
+// which implementation produced the number, so a thin answer can be traced to a
+// keyless fallback rather than argued about.
 type ResearchStep struct {
-	Tool    string `json:"tool"`
-	Query   string `json:"query"`
-	Results int    `json:"results"`
+	Tool     string `json:"tool"`
+	Query    string `json:"query"`
+	Results  int    `json:"results"`
+	Provider string `json:"provider"`
+	// Error is the tool's failure, already flattened to a string for the UI.
+	// Empty when the tool answered — including when it answered with nothing.
+	Error string `json:"error,omitempty"`
 }
 
 // Result is one reply from the persona.
@@ -260,10 +278,19 @@ func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source,
 	room := func(fixed int) int { return budget - b.Len() - fixed }
 
 	web, err := a.search.Search(ctx, query, maxWebResults)
-	steps = append(steps, ResearchStep{Tool: "web_research", Query: query, Results: len(web)})
-	if err != nil || len(web) == 0 {
+	webStep := ResearchStep{Tool: "web_research", Query: query, Results: len(web), Provider: a.search.Name()}
+	switch {
+	case err != nil:
+		// The prompt gets the fact, not the error text: the model cannot act on
+		// "403" and the string would spend evidence budget. What it must not do
+		// is read a broken tool as a quiet market, so the line says so outright.
+		webStep.Error = err.Error()
+		slog.Warn("persona web research failed", "provider", a.search.Name(), "err", err)
+		b.WriteString("- Canlı web araması ÇALIŞMADI (araç hatası). Bu, konu hakkında bilgi olmadığı anlamına gelmez.\n")
+	case len(web) == 0:
 		b.WriteString("- Canlı web araması sonuç döndürmedi.\n")
 	}
+	steps = append(steps, webStep)
 	for _, r := range web {
 		if r.URL == "" {
 			continue
@@ -280,7 +307,15 @@ func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source,
 	}
 
 	hits, err := a.wiki.Search(ctx, query, maxWikiResults)
-	steps = append(steps, ResearchStep{Tool: "wiki_retrieve", Query: query, Results: len(hits)})
+	wikiStep := ResearchStep{Tool: "wiki_retrieve", Query: query, Results: len(hits), Provider: wikiProvider}
+	if err != nil {
+		// This error used to be assigned and never read: DeepKwiki could be
+		// unreachable and the turn carried on as though the corpus were empty.
+		wikiStep.Error = err.Error()
+		slog.Warn("persona wiki retrieval failed", "err", err)
+		b.WriteString("- DeepKwiki araması ÇALIŞMADI (araç hatası). Bilgi tabanı bu tur sorgulanamadı.\n")
+	}
+	steps = append(steps, wikiStep)
 	for _, h := range hits {
 		title := h.Title
 		if h.Heading != "" {

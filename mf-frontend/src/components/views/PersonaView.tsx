@@ -20,6 +20,7 @@ import type {
   DecisionTurn,
   ResearchStep,
 } from "@/lib/types";
+import { parseVerdict, stripVerdictLines } from "@/lib/verdict";
 import { useMachine } from "@/store/machine";
 import { RichText } from "@/components/ui/RichText";
 import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
@@ -38,11 +39,6 @@ type ChatMessage =
       model: string;
     };
 
-// A verdict the persona committed to, parsed out of its reply so it can be shown
-// as a badge rather than buried in a paragraph. Absent while it is still
-// researching or asking questions.
-type Verdict = { label: string; score: number | null };
-
 const VERDICT_TONE: Record<string, string> = {
   yatırılabilir: "var(--ok)",
   temkinli: "var(--warn)",
@@ -56,34 +52,6 @@ const OPENERS = [
   "Türkiye'de hızlı market teslimatı pazarı",
   "Katı hal batarya üreticileri",
 ];
-
-function parseVerdict(text: string): Verdict | null {
-  const m = text.match(/KARAR:\s*([^\n]+)/i);
-  if (!m) return null;
-  const label = m[1].trim();
-  const s = text.match(/SKOR:\s*(\d{1,3})/i);
-  return { label, score: s ? Math.min(100, parseInt(s[1], 10)) : null };
-}
-
-/**
- * Removes the machine-readable verdict lines from the prose.
- *
- * They are a protocol between the persona and this screen, not part of what it
- * wrote: once parsed into the badge, leaving them in the body renders the
- * decision twice, and the second copy is worse — the two lines collapse into one
- * run-on paragraph ("KARAR: Temkinli yatırılabilir SKOR: 64") because nothing in
- * markdown makes them separate blocks.
- *
- * Only applied when a verdict was actually parsed, so a reply that mentions
- * these words without committing to a decision keeps every word it wrote.
- */
-function stripVerdictLines(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !/^\s*(KARAR|SKOR)\s*:/i.test(line))
-    .join("\n")
-    .trimEnd();
-}
 
 function toneFor(label: string): string {
   const key = label.toLowerCase();
@@ -499,7 +467,9 @@ function PersonaBubble({
     model: string;
   };
 }) {
-  const verdict = parseVerdict(msg.content);
+  // The source count is what decides whether the SKOR line is a measurement;
+  // see lib/verdict.ts. The server applies the same rule to what it stores.
+  const verdict = parseVerdict(msg.content, msg.sources.length);
   const tone = verdict ? toneFor(verdict.label) : null;
 
   return (
@@ -536,27 +506,64 @@ function PersonaBubble({
   );
 }
 
+/**
+ * What the persona ran this turn.
+ *
+ * A failed tool is drawn differently from an empty one, because they are not the
+ * same finding and the reader acts on them differently: "no coverage on this
+ * subject" is about the market, "the search never ran" is about our
+ * configuration — a keyless DuckDuckGo blocked at the datacentre IP, or a
+ * DeepKwiki corpus nobody seeded. Both used to render as "· 0", which reads as
+ * the first while being the second.
+ */
 function ResearchTrail({ steps }: { steps: ResearchStep[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {steps.map((s, i) => (
-        <span key={i} className="pill mono" title={s.query}>
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            aria-hidden
+      {steps.map((s, i) => {
+        const label = s.tool === "web_research" ? "web" : "DeepKwiki";
+        const failed = Boolean(s.error);
+        // Older turns carry no provider; the tool's own name is the honest
+        // fallback, not the string "undefined".
+        const provider = s.provider || label;
+        return (
+          <span
+            key={i}
+            className="pill mono"
+            // The provider is in the tooltip rather than the pill: it matters
+            // when an answer looks thin, and never before that.
+            title={
+              failed
+                ? `${provider}: ${s.error}\n\nSorgu: ${s.query}`
+                : `${provider}\n\nSorgu: ${s.query}`
+            }
+            style={failed ? { color: "var(--bad)", borderColor: "var(--bad)" } : undefined}
           >
-            <circle cx="7" cy="7" r="4.5" />
-            <path d="m10.5 10.5 3 3" />
-          </svg>
-          {s.tool === "web_research" ? "web" : "DeepKwiki"} · {s.results}
-        </span>
-      ))}
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              aria-hidden
+            >
+              {failed ? (
+                <>
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 5v4M8 11h.01" />
+                </>
+              ) : (
+                <>
+                  <circle cx="7" cy="7" r="4.5" />
+                  <path d="m10.5 10.5 3 3" />
+                </>
+              )}
+            </svg>
+            {label} · {failed ? "çalışmadı" : s.results}
+          </span>
+        );
+      })}
     </div>
   );
 }
