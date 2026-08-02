@@ -32,8 +32,19 @@ type Verdict struct {
 	Score int
 }
 
-// parseVerdict reads the machine-readable lines out of a reply.
-func parseVerdict(reply string) Verdict {
+// parseVerdict reads the machine-readable lines out of a reply. sources is how
+// many pieces of evidence the turn actually gathered, and it decides whether the
+// number on the SKOR line means anything.
+//
+// A turn that researched nothing can still emit "SKOR: 0" — a 2B model asked for
+// a KARAR/SKOR block produces one whatever the evidence says, and the empty-
+// research instruction is a request, not a constraint. Recording that 0 would
+// put a measured-looking number on a thread that read nothing, which is the
+// same mistake the analysis path is built to avoid: absence of information is
+// not a low score. So with no sources the score stays -1 and the column stays
+// NULL. The label survives, because the model did commit to a word and the
+// reader can see for themselves that nothing backs it.
+func parseVerdict(reply string, sources int) Verdict {
 	m := verdictRe.FindStringSubmatch(reply)
 	if m == nil {
 		return Verdict{Score: -1}
@@ -47,7 +58,7 @@ func parseVerdict(reply string) Verdict {
 		v.Label = strings.TrimSpace(v.Label[:64])
 	}
 
-	if s := scoreRe.FindStringSubmatch(reply); s != nil {
+	if s := scoreRe.FindStringSubmatch(reply); s != nil && sources > 0 {
 		if n, err := strconv.Atoi(s[1]); err == nil && n >= 0 && n <= 100 {
 			v.Score = n
 		}

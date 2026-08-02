@@ -488,6 +488,20 @@ export interface ResearchStep {
   tool: string;
   query: string;
   results: number;
+  /**
+   * Which implementation ran: "duckduckgo", "tavily", "deepkwiki". Optional
+   * because threads recorded before this field existed are replayed from the
+   * same table and carry no provider — a resumed conversation must not render
+   * "undefined" for turns that predate the column's contents.
+   */
+  provider?: string;
+  /**
+   * The tool's failure, or absent when it answered — including when it answered
+   * with nothing. Without this, `results: 0` means both "the subject has no
+   * coverage" and "the tool never ran", and the screen showed the first while
+   * the truth was the second.
+   */
+  error?: string;
 }
 
 /** One reply from the persona: the message plus what it researched to get there. */
