@@ -113,21 +113,22 @@ services:
       # 4096-2500=1596 tokens of the window for the rubric's own output.
       - key: LLM_MAX_PROMPT_TOKENS
         value: 2500
-      # Live web research for the persona. Declared here rather than left to the
-      # code's default, because the default is the failure we already shipped:
-      # with neither variable set, NewSearcher falls back to the keyless
-      # DuckDuckGo HTML scrape, and DuckDuckGo does not serve that page to a
-      # datacentre IP. Every turn on Render therefore researched nothing, and a
-      # verdict with no evidence behind it is the one output this product cannot
-      # afford. The scrape still works from a residential address, which is why
-      # it survived local testing.
+      # Live web research for the persona. Keyless by choice: no account, no
+      # card, nothing to rotate — and the scrape returns result snippets rather
+      # than extracted page content, which a 2500-token prompt window was going
+      # to truncate anyway.
       #
-      # Tavily also returns extracted page content rather than result snippets,
-      # so the evidence the model reasons over is the page and not its summary.
-      # The key is dashboard-only; with it unset this degrades back to the
-      # keyless scrape rather than failing, and the research trail now shows
-      # which provider ran.
+      # Set explicitly even though it is what NewSearcher picks by default, so
+      # the deployment states which provider it runs instead of leaving it to be
+      # inferred from an unset variable. Switching to Tavily is two changes and
+      # no code: `value: tavily` here, and SEARCH_API_KEY (sync: false) in the
+      # dashboard. Without the key that switch is a no-op — NewSearcher falls
+      # back here rather than failing.
+      #
+      # The open question this setting carries: DuckDuckGo answers a residential
+      # address (measured) and may refuse a datacentre one. If it does, the
+      # research trail now says "web · çalışmadı" instead of "web · 0" — the
+      # scraper reports a page it could not read rather than reporting an empty
+      # market. Watch that pill on the first turn after this deploys.
       - key: SEARCH_PROVIDER
-        value: tavily
-      - key: SEARCH_API_KEY
-        sync: false
+        value: duckduckgo

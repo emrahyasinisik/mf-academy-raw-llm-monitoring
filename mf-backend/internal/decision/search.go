@@ -138,7 +138,12 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 
 type ddgSearcher struct {
 	client *http.Client
+	// endpoint is the search page's address, injected only by the tests. Empty
+	// means the real one.
+	endpoint string
 }
+
+const ddgEndpoint = "https://html.duckduckgo.com/html/"
 
 func (d *ddgSearcher) Name() string { return "duckduckgo" }
 
@@ -156,8 +161,11 @@ func (d *ddgSearcher) Search(ctx context.Context, query string, limit int) ([]Se
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	endpoint := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	base := d.endpoint
+	if base == "" {
+		base = ddgEndpoint
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?q="+url.QueryEscape(query), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +208,27 @@ func (d *ddgSearcher) Search(ctx context.Context, query string, limit int) ([]Se
 			Snippet: snippet,
 		})
 	}
+
+	// A page with no results on it is two different answers, and the status code
+	// tells them apart in neither case — both are 200. DuckDuckGo says so in
+	// words when a query genuinely matches nothing, and says nothing at all when
+	// it has decided we are a bot: the rate-limit and challenge interstitials
+	// carry no results and no notice.
+	//
+	// Silence is therefore reported as a failure. It costs a false alarm if the
+	// markup is ever renamed, which is the cheaper mistake — the alternative is
+	// what shipped: a scrape blocked at a datacentre IP arriving on screen as a
+	// subject nobody has written about, under a verdict.
+	if len(out) == 0 && !ddgSaidNoResults(page) {
+		return nil, fmt.Errorf("duckduckgo returned a page with neither results nor a no-results notice (blocked, or the markup changed)")
+	}
 	return out, nil
+}
+
+// ddgSaidNoResults reports whether the page states, in DuckDuckGo's own markup,
+// that the query matched nothing.
+func ddgSaidNoResults(page string) bool {
+	return strings.Contains(page, "no-results") || strings.Contains(page, "result--no-result")
 }
 
 // unwrapDDG turns a //duckduckgo.com/l/?uddg=<encoded>&… redirect into the real
