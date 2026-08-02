@@ -61,7 +61,12 @@ func NewSearcher(provider, apiKey string, timeout time.Duration) Searcher {
 type tavilySearcher struct {
 	apiKey string
 	client *http.Client
+	// endpoint is the API's address, injected only so the tests can point it at
+	// a local server. Empty means the real one.
+	endpoint string
 }
+
+const tavilyEndpoint = "https://api.tavily.com/search"
 
 func (t *tavilySearcher) Name() string { return "tavily" }
 
@@ -69,8 +74,9 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
+	// search_depth basic is one credit per call; advanced is two and returns
+	// more of each page than a 1366-token evidence budget can carry anyway.
 	body, err := json.Marshal(map[string]any{
-		"api_key":      t.apiKey,
 		"query":        query,
 		"max_results":  limit,
 		"search_depth": "basic",
@@ -78,11 +84,21 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(body))
+	endpoint := t.endpoint
+	if endpoint == "" {
+		endpoint = tavilyEndpoint
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The key goes in the header, not the body. Tavily accepted an `api_key`
+	// body field in an earlier version of this API and this package was written
+	// against that one; a current key sent that way comes back 401, which — now
+	// that a failed tool is reported as failed — surfaces as "web · çalışmadı"
+	// rather than as a subject nobody has written about.
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
