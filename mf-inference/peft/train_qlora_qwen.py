@@ -332,12 +332,22 @@ def main() -> None:
             tokenizer, padding=True, label_pad_token_id=IGNORE_INDEX),
     )
 
+    # world_size is not decoration. `machine_shape: NvidiaTeslaT4` hands over a
+    # two-card machine and Trainer puts DataParallel on it without being asked,
+    # so per_device_train_batch_size is charged once per card: the real rows per
+    # step is batch × accum × cards. Printing batch × accum alone has now cost
+    # three runs — rubric-curve budgeted 800 row passes from this line, got 1600,
+    # and died at step 197 of 200 on the 12 h session wall. The number below is
+    # what every budget is written from, so it is the number that has to be true.
+    world = max(1, torch.cuda.device_count())
+    rows_per_step = args.batch_size * args.grad_accum * world
     steps = (args.max_steps if args.max_steps > 0 else
-             max(1, int(len(train_ds) * args.epochs //
-                        (args.batch_size * args.grad_accum))))
+             max(1, int(len(train_ds) * args.epochs // rows_per_step)))
     limit = " (--max-steps)" if args.max_steps > 0 else ""
-    print(f"\neffective batch: {args.batch_size * args.grad_accum} rows/step"
-          f"  ~{steps} optimizer steps{limit}")
+    print(f"\neffective batch: {rows_per_step} rows/step"
+          f"  ({args.batch_size} x {args.grad_accum} accum x {world} gpu)"
+          f"  ~{steps} optimizer steps{limit}"
+          f"  = {steps * rows_per_step} row passes")
     train_result = trainer.train(resume_from_checkpoint=args.resume or None)
 
     model.save_pretrained(args.out_dir)

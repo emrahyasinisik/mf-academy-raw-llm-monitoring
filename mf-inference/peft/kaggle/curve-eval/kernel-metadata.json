@@ -1,0 +1,20 @@
+{
+  "id": "emrahik/rubric-curve-eval",
+  "title": "rubric-curve-eval",
+  "code_file": "rubric-curve-eval.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "emrahik/rubric-dataset",
+    "emrahik/rubric-curve-adapter"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}
