@@ -364,9 +364,38 @@ def main() -> None:
                        "local": args.local, "limit": args.limit}, fh, indent=2)
         print(f"\nwrote {args.out}")
 
-    if after["citation_valid"] is not None and before["citation_valid"] is not None \
-            and after["citation_valid"] < before["citation_valid"]:
-        print("\nWARNING: grounding got WORSE. Do not ship this adapter.")
+    # Both of these disqualify a build, and for a while only the first one did.
+    # persona-v1's first run is why: citation_valid held at 1.00, so nothing was
+    # printed, while asked_when_thin went 3/7 -> 0/7 — the adapter had stopped
+    # asking and started answering every thin case with a verdict. Three metrics
+    # improved and the run looked like a win in the table above.
+    #
+    # A confident verdict on absent evidence is the failure this product exists
+    # to avoid, so losing that behaviour is not a trade the other three can pay
+    # for. Refuse on either.
+    blockers = []
+    for key, why in (("citation_valid", "grounding"),
+                     ("asked_when_thin", "asking instead of guessing")):
+        b, a = before.get(key), after.get(key)
+        if b is not None and a is not None and a < b:
+            blockers.append(f"{key} {b:.2f} -> {a:.2f} ({why} got WORSE)")
+
+    if blockers:
+        print("\n" + "!" * 64)
+        for line in blockers:
+            print(f"  {line}")
+        print("  Do not ship this adapter.")
+        print("!" * 64)
+
+    # A rate over a handful of rows is a direction, not a magnitude, and
+    # asked_when_thin is the one that gets a thin denominator: it is scored only
+    # on CLARIFY rows, which are a minority of the set by construction. Saying so
+    # here costs a line and stops the number being quoted as if it were solid.
+    clarify_n = sum(1 for m in metas[:len(examples)][:args.limit or len(metas)]
+                    if m.get("mode") == "clarify")
+    if clarify_n < 20:
+        print(f"\nNOTE: asked_when_thin rests on {clarify_n} clarify row(s). "
+              f"Raise --limit before treating its value as a rate.")
 
 
 if __name__ == "__main__":
