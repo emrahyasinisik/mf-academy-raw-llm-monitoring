@@ -103,16 +103,17 @@ services:
       # answer. The persona trims itself to this figure; it must not exceed what
       # the host reports as its max KV cache token capacity.
       #
-      # 2026-08-02: the box now serves persona-v1-q4f16_1-MLC (Gemma2-2B,
-      # compiled context_window_size=4096) instead of the Qwen3-4B Flutter
-      # build, which only ever gave 1416 regardless of the max_num_sequence=1
-      # override — see mf-inference/CONTEXT_WINDOW_RUNBOOK.md. 1200 was already
-      # tight for the 9-criteria investability rubric (~873 tokens of system
-      # prompt alone); the sample case pushes the full request to ~2015. 2500
-      # covers that with headroom for a longer real deck, while leaving
-      # 4096-2500=1596 tokens of the window for the rubric's own output.
+      # 2026-08-03: back on qwen3-4b-instruct-q4f16_1-MLC (Docker-only, by
+      # design — persona-v1/Gemma2-2B is not meant to run here). This build
+      # gives 1416 regardless of the max_num_sequence=1 override — see
+      # mf-inference/CONTEXT_WINDOW_RUNBOOK.md — so the budget must stay under
+      # that, not under persona-v1's 4096. 1200 was already tight for the
+      # 9-criteria investability rubric (~873 tokens of system prompt alone);
+      # a research turn's extracted Tavily/DDG content pushes requests past
+      # 1416 at 2500, which is what was cancelling/timing out turns in
+      # production. Revisit only if the loaded build changes.
       - key: LLM_MAX_PROMPT_TOKENS
-        value: 2500
+        value: 1200
       # Live web research for the persona. Tavily since 2026-08-03; the keyless
       # DuckDuckGo scrape ran before that and is still the fallback.
       #
