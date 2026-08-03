@@ -19,13 +19,23 @@
 # somebody is watching.
 #
 # Usage, from mf-inference/:
-#   peft/build_gguf.sh --base                 # once: base model -> models/gguf/base.gguf
+#   peft/build_gguf.sh --base --hf-base Qwen/Qwen3-4B-Instruct-2507
+#                                             # once: base model -> models/gguf/base.gguf
 #   peft/build_gguf.sh --adapter ../models/adapter-v1
+#                                             # base read from the adapter itself
 #   peft/build_gguf.sh --adapter ... --name tuned-v2 --adapter-id <uuid>
 #
 set -euo pipefail
 
-HF_BASE="google/gemma-2-2b-it"
+# Empty by default, and resolved below from the adapter's own adapter_config.json.
+# It used to be google/gemma-2-2b-it, correct on 24 Jul 2026 when every line here
+# was Gemma-2-2B and stale from 28 Jul when the product moved to Qwen3-4B — that
+# migration updated the model mlc serves and never came back for this script.
+# Flipping it to Qwen would move the problem to the Gemma line rather than
+# remove it; the adapter already records what it was fitted to.
+#
+# --base has no adapter to read, so that mode still requires --hf-base.
+HF_BASE=""
 ADAPTER=""
 NAME=""
 QUANT="Q4_K_M"
@@ -72,6 +82,41 @@ mkdir -p models/gguf/adapters
 [ "$DO_BASE" = 1 ] || [ -n "$ADAPTER" ] || fail "give --base or --adapter <dir>"
 command -v jq >/dev/null || fail "jq is required"
 command -v python3 >/dev/null || fail "python3 is required"
+
+# Resolve the base before anything reads it. In --adapter mode it comes from the
+# adapter unless the caller overrode it; in --base mode there is no adapter, so
+# it has to be given.
+if [ -z "$HF_BASE" ]; then
+    if [ "$DO_BASE" = 1 ]; then
+        fail "--base needs --hf-base <repo id>: there is no adapter to read the
+     base from, and guessing it is what this script stopped doing.
+     For the current product line:  --hf-base Qwen/Qwen3-4B-Instruct-2507"
+    fi
+    [ -f "$ADAPTER/adapter_config.json" ] || fail \
+        "$ADAPTER has no adapter_config.json, so the base cannot be read; pass --hf-base"
+    HF_BASE=$(jq -r '.base_model_name_or_path // empty' "$ADAPTER/adapter_config.json")
+    [ -n "$HF_BASE" ] || fail \
+        "$ADAPTER/adapter_config.json records no base_model_name_or_path; pass --hf-base"
+    say "base read from the adapter: $HF_BASE"
+fi
+
+# The adapter is only meaningful against the base it was trained on. A mismatch
+# does not error at serve time, it just degrades output — the hardest kind of
+# failure to attribute — so it is refused rather than warned about.
+#
+# Checked *here*, before the cache step, because this is the cheapest check in
+# the file and the one that saves the most: resolving the base can end in
+# "download 5 GB first", and being told to fetch a model the adapter was never
+# going to match is the wrong order to learn things in. When HF_BASE came from
+# the adapter above, this is trivially true and costs nothing; it earns its
+# place on the --hf-base override.
+if [ "$DO_BASE" != 1 ] && [ -f "$ADAPTER/adapter_config.json" ]; then
+    TRAINED_ON=$(jq -r '.base_model_name_or_path // empty' "$ADAPTER/adapter_config.json")
+    if [ -n "$TRAINED_ON" ] && [ "$TRAINED_ON" != "$HF_BASE" ]; then
+        fail "adapter was trained on '$TRAINED_ON' but --hf-base says '$HF_BASE'.
+     Convert against the right base, or retrain."
+    fi
+fi
 
 # The base model has to be on disk as a directory of safetensors, because
 # convert_hf_to_gguf.py reads files, not repo ids. It is already downloaded —
@@ -136,16 +181,6 @@ fi
      This script converts the adapter itself; use build_mlc.sh for merged models."
 [ -f models/gguf/base.gguf ] || fail \
     "models/gguf/base.gguf is missing. Run: peft/build_gguf.sh --base"
-
-# The adapter is only meaningful against the base it was trained on. Checking
-# here rather than letting the converter emit tensors that load but mean nothing
-# — a mismatched adapter does not error at serve time, it just degrades output,
-# which is the hardest kind of failure to attribute.
-TRAINED_ON=$(jq -r '.base_model_name_or_path // empty' "$ADAPTER/adapter_config.json")
-if [ -n "$TRAINED_ON" ] && [ "$TRAINED_ON" != "$HF_BASE" ]; then
-    fail "adapter was trained on '$TRAINED_ON' but the runtime serves '$HF_BASE'.
-     Convert against the right base with --hf-base, or retrain."
-fi
 
 [ -n "$NAME" ] || NAME=$(basename "$ADAPTER")
 GGUF_ID="${NAME}.gguf"

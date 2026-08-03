@@ -151,7 +151,14 @@ services:
     environment:
       LLAMA_MODEL: /models/gguf/base.gguf
       LLAMA_ADAPTER_DIR: /models/gguf/adapters
-      LLAMA_ALIAS: ${LLAMA_ALIAS:-gemma-2-2b-it-gguf}
+      # The id this server answers to, and it has to name the base actually
+      # built into models/gguf/base.gguf. It said gemma-2-2b-it-gguf from 24 Jul
+      # 2026, when that was the only base in the repo, and stayed there through
+      # the 28 Jul move to Qwen3-4B — that migration updated MLC_MODEL above and
+      # never came back for this line. An alias that names the wrong base is not
+      # cosmetic: it is the same failure as the mlc trap in CLAUDE.md, where one
+      # model answers while the records label it as another.
+      LLAMA_ALIAS: ${LLAMA_ALIAS:-qwen3-4b-instruct-gguf}
     volumes:
       - ./llamacpp/entrypoint.sh:/entrypoint.sh:ro
       # Same bind mount as mlc, same reasoning: the PEFT pipeline writes here
