@@ -11,3 +11,6 @@ kaggle/.stage/
 # The adapter is a build output — it belongs in the Kaggle dataset it was
 # uploaded to, not in git.
 kaggle/.stage-pilot/
+
+# push_persona.sh's staging area, same reasoning again.
+kaggle/.stage-persona/

@@ -132,6 +132,68 @@ değişmesinin tek bir olası sebebi var:
 `absent_rate` yükselip `consistency` yükselmiyorsa, kazanç muhtemelen ezber.
 Script bunu basıyor ve o build yayına alınmıyor.
 
+## Held-out sayısı ne ölçüyordu — ölçüldü, ve cevap "hatırlamayı"
+
+`rubric-curve-eval` 3 Ağustos 2026'da tamamlandı. Kurtarılan `checkpoint-175`
+(1400 satır geçişi, tam koşunun %29'u), 60 held-out satırda:
+
+| ölçüm | taban | adapter |
+|---|---:|---:|
+| `schema_valid` | 0,867 | **1,000** |
+| `absent_rate` | 0,864 | **1,000** |
+| `present_score_mae` | 0,944 | **0,003** |
+| `hallucinated_quotes` | 0,042 | **0,000** |
+
+0,003 MAE, 357 bulgunun 356'sının tam isabet etmesi demek. Eğitim loss'u 2,543 →
+**0,024**. Bunlar bir öğrenme eğrisinin değil, bir ezberin sayıları — ve neden
+öyle oldukları ölçülebilir bir şey:
+
+```
+distinct evidence quotes  train: 96   eval: 96
+eval quotes also in train : 96 (100.0%)
+eval pairs (kriter, puan) unseen in train: 0
+```
+
+Held-out setin içinde modelin görmediği **tek bir kanıt cümlesi yok**. `split_of`
+vakaları imzadan ayırıyor ve o kısım çalışıyor — kombinasyonlar gerçekten ayrık.
+Ama banka 51 fragmentten ibaret ve her fragment sabit bir puan taşıyor, yani
+1400 satır boyunca her metin etiketiyle yüzlerce kez görülüyor. `present_score_mae`
+burada "kanıt kalitesini değerlendirmeyi öğrendi mi"yi değil, **"51 metinden
+hangisinin kaç puan olduğunu hatırlıyor mu"yu** ölçüyor.
+
+Bu, üstteki "Ayrık bölme" bölümünün düzelttiği hatanın **ikinci katmanı**. Orada
+bölme aynı RNG akışından çekildiği için pazarlama eval'inin %81'i train'de
+çıkmıştı; imza üzerinden bölünce %0'a indi. İmza vakayı tanımlıyor, metni değil,
+ve düzeltilen tam olarak o kadarıydı.
+
+### Banka dışı vakalar — bunu ayırabilen ölçüm
+
+[`../offbank_cases.py`](../offbank_cases.py) elle yazılmış 10 yatırım vakası
+taşıyor: sulama sensöründen marina yazılımına, bankanın hiç girmediği
+sektörlerde, ve bankadan **tek bir cümle kullanmadan**.
+[`../build_offbank_eval.py`](../build_offbank_eval.py) bunları `rubric_eval.py`'nin
+okuduğu formata çeviriyor ve iki şeyi kanıtlıyor, iddia etmiyor: her alıntı vaka
+metninde birebir geçiyor, ve hiçbir alıntı `rubric_train.jsonl`'de geçmiyor.
+Üretilen set: **10 vaka, 90 bulgu, 146 farklı alıntı, bankayla 0 ortak**, puan
+dağılımı 1:11 2:16 3:16 4:18 5:22.
+
+```bash
+PORT=8090 go run ./cmd/server &          # mf-backend/ icinde
+export BASE_URL=http://localhost:8090 TOKEN=<bir token>
+python3 build_offbank_eval.py --out data/offbank_investment.jsonl \
+    --train data/rubric_train.jsonl
+```
+
+Okuma kuralı: bir adapter bankada 0,003, banka dışında 0,8 veriyorsa öğrendiği
+şey rubrik değil banka. İkisi birbirine yakınsa held-out sayısı gerçekten
+yeteneği ölçüyordu. Bu ölçüm alınmadan `rubric-v1` yayına alınmamalı, ve
+`checkpoint-175`'in yukarıdaki tablosu tek başına bir yayın gerekçesi değil.
+
+İki sınır, sayıya güvenmeden önce: puanlar hâlâ **yazanın değerlendirme
+görüşü** — banka için geçerli olan itiraz metin banka dışına çıkınca da geçerli.
+Ve 90 bulgunun yalnızca 7'si absent (%8, bankada %27), yani bu sette
+`absent_rate` yedi bulguya dayanıyor ve oran değil anekdot olarak okunmalı.
+
 ## `rubric_eval.py` neden `compare.py`'nin yerine geçmiyor
 
 `compare.py` daha iyi ölçüm ve **yayına alma kararını o verir**: vakaları
@@ -280,9 +342,8 @@ Qwen/Qwen3-4B-Instruct-2507`, ardından `build_mlc.sh --name rubric-v1`.
   bir vakaya karşı değil. Üreteç kanıtı kasten sakladığı için bu ölçüm dürüst,
   ama gerçek bir sunumun sessizliği daha bulanıktır.
 - Çeşitlilik metinde değil **kombinasyonda**: 1600 satır, kriter başına 3-4
-  metinden üretiliyor. Uzay artık satır sayısının çok üstünde ve bölme ayrık,
-  ama bir adapter'ın bankanın kendisini ezberleyip ezberlemediğini yakalayacak
-  ölçüm hâlâ yok — bunun için banka dışından yazılmış vakalar gerekir.
+  metinden üretiliyor. Uzay satır sayısının çok üstünde ve bölme ayrık — ama
+  aşağıdaki bölümün ölçtüğü gibi, ayrık olan yalnızca kombinasyon.
 - Bulgular 7200/4800 dengesiz (satırlar 800/800 ama yatırım cevapları 9, pazarlama
   6 bulgu taşıyor), yani gradyanın ~%60'ı yatırıma gidiyor.
 - İki rubrik tek adapter'da; birinin diğerinin kriter adlarını sızdırıp

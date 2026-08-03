@@ -58,6 +58,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 try:
     import torch
@@ -65,11 +66,46 @@ try:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import (AutoModelForCausalLM, AutoTokenizer,
                               BitsAndBytesConfig, DataCollatorForSeq2Seq,
-                              Trainer, TrainingArguments)
+                              Trainer, TrainerCallback, TrainingArguments)
 except ImportError as exc:  # pragma: no cover - environment guard
     sys.exit(f"missing dependency: {exc}\npip install -r ../requirements.txt")
 
 IGNORE_INDEX = -100
+
+
+class DeadlineStop(TrainerCallback):
+    """Stop the training loop after a wall-clock budget, cleanly.
+
+    `should_training_stop` is the same lever Trainer's own early stopping pulls,
+    which matters more than it sounds: the loop unwinds normally and control
+    returns to the caller, so the adapter gets saved. Killing the process at the
+    same moment — which is what a session wall does — loses the run entirely.
+
+    The check is on step end rather than on a timer, so the deadline is honoured
+    to within one optimizer step. At the measured ~30 s/row that granularity is
+    minutes, and the caller is expected to leave room for it (plus the final
+    save and eval) rather than budget the session down to the last second.
+    """
+
+    def __init__(self, minutes: float) -> None:
+        self.limit_s = minutes * 60.0
+        self.started = 0.0
+        self.fired = False
+
+    def on_train_begin(self, args, state, control, **kw):
+        self.started = time.monotonic()
+
+    def on_step_end(self, args, state, control, **kw):
+        if self.fired:
+            return control
+        elapsed = time.monotonic() - self.started
+        if elapsed >= self.limit_s:
+            self.fired = True
+            control.should_training_stop = True
+            print(f"\n[deadline] {elapsed/60:.1f} dk doldu (sinir "
+                  f"{self.limit_s/60:.0f} dk) — adim {state.global_step}'de "
+                  f"duruluyor. Agirliklar yazilacak.", flush=True)
+        return control
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,6 +160,22 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-steps", type=int, default=0,
                     help=">0 replaces --epochs with a hard optimizer-step "
                          "limit; derive it from a measured s/row, never type it")
+    # A step limit still has to be *converted* from a measured s/row, and that
+    # conversion is where the budgets have gone wrong: rubric-curve computed 200
+    # steps from a rows/step figure that was half the truth and died at step 197
+    # of 200 on the session wall, with exit 137 and no adapter written. The step
+    # count was the estimate; the clock was the constraint. So state the clock.
+    #
+    # This stops the loop the way Trainer's own early stopping does — by asking
+    # it to — so trainer.train() *returns* and every line after it still runs:
+    # save_pretrained, the eval, train_metrics.json. That is the whole point. A
+    # session wall gives none of them, and --save-steps checkpoints are only a
+    # salvage path, not a result (rubric-curve's had to be re-uploaded by hand
+    # as a separate dataset before anything could read it).
+    ap.add_argument("--max-minutes", type=float, default=0.0,
+                    help=">0 stops training gracefully after this many minutes "
+                         "of the training loop and saves; the budget guarantee "
+                         "that --max-steps only estimates")
     ap.add_argument("--save-steps", type=int, default=0,
                     help=">0 switches to step-based checkpointing, which the "
                          "free tier's dynamic quota makes load-bearing")
@@ -332,6 +384,11 @@ def main() -> None:
             tokenizer, padding=True, label_pad_token_id=IGNORE_INDEX),
     )
 
+    deadline = None
+    if args.max_minutes > 0:
+        deadline = DeadlineStop(args.max_minutes)
+        trainer.add_callback(deadline)
+
     # world_size is not decoration. `machine_shape: NvidiaTeslaT4` hands over a
     # two-card machine and Trainer puts DataParallel on it without being asked,
     # so per_device_train_batch_size is charged once per card: the real rows per
@@ -348,6 +405,10 @@ def main() -> None:
           f"  ({args.batch_size} x {args.grad_accum} accum x {world} gpu)"
           f"  ~{steps} optimizer steps{limit}"
           f"  = {steps * rows_per_step} row passes")
+    if deadline is not None:
+        print(f"deadline: {args.max_minutes:.0f} dk — hangisi once gelirse. "
+              f"Sinir dolarsa egitim adim sinirina varmadan durur ve "
+              f"agirliklar yine yazilir.")
     train_result = trainer.train(resume_from_checkpoint=args.resume or None)
 
     model.save_pretrained(args.out_dir)
@@ -370,6 +431,12 @@ def main() -> None:
                    "base_model": args.base_model,
                    "max_seq_len": args.max_seq_len,
                    "max_steps": args.max_steps, "grad_accum": args.grad_accum,
+                   # Which limit actually ended the run. Without this the only
+                   # difference between "trained as planned" and "ran out of
+                   # clock at 60% of plan" is a line of stdout in a log nobody
+                   # keeps, and the two produce adapters that are not comparable.
+                   "max_minutes": args.max_minutes,
+                   "stopped_on_deadline": bool(deadline and deadline.fired),
                    "batch_size": args.batch_size, "four_bit": not args.no_4bit,
                    "target_modules": targets}, fh, indent=2)
 

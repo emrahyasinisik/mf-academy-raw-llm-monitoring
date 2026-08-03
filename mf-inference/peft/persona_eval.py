@@ -113,7 +113,66 @@ def score_one(text: str, meta: dict) -> dict:
     return out
 
 
-def run_side(base_url: str, api_key: str, label: str, model: str,
+def local_completer(base_model: str, adapter: str, four_bit: bool,
+                    max_new: int):
+    """A `complete` that runs the weights here instead of calling a host.
+
+    Kaggle has no inference server, so the only place the adapter can be
+    measured in the session that trained it is in-process. The decode settings
+    mirror rubric_eval.py — greedy, same chat template path — because the two
+    instruments are read side by side and a sampled answer would make the
+    persona look unstable next to a rubric measured deterministically.
+
+    Note this is NOT the same measurement as the --base-url path: that one
+    scores the MLC build the product actually serves, quantisation and all.
+    This one scores the adapter. When they disagree, the served build is the
+    one that is true about the product.
+    """
+    try:
+        import torch
+        from transformers import (AutoModelForCausalLM, AutoTokenizer,
+                                  BitsAndBytesConfig)
+    except ImportError as exc:
+        sys.exit(f"missing dependency for --local: {exc}")
+
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    kwargs = {"device_map": {"": 0}, "attn_implementation": "sdpa",
+              "torch_dtype": torch.float16}
+    if four_bit:
+        kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.float16)
+
+    model = AutoModelForCausalLM.from_pretrained(base_model, **kwargs)
+    if adapter:
+        # Imported here, not at module scope, so the base side of the
+        # comparison runs on a machine with no peft installed.
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, adapter)
+    model.eval()
+
+    def complete(messages: list[dict]) -> str:
+        try:
+            text = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=False)
+        except TypeError:
+            text = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True)
+        ids = tokenizer(text, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            out = model.generate(**ids, max_new_tokens=max_new, do_sample=False,
+                                 pad_token_id=tokenizer.pad_token_id)
+        return tokenizer.decode(out[0][ids["input_ids"].shape[1]:],
+                                skip_special_tokens=True)
+
+    return complete
+
+
+def run_side(complete, label: str, model: str,
              examples: list[dict], metas: list[dict], limit: int) -> dict:
     print(f"\n  {label}: {model}")
     agg = {"citation_valid": [], "grounded_format": [],
@@ -121,7 +180,7 @@ def run_side(base_url: str, api_key: str, label: str, model: str,
     n = min(limit, len(examples)) if limit else len(examples)
     for i in range(n):
         prompt = [m for m in examples[i]["messages"] if m["role"] != "assistant"]
-        text = chat(base_url, api_key, model, prompt)
+        text = complete(prompt)
         s = score_one(text, metas[i])
         for k, v in s.items():
             agg[k].append(v)
@@ -161,15 +220,50 @@ def main() -> None:
                     help="inference host root, e.g. https://host (no /v1); or LLM_BASE_URL")
     ap.add_argument("--api-key", default=os.environ.get("LLM_API_KEY", ""))
     ap.add_argument("--before", default="gemma-2-2b-it-q4f16_1-MLC")
-    ap.add_argument("--after", required=True, help="the tuned model id")
+    # Not required: --local names the tuned side with --adapter instead, and a
+    # required flag there would have to be given a value nothing reads.
+    ap.add_argument("--after", default="", help="the tuned model id")
     ap.add_argument("--eval", default="data/persona_eval.jsonl")
     ap.add_argument("--meta", default="data/persona_eval_meta.jsonl")
     ap.add_argument("--limit", type=int, default=40,
                     help="examples per side (0 = all); each is one GPU call")
+    # The Kaggle path. --before/--after name MLC builds served over a tunnel,
+    # which is the right measurement and the one that decides a ship — but it
+    # cannot run in the session that produced the adapter, and waiting for a
+    # merge and an MLC compile to find out whether training worked is how the
+    # Flutter line spent two runs.
+    ap.add_argument("--local", action="store_true",
+                    help="load weights in-process instead of calling a host; "
+                         "for measuring inside the training session")
+    ap.add_argument("--local-base-model", default="Qwen/Qwen3-4B-Instruct-2507")
+    ap.add_argument("--adapter", default="",
+                    help="--local: adapter dir for the after side; the before "
+                         "side is always the bare base")
+    ap.add_argument("--four-bit", action="store_true",
+                    help="--local: load in 4-bit NF4 rather than fp16")
+    # Split the two sides across two invocations. The pre-training gate and the
+    # "before" column are the same measurement, and running the base twice to
+    # produce both costs a model load plus a full generation pass — real money
+    # against a session budget, and two numbers that can disagree for no reason
+    # anyone can name. rubric_eval.py carries the same pair of flags.
+    ap.add_argument("--base-only", action="store_true",
+                    help="measure the base and stop; writes --out for --baseline")
+    ap.add_argument("--baseline", default="",
+                    help="a --base-only result to use as the before side "
+                         "instead of measuring the base again")
+    ap.add_argument("--max-new-tokens", type=int, default=512)
+    ap.add_argument("--out", default="", help="write the two sides as JSON")
     args = ap.parse_args()
 
-    if not args.base_url:
-        sys.exit("an inference host is required: --base-url or LLM_BASE_URL")
+    if not args.local and not args.base_url:
+        sys.exit("an inference host is required: --base-url or LLM_BASE_URL "
+                 "(or --local to run the weights here)")
+    if not args.local and not args.after:
+        sys.exit("--after names the tuned model id to measure")
+    if args.local and not args.adapter and not args.base_only:
+        sys.exit("--local needs --adapter; without it both sides are the base "
+                 "and the delta is noise by construction "
+                 "(--base-only if that is what you meant)")
 
     examples = load_jsonl(args.eval)
     metas = load_jsonl(args.meta)
@@ -177,10 +271,56 @@ def main() -> None:
         sys.exit(f"eval and meta lengths differ ({len(examples)} vs {len(metas)}); "
                  "regenerate both with build_persona_dataset.py")
 
-    before = run_side(args.base_url, args.api_key, "before", args.before,
-                      examples, metas, args.limit)
-    after = run_side(args.base_url, args.api_key, "after", args.after,
-                     examples, metas, args.limit)
+    if args.local:
+        before_name = f"{args.local_base_model} (base)"
+        if args.baseline:
+            saved = json.load(open(args.baseline, encoding="utf-8"))
+            before = saved["before"]
+            before_name = saved.get("before_model", before_name)
+            if saved.get("limit") != args.limit:
+                # Not fatal, but the delta is then between two different sample
+                # sizes and the note has to travel with the number.
+                print(f"\nNOTE: baseline measured {saved.get('limit')} rows, "
+                      f"this run measures {args.limit}.")
+            print(f"\n  before (kayittan): {before_name}")
+        else:
+            # Sequential, not both-at-once: a 4B base plus an adapted copy does
+            # not fit beside itself on a 16 GB T4, and the failure would land
+            # after the first side had already been paid for.
+            before = run_side(
+                local_completer(args.local_base_model, "", args.four_bit,
+                                args.max_new_tokens),
+                "before", before_name, examples, metas, args.limit)
+
+        if args.base_only:
+            out = args.out or "out/persona_base.json"
+            os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+            with open(out, "w", encoding="utf-8") as fh:
+                json.dump({"before": before, "before_model": before_name,
+                           "local": True, "limit": args.limit}, fh, indent=2)
+            print(f"\nwrote {out}  (base only — no adapter measured)")
+            return
+
+        import gc
+        gc.collect()
+        try:
+            import torch
+            torch.cuda.empty_cache()
+        except ImportError:
+            pass
+        after_name = args.adapter
+        after = run_side(
+            local_completer(args.local_base_model, args.adapter, args.four_bit,
+                            args.max_new_tokens),
+            "after", after_name, examples, metas, args.limit)
+    else:
+        before_name, after_name = args.before, args.after
+        http = lambda model: (
+            lambda msgs: chat(args.base_url, args.api_key, model, msgs))
+        before = run_side(http(args.before), "before", args.before,
+                          examples, metas, args.limit)
+        after = run_side(http(args.after), "after", args.after,
+                         examples, metas, args.limit)
 
     rows = [
         ("citation_valid", "invented citations gone"),
@@ -195,6 +335,18 @@ def main() -> None:
         print(f"  {key:<18} {fmt(before[key]):>8} {fmt(after[key]):>8} "
               f"{delta(before[key], after[key]):>10}   {note}")
     print("=" * 64)
+
+    if args.out:
+        # The log is not the artefact. A Kaggle kernel's stdout is readable for
+        # as long as the version exists and is unparseable the moment anyone
+        # wants to put two runs beside each other; the JSON is what a curve is
+        # built from.
+        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump({"before": before, "after": after,
+                       "before_model": before_name, "after_model": after_name,
+                       "local": args.local, "limit": args.limit}, fh, indent=2)
+        print(f"\nwrote {args.out}")
 
     if after["citation_valid"] is not None and before["citation_valid"] is not None \
             and after["citation_valid"] < before["citation_valid"]:
