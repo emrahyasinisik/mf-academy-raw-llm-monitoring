@@ -19,6 +19,66 @@
 > hali **yerine geçmiyor** — o, ürünün servis ettiği MLC derlemesini ölçer ve
 > yayına alma kararını o verir.
 
+---
+
+## Tabanın ölçülmüş hali — bu hattın gerekçesini değiştiriyor
+
+**Bunu okumadan yeni bir eğitim koşusu kurma.** Aşağıdaki dört sayı
+`Qwen/Qwen3-4B-Instruct-2507` üzerinde, 100 satırlık validation setinde ölçüldü
+(3 Ağustos 2026, `persona-measure`):
+
+| metrik | taban | ne diyor |
+|---|---:|---|
+| `citation_valid` | **1.00** | Uydurma `[n]` yok. Kazanılacak yer değil. |
+| `asked_when_thin` | **19/28** | Kanıt inceyken zaten soruyor. Kazanılacak yer değil, **korunacak taban**. |
+| `grounded_format` | **0.64** | KARAR/SKOR biçimine uymuyor. Gerçek açık burada. |
+| `decision_match` | **15/72** | Düşük, ama kazancı bankadan ayırmak gerekiyor — aşağıya bak. |
+
+Bu dosyanın üst kısmı ve `build_persona_dataset.py`'nin docstring'i, personanın
+iki şeyi öğretmek için var olduğunu söylüyor: atıfları gerçek tut, ve tahmin
+etmek yerine sor. **İkisi de bu base'de zaten var.** O gerekçe `gemma-2-2b-it`
+döneminden geliyor ve base değişince taşınmadı — rubrik hattında birebir aynı
+hata bir kez yapılmıştı (`kaggle/README.md`, "Ölçüm — temel modelin hali").
+
+Geriye kalan gerçek açık `grounded_format`, ve o bir **biçim uyumu** sorunu.
+Prompt tarafında denenmeden bir fine-tune ile çözülmeye çalışılmamalı: bedeli
+sıfır, riski sıfır, ve soru sorma davranışına dokunmaz.
+
+### persona-v1 neden yayına alınmadı
+
+İlk koşu (48 adım, 383 satır geçişi) temiz bitti ve şunu üretti:
+
+| metrik | taban | ckpt-40 | ckpt-48 |
+|---|---:|---:|---:|
+| `citation_valid` | 1.00 | 1.00 | 1.00 |
+| `grounded_format` | 0.64 | **1.00** | 0.99 |
+| `asked_when_thin` | **19/28** | **0/28** | **0/28** |
+| `decision_match` | 15/72 | 52/72 | 51/72 |
+
+Adapter **hiç soru sormuyor**. Üç metrikteki kazancın tamamı tek bir davranıştan
+geliyor — *her zaman karar ver* — ve o davranış ürünün satmadığı şeyin ta
+kendisi. Kazanç, kaybedilenin bedelini ödemiyor.
+
+İki şey ayrıca öğrenildi:
+
+- **Çökme kademeli değil.** 40. adımda da tam. Yani "daha erken bir checkpoint"
+  diye bir kurtarma yok; sorun adım sayısı değil **eğitim karışımı**. Clarify
+  satırları setin %32'si ama decide çıktısı katı bir şablon, ve küçük bir
+  bütçede model baskın şekle kilitleniyor.
+- **30 satırlık ölçüm tabanı olduğundan kötü gösterdi** (`asked_when_thin` 0.43
+  yerine 0.68). O ölçüm 7 clarify satırına dayanıyordu. Bir oran, paydası
+  yazılmadan aktarılmamalı.
+
+### Bir sonraki koşu için
+
+1. Önce prompt: `grounded_format` 0.64'ten yukarı çıkıyor mu, eğitim olmadan.
+   Çıkıyorsa bu adapter'a gerek yok.
+2. Eğitim yine de gerekiyorsa `--clarify-share`'i yükselt ya da clarify
+   satırlarını ağırlıklandır; azınlık davranışı bu bütçede yeniliyor.
+3. `decision_match` kazancını gerçek sayma: validation'ın kanıt cümlelerinin
+   %93'ü train'de de geçiyor (`hf/PERSONA_CARD.md`, *Known limits*), yani o
+   sayının bir kısmı hatırlama olabilir.
+
 Yatırım personasını (`mf-backend/internal/decision`) eğitip yayına alan tek
 oturumluk kılavuz. Baştan sona, hiçbir adımı Mac'te bırakmadan burada koşulur —
 tek istisna ölçüm, o tünel üzerinden her yerden koşabilir.

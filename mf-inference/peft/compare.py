@@ -33,7 +33,7 @@ stddev          Spread of the overall score across identical inputs. The base
                 improve — only something to avoid breaking.
 
 Usage:
-    compare.py --before gemma-2-2b-it-q4f16_1-MLC --after tuned-v1
+    compare.py --before qwen3-4b-instruct-q4f16_1-MLC --after rubric-v1
 """
 
 from __future__ import annotations
@@ -137,8 +137,16 @@ def main() -> None:
     ap.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8090"))
     ap.add_argument("--token", default=os.environ.get("TOKEN", ""))
     ap.add_argument("--domain", default="startup-investability")
-    ap.add_argument("--before", default="gemma-2-2b-it-q4f16_1-MLC",
-                    help="model id serving the untuned base")
+    # No default, for the reason persona_eval.py's --before has none: this was
+    # gemma-2-2b-it-q4f16_1-MLC from when that was the only build, and after the
+    # move to Qwen3-4B taking it compared a tuned build against a *different base
+    # model* and credited the adapter with the whole difference. Every number
+    # this script prints is a delta, so a wrong before side does not weaken the
+    # comparison, it changes what it means — silently, and this is the script
+    # that decides a ship.
+    ap.add_argument("--before", default="",
+                    help="model id serving the untuned base; must share the "
+                         "tuned build's base model or the delta is meaningless")
     ap.add_argument("--after", required=True,
                     help="model id serving the merged adapter build")
     ap.add_argument("--trials", type=int, default=5)
@@ -150,6 +158,10 @@ def main() -> None:
 
     if not args.token:
         sys.exit("a token is required: --token or TOKEN=...")
+    if not args.before:
+        sys.exit("--before names the untuned build to compare against; there is "
+                 "no default because the only wrong answer is a build on a "
+                 "different base, and that one reads as an adapter result")
     if not os.path.exists(args.case_file):
         sys.exit(f"case file not found: {args.case_file}")
 

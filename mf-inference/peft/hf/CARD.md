@@ -34,6 +34,10 @@ configs:
         path: contrast_investment.jsonl
       - split: marketing
         path: contrast_marketing.jsonl
+  - config_name: offbank
+    data_files:
+      - split: investment
+        path: offbank_investment.jsonl
 ---
 
 # Rubric Dataset — Startup Investability & Digital Marketing
@@ -87,6 +91,7 @@ holds; the data is unchanged and still valid, but what counts as a gain is not.
 | `rubric` | `validation` | 200 | 100 + 100, held out |
 | `contrast` | `investment` | 60 | 30 quality pairs + 30 removal pairs |
 | `contrast` | `marketing` | 60 | 30 quality pairs + 30 removal pairs |
+| `offbank` | `investment` | 10 | hand-written cases sharing no sentence with the bank |
 
 Measured composition of the `rubric` config:
 
@@ -238,13 +243,69 @@ growing `--n` does not migrate yesterday's validation cases into training.
 This history is published rather than quietly fixed, because the credibility of
 every other number on this page depends on how the failures were found.
 
+### The second layer, measured 2026-08-03
+
+The split above is disjoint by **case**. It is not disjoint by **text**, and the
+difference turns out to be most of what the held-out number was worth.
+
+An adapter trained on 1,400 row passes of this data — 29% of a full run — scored
+`present_score_mae` **0.003** on the `rubric/validation` split: 356 of 357
+findings rated exactly right, at a training loss of 0.024. That is not a learning
+curve. Counting the evidence text on both sides explains it:
+
+```
+distinct evidence quotes  train: 96   validation: 96
+validation quotes also in train : 96 (100.0%)
+validation (criterion, score) pairs unseen in train: 0
+```
+
+Not one sentence in the held-out split is unseen. The bank holds 51 fragments,
+each carrying a fixed score, so 1,400 row passes show every fragment with its
+label hundreds of times. `present_score_mae` on this split therefore measures
+recall over a 51-entry lookup table, and no metric computed on the bank can
+separate that from judgement.
+
+The signature hash fixed which *cases* a model had seen. Nothing had fixed which
+*sentences*.
+
+### `offbank` — the split that has no shared text
+
+Ten investability cases written by hand, in sectors the bank never covers —
+irrigation sensors, marina management, customs paperwork — reusing no phrase from
+it. The generator that renders them checks both invariants rather than asserting
+them: every quote must appear verbatim in its own case, and no quote may appear
+in `rubric_train.jsonl`. One collision fails the build.
+
+| | |
+|---|---|
+| cases | 10 |
+| findings | 90 (83 scored, 7 absent) |
+| distinct evidence quotes | 146 |
+| **quotes shared with `rubric/train`** | **0** |
+| score distribution 1/2/3/4/5 | 11 / 16 / 16 / 18 / 22 |
+
+**How to read it.** Score a model on `rubric/validation` and on `offbank`. A
+large gap is memorisation of the bank; comparable numbers mean the held-out
+figure was honest. It is the same question `contrast` asks, from the other side:
+`contrast` perturbs a case and checks the answer moves, while `offbank` removes
+the shared vocabulary altogether.
+
+Two limits travel with it. The scores are still one person's appraisal judgement
+— moving the text off the bank does not fix the objection in *Limitations*, only
+the recall shortcut. And 7 absences is far too thin to compute an `absent_rate`
+from; the number this split carries is `present_score_mae`, over 83 findings.
+
 ---
 
 ## Limitations
 
-- **Fragment recognition.** 1,600 rows are built from 51 fragments, ~31
-  generations per fragment. The `contrast` config is the only honest measurement
-  of whether a model read the case or recognised it.
+- **Fragment recognition, and it has been measured.** 1,600 rows are built from
+  51 fragments, ~31 generations per fragment, and **100% of the validation
+  split's evidence sentences also appear in training** — see *Split integrity*.
+  `rubric/validation` alone therefore cannot tell reading from recall. The
+  `contrast` and `offbank` configs are what can, and a number quoted from
+  `rubric/validation` without one of them beside it should be treated as an
+  upper bound.
 - **1,600 rows do not carry 1,600 rows of information.** Diversity research on
   synthetic data ([arXiv:2410.15226](https://arxiv.org/pdf/2410.15226)) finds
   that performance tracks the number of distinct topics, and that generations per

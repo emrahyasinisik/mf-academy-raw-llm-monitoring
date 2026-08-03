@@ -1,8 +1,25 @@
-# Publishing `rubric-dataset` to Hugging Face
+# Publishing the datasets to Hugging Face
 
-Live at
-[huggingface.co/datasets/Emrahisik/rubric-dataset](https://huggingface.co/datasets/Emrahisik/rubric-dataset)
-— public, CC-BY-4.0, first published 2026-07-30 (`fe8b641`).
+Two are live, both public and CC-BY-4.0:
+
+| dataset | card | first published |
+|---|---|---|
+| [`Emrahisik/rubric-dataset`](https://huggingface.co/datasets/Emrahisik/rubric-dataset) | [`CARD.md`](CARD.md) | 2026-07-30 (`fe8b641`) |
+| [`Emrahisik/persona-dataset`](https://huggingface.co/datasets/Emrahisik/persona-dataset) | [`PERSONA_CARD.md`](PERSONA_CARD.md) | 2026-08-03 (`91542cc`) |
+
+Everything below is written for the rubric set and applies to both — same CLI,
+same one-commit rule, same two verification endpoints, same misleading `0/0
+uploaded` summary. Where the persona set differs, it is noted inline.
+
+Separate repos rather than more configs in one, for the reason the Kaggle side
+splits them too: `rubric-dataset` is an input to four kernels, and adding files
+to it cuts a version every one of them then has to be re-pointed at.
+
+**A stray repo exists.** `Emrahisik/rubric-datase` — no trailing `t` — was
+created by a typo on 2026-07-30 at 11:18 and holds nothing but a `.gitattributes`
+and a `README.md`. The correctly-named repo was created 25 minutes later and the
+first one was never removed. It is public. Delete it, or claim it deliberately;
+what it must not stay is an accident nobody decided about.
 
 The upload is **run by hand, not scripted.** That was a deliberate choice against
 writing a `push_hf.sh` sibling to `push.sh`, and the cost is written down here
@@ -176,6 +193,41 @@ checkable.
    the same reason it did the first time.
 5. Re-verify with both endpoints, then re-run the `load_dataset` assertions with
    the new counts.
+
+## The persona set, specifically
+
+```sh
+hf repos create Emrahisik/persona-dataset --repo-type dataset --public
+
+STAGE=$(mktemp -d)
+cp ../data/persona_train.jsonl ../data/persona_eval.jsonl \
+   ../data/persona_train_meta.jsonl ../data/persona_eval_meta.jsonl "$STAGE/"
+cp PERSONA_CARD.md "$STAGE/README.md"
+
+hf upload Emrahisik/persona-dataset "$STAGE" . --repo-type=dataset \
+  --commit-message "investment persona: train + validation + ground-truth meta, with card"
+```
+
+Regenerate first, from `mf-inference/peft/`, with the backend up:
+
+```sh
+export BASE_URL=http://localhost:8090 TOKEN=<a token>
+python3 build_persona_dataset.py --n 800 --n-eval 100 --clarify-share 0.3
+```
+
+**The `_meta` files are not optional.** They carry the ground truth
+(`mode`, `label`, `n_sources`, `score`) that `persona_eval.py` scores against,
+and it exits when their length disagrees with the data. A persona set published
+without them trains fine and cannot be measured at all.
+
+They ship as a second config, `meta`, only because HF configs cannot mix schemas.
+That is a packaging detail with a sharp edge: the two configs are aligned
+row-for-row, and a `meta` split read against a differently-sized data split is
+silently misaligned rather than an error. Load both or neither.
+
+Expect, once the viewer has built: `persona/train` 800, `persona/validation` 100,
+`meta/train` 800, `meta/validation` 100 — and the same `pending == [] and
+size.splits != [] and not failed` condition as above. It took about 45 seconds.
 
 ## Not uploaded, on purpose
 

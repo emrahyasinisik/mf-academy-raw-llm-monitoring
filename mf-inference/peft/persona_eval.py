@@ -173,10 +173,18 @@ def local_completer(base_model: str, adapter: str, four_bit: bool,
 
 
 def run_side(complete, label: str, model: str,
-             examples: list[dict], metas: list[dict], limit: int) -> dict:
+             examples: list[dict], metas: list[dict], limit: int,
+             keep_samples: int = 6) -> dict:
     print(f"\n  {label}: {model}")
     agg = {"citation_valid": [], "grounded_format": [],
            "asked_when_thin": [], "decision_match": []}
+    # Rates say what happened; they never say why, and a 0.00 is exactly where
+    # the why matters most. persona-v1 scored asked_when_thin 0/28 and the
+    # mechanism had to be inferred from a *second* metric — grounded_format at
+    # 1.00 — because nothing here kept a single generation. Failures are kept in
+    # preference to passes for the same reason: a run that looks right needs no
+    # explaining.
+    samples: list[dict] = []
     n = min(limit, len(examples)) if limit else len(examples)
     for i in range(n):
         prompt = [m for m in examples[i]["messages"] if m["role"] != "assistant"]
@@ -184,6 +192,13 @@ def run_side(complete, label: str, model: str,
         s = score_one(text, metas[i])
         for k, v in s.items():
             agg[k].append(v)
+        if keep_samples and (any(v is False for v in s.values())
+                             or len(samples) < 2):
+            if len(samples) < keep_samples:
+                samples.append({"row": i, "mode": metas[i]["mode"],
+                                "expected_label": metas[i].get("label"),
+                                "n_sources": metas[i]["n_sources"],
+                                "scores": s, "answer": text})
         if (i + 1) % 10 == 0:
             print(f"    {i + 1}/{n}")
 
@@ -193,6 +208,7 @@ def run_side(complete, label: str, model: str,
 
     out = {k: rate(k) for k in agg}
     out["n"] = n
+    out["samples"] = samples
     print(f"    citation_valid {fmt(out['citation_valid'])}   "
           f"grounded_format {fmt(out['grounded_format'])}   "
           f"asked_when_thin {fmt(out['asked_when_thin'])}   "
@@ -258,6 +274,20 @@ def main() -> None:
     # produce both costs a model load plus a full generation pass — real money
     # against a session budget, and two numbers that can disagree for no reason
     # anyone can name. rubric_eval.py carries the same pair of flags.
+    # Replace the system turn without regenerating the set. The rows carry the
+    # prompt the backend served when they were built, which is what makes them a
+    # faithful training distribution — but it also means the only way to ask
+    # "would a better instruction fix this" used to be a full regeneration, and
+    # a regenerated set is not the same set. Overriding here holds the evidence,
+    # the ordering and the ground truth fixed and changes exactly one thing.
+    #
+    # It is a measurement tool, not a deployment path: a prompt that wins here
+    # has to be landed in the backend, because that is where inference reads it
+    # from. Winning on a file nothing sends is the same failure as training
+    # against one.
+    ap.add_argument("--system-prompt-file", default="",
+                    help="replace every row's system turn with this file's "
+                         "contents; for comparing prompts on fixed evidence")
     ap.add_argument("--base-only", action="store_true",
                     help="measure the base and stop; writes --out for --baseline")
     ap.add_argument("--baseline", default="",
@@ -287,6 +317,27 @@ def main() -> None:
         sys.exit(f"eval and meta lengths differ ({len(examples)} vs {len(metas)}); "
                  "regenerate both with build_persona_dataset.py")
 
+    prompt_label = "(as generated)"
+    if args.system_prompt_file:
+        with open(args.system_prompt_file, encoding="utf-8") as fh:
+            override = fh.read().strip()
+        if not override:
+            sys.exit(f"{args.system_prompt_file} is empty")
+        swapped = 0
+        for row in examples:
+            for m in row["messages"]:
+                if m["role"] == "system":
+                    m["content"] = override
+                    swapped += 1
+        # Every row has exactly one system turn; if that stops being true the
+        # comparison is no longer one-variable and should fail rather than skew.
+        if swapped != len(examples):
+            sys.exit(f"expected one system turn per row, replaced {swapped} "
+                     f"across {len(examples)} rows")
+        prompt_label = os.path.basename(args.system_prompt_file)
+        print(f"system prompt overridden from {args.system_prompt_file} "
+              f"({len(override)} chars, {swapped} rows)")
+
     if args.local:
         before_name = f"{args.local_base_model} (base)"
         if args.baseline:
@@ -313,6 +364,7 @@ def main() -> None:
             os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
             with open(out, "w", encoding="utf-8") as fh:
                 json.dump({"before": before, "before_model": before_name,
+                           "system_prompt": prompt_label,
                            "local": True, "limit": args.limit}, fh, indent=2)
             print(f"\nwrote {out}  (base only — no adapter measured)")
             return
@@ -361,12 +413,42 @@ def main() -> None:
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump({"before": before, "after": after,
                        "before_model": before_name, "after_model": after_name,
+                       "system_prompt": prompt_label,
                        "local": args.local, "limit": args.limit}, fh, indent=2)
         print(f"\nwrote {args.out}")
 
-    if after["citation_valid"] is not None and before["citation_valid"] is not None \
-            and after["citation_valid"] < before["citation_valid"]:
-        print("\nWARNING: grounding got WORSE. Do not ship this adapter.")
+    # Both of these disqualify a build, and for a while only the first one did.
+    # persona-v1's first run is why: citation_valid held at 1.00, so nothing was
+    # printed, while asked_when_thin went 3/7 -> 0/7 — the adapter had stopped
+    # asking and started answering every thin case with a verdict. Three metrics
+    # improved and the run looked like a win in the table above.
+    #
+    # A confident verdict on absent evidence is the failure this product exists
+    # to avoid, so losing that behaviour is not a trade the other three can pay
+    # for. Refuse on either.
+    blockers = []
+    for key, why in (("citation_valid", "grounding"),
+                     ("asked_when_thin", "asking instead of guessing")):
+        b, a = before.get(key), after.get(key)
+        if b is not None and a is not None and a < b:
+            blockers.append(f"{key} {b:.2f} -> {a:.2f} ({why} got WORSE)")
+
+    if blockers:
+        print("\n" + "!" * 64)
+        for line in blockers:
+            print(f"  {line}")
+        print("  Do not ship this adapter.")
+        print("!" * 64)
+
+    # A rate over a handful of rows is a direction, not a magnitude, and
+    # asked_when_thin is the one that gets a thin denominator: it is scored only
+    # on CLARIFY rows, which are a minority of the set by construction. Saying so
+    # here costs a line and stops the number being quoted as if it were solid.
+    clarify_n = sum(1 for m in metas[:len(examples)][:args.limit or len(metas)]
+                    if m.get("mode") == "clarify")
+    if clarify_n < 20:
+        print(f"\nNOTE: asked_when_thin rests on {clarify_n} clarify row(s). "
+              f"Raise --limit before treating its value as a rate.")
 
 
 if __name__ == "__main__":

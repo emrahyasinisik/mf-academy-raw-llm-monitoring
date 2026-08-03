@@ -75,6 +75,15 @@ done
 # produced a notebook with a single inference cell and no training code at all.
 cp "$PEFT/train_qlora_qwen.py" "$PEFT/persona_eval.py" "$STAGE/"
 
+# Prompt variants travel too. They are measurement inputs, not deployment
+# artefacts — inference reads its prompt from the backend — but a variant that
+# lives only on the Mac cannot be compared on a T4, and a variant pasted into a
+# notebook cell is one nobody can diff against the one that was measured.
+for p in "$PEFT"/prompts/*.txt; do
+  [ -e "$p" ] || continue
+  cp "$p" "$STAGE/"
+done
+
 cat > "$STAGE/dataset-metadata.json" <<JSON
 {
   "title": "persona-dataset",
