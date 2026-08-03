@@ -1,5 +1,24 @@
 # Persona v1 — GPU kutusunda uçtan uca koşu kılavuzu
 
+> **Kaggle varyantı (3 Ağustos 2026).** Aşağıdaki kılavuz Gemma-2-2B'yi kutuda
+> eğitiyor ve eğitim boyunca ürünü çıkarımsız bırakıyor. Ürünün servis ettiği
+> base artık **Qwen3-4B-Instruct-2507** ve aynı hat Kaggle'da koşuyor:
+> `kaggle/persona/persona-qlora.ipynb`, veri seti `emrahik/persona-dataset`,
+> `kaggle/push_persona.sh` ile yayınlanıyor. Kutu boşta kalıyor, T4 de 1660 Ti
+> gibi sm_75 olduğu için orada alınan derleme burada geçerli.
+>
+> O koşu **3 saatlik bir bütçeye** yazıldı ve bütçe `--max-steps` ile tahmin
+> edilip `--max-minutes` ile garanti ediliyor. İkisinin farkını `rubric-curve`
+> ödedi: adım sayısı ölçülmüş bir s/satır'dan hesaplanmıştı ama satır/adım
+> çarpanı yarısı kadar yazılmıştı, koşu oturum duvarına `exit 137` ile çarptı ve
+> hiç ağırlık yazılmadı. `--max-minutes` Trainer'dan nazikçe çıkıyor, yani
+> `trainer.train()` döner ve `save_pretrained` yine koşar.
+>
+> Ölçüm de orada: `persona_eval.py --local` ağırlıkları doğrudan yüklüyor, çünkü
+> Kaggle'da çıkarım sunucusu yok. Aşağıdaki 7. adımın tünel üzerinden koşan
+> hali **yerine geçmiyor** — o, ürünün servis ettiği MLC derlemesini ölçer ve
+> yayına alma kararını o verir.
+
 Yatırım personasını (`mf-backend/internal/decision`) eğitip yayına alan tek
 oturumluk kılavuz. Baştan sona, hiçbir adımı Mac'te bırakmadan burada koşulur —
 tek istisna ölçüm, o tünel üzerinden her yerden koşabilir.
