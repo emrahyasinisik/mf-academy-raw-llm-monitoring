@@ -101,12 +101,18 @@ docker compose logs mlc | grep -i "model\|loaded" | head
 curl -s -H "X-API-Key: $LLM_API_KEY" https://mlc.visevent.com/v1/models | jq -r '.data[].id'
 ```
 
-Bu bittiğinde haber ver — prompt karşılaştırmasını tünelden ben koşarım
-(~20 dk, iki prompt × 100 satır).
-
 > **Not:** Bu adım eski persona build'ini kapatır. Panel ve Render'daki backend
 > bu süre boyunca Gemma personası yerine ham Qwen3 tabanı görür. Kalıcı bir
 > değişiklik değil — 1c'yi eski `MLC_MODEL` ile tekrarlayarak geri alınır.
+
+> **`MLC_MODEL`'i komut satırında değil `.env`'de değiştir.** Yukarıdaki satır
+> yalnız o `up` çağrısı için geçerlidir. Konteyner `restart: unless-stopped`
+> olduğu için bir yeniden başlatmayı atlatır — komut yaratılışta sabitlenir —
+> ama bir sonraki `up` / `--force-recreate` / `down` `.env`'i yeniden okur ve
+> eski değere döner. `.env` hâlâ `persona-v1-q4f16_1-MLC` diyorsa dönülen şey
+> **Gemma personasıdır**, ve dönüş sessizdir: `mlc_llm` sorulan id'yi yansıttığı
+> için completion'lar hiçbir şey belli etmez. Ne yüklendiğini `GET /v1/models`
+> söyler — orası isteği değil, sürecin başlatıldığı yolu döner.
 
 ---
 
@@ -126,6 +132,25 @@ Adapter hiç soru sormuyor. Üç metrikteki kazancın tamamı tek bir davranış
 geliyor — *her zaman karar ver* — ve o, ürünün var olma sebebi olan davranışın
 kaybı. **Bu build derlenmemeli.** Aşağısı, düzeltilmiş bir koşu geldiğinde
 izlenecek yol.
+
+Ama "düzeltilmiş koşu" muhtemelen bir eğitim koşusu değil. `persona-prompt`
+kernel'i aynı 100 satırda, aynı tabanda, tek değişken system turn olacak şekilde
+`persona_v2.txt`'i ölçtü:
+
+| metrik | taban | **prompt v2** | adapter ckpt-40 |
+|---|---:|---:|---:|
+| `citation_valid` | 1.00 | 1.00 | 1.00 |
+| `grounded_format` | 0.64 | **1.00** | **1.00** |
+| `asked_when_thin` | 0.68 | **0.00** | **0.00** |
+| `decision_match` | 0.21 | 0.51 | 0.72 |
+
+Bir prompt dosyası QLoRA koşusunun kazancının neredeyse tamamını **ve kaybının
+tamamını** yeniden üretti. Kusur eğitim verisinde ya da hiperparametrelerde
+değil, talimatta: çıktı sözleşmesini sıkılaştıran her müdahale — ister LoRA
+ister prompt — önce soru sorma davranışını harcıyor. `v2` de kendi ölçütüne
+göre reddedildi (`peft/prompts/README.md`). İkinci bir T4 koşusu satın almadan
+önce cevaplanacak soru bu, ve `--base-only` ile bir prompt denemesinin bedeli
+sıfıra yakın.
 
 ### 2a. Adapter'ı indir
 
@@ -167,16 +192,62 @@ MLC_MODEL=/models/persona-qwen-v1-q4f16_1-MLC \
   docker compose up -d --force-recreate mlc
 ```
 
-Ölçüm **tünel üzerinden**, Mac'ten de koşar:
+Ölçüm **kutuda** koşar, tünelden değil — sebebi aşağıda, ve tahmin değil ölçüm:
 
 ```bash
-cd peft && source .venv/bin/activate
-export LLM_BASE_URL=https://mlc.visevent.com LLM_API_KEY=<gateway-secret>
-python3 persona_eval.py \
-    --before qwen3-4b-instruct-q4f16_1-MLC \
-    --after  persona-qwen-v1-q4f16_1-MLC \
+cd ~/mf-capstone/mf-inference/peft && source .venv/bin/activate
+source ../.env                              # LLM_API_KEY
+export LLM_BASE_URL=http://localhost:8080   # gateway, 127.0.0.1'e publish edilmiş
+python3 -u persona_eval.py \
+    --before /models/qwen3-4b-instruct-q4f16_1-MLC \
+    --after  /models/persona-qwen-v1-q4f16_1-MLC \
     --limit 100
 ```
+
+Tek taraf ölçmek için `--base-only` (tabanın kendi sayısını almak, ya da bir
+prompt denemesi): `--after` düşer, çıktı `--out`'a yazılır.
+
+### Neden tünelden değil
+
+Mac'ten tünel üzerinden denendi (3 Ağu 2026) ve koşu ilk satırlarda öldü:
+
+```
+inference call failed (524):
+error code: 524
+```
+
+Altı satırlık zamanlama: **çalışanlar 9-20 sn, çökenler 125-130 sn'de 524.**
+524 Cloudflare'ın origin zaman aşımı: proxy ~100 sn'de bağlantıyı kesiyor,
+origin hâlâ üretirken. `persona_eval.py` ilk HTTP hatasında çıktığı için **tek
+bir uzun satır 100 satırlık koşunun tamamını çöpe atıyor**.
+
+Hangi satırın çökeceği kestirilemiyor, ve bu önemli: prompt boyutları arasında
+anlamlı fark yok (2109-2345 karakter) *ve* aynı satır bir denemede 20 sn'de
+dönüp iki deneme sonra 524 aldı. Yani sebep girdi değil, satır da değil —
+zamana bağlı bir şey. Üretim hızı ~35 tok/sn ve tavan 1024 token olduğuna göre
+en kötü ~30 sn beklenirdi; 100 sn'nin aşılması açıklanmış değil. Kuyruk mu,
+prefill mi, kartın o anki durumu mu — kutuda, CDN gürültüsü olmadan koşan ilk
+tam pass gösterir.
+
+Akış (`stream: true`) 524'ü muhtemelen aşardı, ama yanlış işi düzeltmek olurdu:
+ölçüm kutunun konteynerine karşı koşuyor, araya CDN girmesinin tek sebebi
+Mac'ten koşulması. Kutuda tünel yok, sorun da yok.
+
+### Bunun ürün tarafındaki karşılığı — ve o bizim sorunumuz
+
+Aynı ~100 sn duvarı Render'daki backend için de var, ve orada gizleniyor:
+
+| yer | değer |
+|---|---|
+| `mf-backend/.env` → `LLM_TIMEOUT` | 120s |
+| Cloudflare proxy | ~100s |
+| `internal/llm/provider.go` | `Stream: false` |
+| aynı dosya, tanınmayan kod | `"inference host returned %d"` |
+
+Backend'in bütçesinin son ~20 saniyesi erişilemez — Cloudflare önce keser — ve
+kullanıcı **"inference host returned 524"** görür: kutuyu suçlayan, aslında bir
+CDN'in kestiği hata. Uzun bir persona cevabı bunu demo sırasında basabilir.
+Ölçüm yolu tünelden çıkınca kaybolmayan tek Cloudflare işi budur.
 
 `--before`'un **varsayılanı yok** ve olmamalı: yanlış bir before tarafı,
 adapter'ı başka bir base modele karşı kıyaslar ve bütün farkı adapter'a yazar.
@@ -232,9 +303,16 @@ Gemma ise **önce onu yeniden üret**, yoksa alias yalan söyler.
 
 | # | ne | ne zaman |
 |---|---|---|
-| 1 | Qwen3-4B tabanını derle ve servis et | **şimdi** — prompt ölçümü buna bağlı |
-| — | prompt karşılaştırması (Kaggle'da koşuyor, tünelde tekrarlanabilir) | — |
-| 2 | persona adapter'ı merge + derle + ölç | **ancak** düzeltilmiş bir eğitim koşusu geldiğinde |
+| 1 | Qwen3-4B tabanını derle ve servis et | **yapıldı** (3 Ağu 2026) |
+| — | prompt karşılaştırması (`persona-prompt`, Kaggle) | **yapıldı** — `v2` reddedildi |
+| 1b | `MLC_MODEL`'i `.env`'de kalıcılaştır | recreate hâlâ Gemma'ya döndürüyorsa |
+| 2 | persona adapter'ı merge + derle + ölç | **ancak** düzeltilmiş bir koşu geldiğinde — ve o muhtemelen bir prompt, bir eğitim değil |
 | 3 | hot-swap yolu | adapter karşılaştırması gerektiğinde |
 
 Bugünkü adapter için 2'yi koşma. Ölçüm onu reddetti ve sebebi kayıtlı.
+
+Tabanın nicemlenmiş sayısı (`--base-only`, kutuda) henüz alınmadı. Aciliyeti
+yok: o sayı yalnızca bir adapter'ın `--before` tarafı olarak lazım ve
+karşılaştırılacak adapter yok. Alınacağı zaman kutuda iki şey gerekiyor —
+`data/persona_eval.jsonl` (repo'da yok, `peft/.gitignore` `data/`'yı dışlıyor;
+`emrahik/persona-dataset`'ten iner) ve `.venv`.
