@@ -107,13 +107,17 @@ services:
       # design — persona-v1/Gemma2-2B is not meant to run here). This build
       # gives 1416 regardless of the max_num_sequence=1 override — see
       # mf-inference/CONTEXT_WINDOW_RUNBOOK.md — so the budget must stay under
-      # that, not under persona-v1's 4096. 1200 was already tight for the
-      # 9-criteria investability rubric (~873 tokens of system prompt alone);
-      # a research turn's extracted Tavily/DDG content pushes requests past
-      # 1416 at 2500, which is what was cancelling/timing out turns in
-      # production. Revisit only if the loaded build changes.
+      # that, not under persona-v1's 4096.
+      #
+      # 1200 still measured 1518 real tokens on a research turn (Tavily's
+      # extracted page content tokenises worse than the 2.2 chars/token this
+      # side assumes) — over the 1416 ceiling, and what was cancelling turns
+      # in production. 900 measured safely under it against the same live
+      # host; tested locally against host.docker.internal before raising this
+      # here, since that's the same physical box and model. Revisit only if
+      # the loaded build or the estimate's accuracy changes.
       - key: LLM_MAX_PROMPT_TOKENS
-        value: 1200
+        value: 900
       # Live web research for the persona. Tavily since 2026-08-03; the keyless
       # DuckDuckGo scrape ran before that and is still the fallback.
       #

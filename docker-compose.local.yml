@@ -44,6 +44,7 @@ services:
       LLM_BASE_URL: http://host.docker.internal:8080
       LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY must be set in the repo-root .env — copy it from mf-inference/.env}
       LLM_TIMEOUT: 90s
+      LLM_MAX_PROMPT_TOKENS: 900
       # Bu ikisi de repo-root .env'den geliyor — sadece mf-backend/.env'e
       # yazmak yeterli değil, compose onu okumaz, sadece burada listelenen
       # anahtarları container'a geçirir.
