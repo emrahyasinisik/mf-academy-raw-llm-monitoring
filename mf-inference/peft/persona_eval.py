@@ -300,7 +300,7 @@ def main() -> None:
     if not args.local and not args.base_url:
         sys.exit("an inference host is required: --base-url or LLM_BASE_URL "
                  "(or --local to run the weights here)")
-    if not args.local and not args.after:
+    if not args.local and not args.after and not args.base_only:
         sys.exit("--after names the tuned model id to measure")
     if not args.local and not args.before:
         sys.exit("--before names the untuned build to compare against; there is "
@@ -359,36 +359,47 @@ def main() -> None:
                                 args.max_new_tokens),
                 "before", before_name, examples, metas, args.limit)
 
-        if args.base_only:
-            out = args.out or "out/persona_base.json"
-            os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-            with open(out, "w", encoding="utf-8") as fh:
-                json.dump({"before": before, "before_model": before_name,
-                           "system_prompt": prompt_label,
-                           "local": True, "limit": args.limit}, fh, indent=2)
-            print(f"\nwrote {out}  (base only — no adapter measured)")
-            return
-
-        import gc
-        gc.collect()
-        try:
-            import torch
-            torch.cuda.empty_cache()
-        except ImportError:
-            pass
-        after_name = args.adapter
-        after = run_side(
-            local_completer(args.local_base_model, args.adapter, args.four_bit,
-                            args.max_new_tokens),
-            "after", after_name, examples, metas, args.limit)
+        if not args.base_only:
+            import gc
+            gc.collect()
+            try:
+                import torch
+                torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            after_name = args.adapter
+            after = run_side(
+                local_completer(args.local_base_model, args.adapter,
+                                args.four_bit, args.max_new_tokens),
+                "after", after_name, examples, metas, args.limit)
     else:
         before_name, after_name = args.before, args.after
         http = lambda model: (
             lambda msgs: chat(args.base_url, args.api_key, model, msgs))
         before = run_side(http(args.before), "before", args.before,
                           examples, metas, args.limit)
-        after = run_side(http(args.after), "after", args.after,
-                         examples, metas, args.limit)
+        if not args.base_only:
+            after = run_side(http(args.after), "after", args.after,
+                             examples, metas, args.limit)
+
+    # One side, either transport. This used to live inside the --local branch,
+    # which quietly made it a local-only flag: over a tunnel the run measured
+    # both sides regardless and --after was mandatory. That is wrong for the
+    # measurement it was added for — a prompt comparison is two *separate*
+    # one-sided runs on the same build, and forcing a second side doubles a
+    # 100-row pass into 200 host calls and prints a delta of a model against
+    # itself. The tunnel is also the only transport that can measure the
+    # quantised build the product actually serves, so it is the last one that
+    # should be locked out of a single-sided run.
+    if args.base_only:
+        out = args.out or "out/persona_base.json"
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump({"before": before, "before_model": before_name,
+                       "system_prompt": prompt_label,
+                       "local": args.local, "limit": args.limit}, fh, indent=2)
+        print(f"\nwrote {out}  (base only — no adapter measured)")
+        return
 
     rows = [
         ("citation_valid", "invented citations gone"),

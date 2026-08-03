@@ -50,6 +50,34 @@ Beklenen: `grounded_format` yükselir, `asked_when_thin` **en azından korunur**
 İkincisi düşerse `v2` reddedilir — `v1`'in 0.64'ü, soru sormayı kaybetmiş bir
 0.95'ten iyidir.
 
+## Sonuç — `v2` reddedildi
+
+`persona-prompt` kernel'i, 100 satır, `Qwen/Qwen3-4B-Instruct-2507`, tek
+değişken system turn:
+
+| metrik | v1 (as generated) | v2 | Δ |
+|---|---:|---:|---:|
+| `citation_valid` | 1.00 | 1.00 | +0.00 |
+| `grounded_format` | 0.64 | 1.00 | +0.36 |
+| `asked_when_thin` | 0.68 | **0.00** | **−0.68** |
+| `decision_match` | 0.21 | 0.51 | +0.31 |
+
+Yukarıdaki kural aynen işledi: `grounded_format` beklendiği gibi kapandı,
+`asked_when_thin` sıfırlandı, `v2` reddedildi.
+
+Asıl bulgu tabloda değil, tablonun QLoRA koşusuyla örtüşmesinde: adapter da
+`grounded_format`'ı 1.00'e çıkarıp `asked_when_thin`'i 0.00'a düşürmüştü
+(`WINDOWS_ENTEGRASYON.md` §2). Bir prompt dosyası, bir T4 eğitiminin hem
+kazancını hem kaybını yeniden üretti. Yani kusur veride değil talimatta — ve
+`v2`'nin iki değişikliği (BİÇİM 1 / BİÇİM 2 ayrımı, "üçüncü biçim yok") soru
+modunu *korumak* için yazılmışken tam tersini yaptı. Sözleşmeyi keskinleştirmek
+modeli her satırda karar moduna itiyor.
+
+Bir sonraki denemenin hipotezi bu yüzden ters yönde olmalı: `grounded_format` ile
+`asked_when_thin` tek bir bütçeyi paylaşıyorsa, biçim baskısını *artıran* bir
+`v3` aynı duvara koşar. Denenmemiş olan, soru modunu biçim kuralının **dışına**
+almak — ona bir çıktı sözleşmesi vermemek.
+
 ## Koşma
 
 ```bash
