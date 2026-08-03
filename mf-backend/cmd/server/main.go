@@ -165,6 +165,17 @@ func main() {
 	// false one about the cause. Bounding search is what keeps that message
 	// honest.
 	searcher := decision.NewSearcher(cfg.SearchProvider, cfg.SearchAPIKey, cfg.SearchTimeout())
+	// Say which provider won, at boot, because the fallback is silent by
+	// design: asking for tavily without a key is not an error, it is a
+	// DuckDuckGo scrape wearing the config of something else. The one place
+	// that difference showed up was the research trail on a turn someone had
+	// to run first — and only if they knew to look. `requested` is logged
+	// beside `provider` so the two disagreeing is legible as the thing it is.
+	slog.Info("live search configured",
+		"provider", searcher.Name(),
+		"requested", cfg.SearchProvider,
+		"keyed", cfg.SearchAPIKey != "",
+		"timeout", cfg.SearchTimeout())
 	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens, cfg.LLMTimeout)
 	decisionStore := decision.NewStore(pool)
 	decisionHandler := decision.NewHandler(decisionAgent, decisionStore)
