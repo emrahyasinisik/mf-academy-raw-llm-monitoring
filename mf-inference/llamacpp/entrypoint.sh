@@ -61,4 +61,4 @@ exec /app/llama-server \
     --port 8000 \
     --ctx-size "${LLAMA_CTX:-8192}" \
     --n-gpu-layers "${LLAMA_NGL:-99}" \
-    --alias "${LLAMA_ALIAS:-gemma-2-2b-it-gguf}"
+    --alias "${LLAMA_ALIAS:-qwen3-4b-instruct-gguf}"

@@ -32,7 +32,7 @@ decision_match   Share of DECIDE cases whose verdict label matches the one the
                  can differ by one band — so it is read last and as a trend.
 
 Usage:
-    persona_eval.py --before gemma-2-2b-it-q4f16_1-MLC --after persona-v1
+    persona_eval.py --before qwen3-4b-instruct-q4f16_1-MLC --after persona-v1
 """
 
 from __future__ import annotations
@@ -219,7 +219,19 @@ def main() -> None:
     ap.add_argument("--base-url", default=os.environ.get("LLM_BASE_URL", ""),
                     help="inference host root, e.g. https://host (no /v1); or LLM_BASE_URL")
     ap.add_argument("--api-key", default=os.environ.get("LLM_API_KEY", ""))
-    ap.add_argument("--before", default="gemma-2-2b-it-q4f16_1-MLC")
+    # No default, and deliberately so. It was gemma-2-2b-it-q4f16_1-MLC, from
+    # when that was the only build there was; after the move to Qwen3-4B, taking
+    # it measured persona-v1 against a *different base model* and handed the
+    # whole difference to the adapter. Every number this file prints is a delta,
+    # so a wrong before side does not degrade the measurement, it inverts what
+    # it means — and it does that silently, which is how the Gemma-era defaults
+    # survived a base migration in the first place.
+    #
+    # There is no id that is right for both lines, so the caller names it.
+    ap.add_argument("--before", default="",
+                    help="the untuned build to compare against, e.g. "
+                         "qwen3-4b-instruct-q4f16_1-MLC; must share the "
+                         "adapter's base or the delta is meaningless")
     # Not required: --local names the tuned side with --adapter instead, and a
     # required flag there would have to be given a value nothing reads.
     ap.add_argument("--after", default="", help="the tuned model id")
@@ -260,6 +272,10 @@ def main() -> None:
                  "(or --local to run the weights here)")
     if not args.local and not args.after:
         sys.exit("--after names the tuned model id to measure")
+    if not args.local and not args.before:
+        sys.exit("--before names the untuned build to compare against; there is "
+                 "no default because the only wrong answer is a build on a "
+                 "different base, and that one reads as an adapter result")
     if args.local and not args.adapter and not args.base_only:
         sys.exit("--local needs --adapter; without it both sides are the base "
                  "and the delta is noise by construction "

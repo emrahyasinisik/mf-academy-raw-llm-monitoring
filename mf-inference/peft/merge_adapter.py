@@ -46,7 +46,22 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--adapter", default="out/adapter",
                     help="directory written by train_qlora.py")
-    ap.add_argument("--base-model", default="google/gemma-2-2b-it")
+    # No default base. It used to be google/gemma-2-2b-it, which was right on
+    # 24 Jul 2026 when every line in this repo was Gemma-2-2B, and quietly wrong
+    # from 28 Jul when the product moved to Qwen3-4B: that migration updated the
+    # model mlc serves and never came back for this script. The runbook's own
+    # merge command omits the flag, so following it to the letter got you
+    # refused.
+    #
+    # Flipping the default to Qwen would not fix that, only move it — the Gemma
+    # line is still here and would start needing the flag instead. The base is
+    # not something this script should have an opinion about: PEFT records it in
+    # the adapter, the check below already reads it, and reading it is strictly
+    # better than guessing it. Pass --base-model to override, and the mismatch
+    # guard still applies to what you passed.
+    ap.add_argument("--base-model", default="",
+                    help="defaults to the base recorded in the adapter's "
+                         "adapter_config.json")
     # Written under mf-inference/models/ because that directory is bind-mounted
     # into the mlc container, and the quantisation step runs inside it. Anywhere
     # else and the container cannot see the file it has to convert.
@@ -68,7 +83,13 @@ def main() -> None:
         adapter_cfg = json.load(fh)
 
     trained_against = adapter_cfg.get("base_model_name_or_path")
-    if trained_against and trained_against != args.base_model:
+    if not args.base_model:
+        if not trained_against:
+            sys.exit(f"{cfg_path} records no base_model_name_or_path, so the "
+                     f"base cannot be inferred; pass --base-model")
+        args.base_model = trained_against
+        print(f"base read from the adapter: {trained_against}")
+    elif trained_against and trained_against != args.base_model:
         # Merging into a different base than the adapter was fitted to produces
         # a model that loads cleanly and answers badly, with nothing in any log
         # to say why. Worth refusing rather than warning.

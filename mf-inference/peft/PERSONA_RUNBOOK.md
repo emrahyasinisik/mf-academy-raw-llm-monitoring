@@ -169,6 +169,12 @@ olmayan) adapter'ı gömer:
 python3 merge_adapter.py --adapter ../models/persona-v1
 ```
 
+`--base-model` **yazılmıyor, ve yazılmamalı**: script base'i adapter'ın kendi
+`adapter_config.json`'ından okuyor. Bir zamanlar burada varsayılan
+`google/gemma-2-2b-it`'ti ve bu satır, ürün Qwen3-4B'ye geçtikten sonra bu
+komutu harfiyen izleyen herkesi reddediyordu. Elle bir base verirsen uyuşmazlık
+kontrolü ona karşı koşar.
+
 Base'i fp16 olarak **CPU'ya** yükler (kart boşta kalsın diye), LoRA'yı gömer,
 `../models/merged-fp16/` altına ~5 GB yazar.
 
