@@ -113,22 +113,30 @@ services:
       # 4096-2500=1596 tokens of the window for the rubric's own output.
       - key: LLM_MAX_PROMPT_TOKENS
         value: 2500
-      # Live web research for the persona. Keyless by choice: no account, no
-      # card, nothing to rotate — and the scrape returns result snippets rather
-      # than extracted page content, which a 2500-token prompt window was going
-      # to truncate anyway.
+      # Live web research for the persona. Tavily since 2026-08-03; the keyless
+      # DuckDuckGo scrape ran before that and is still the fallback.
       #
-      # Set explicitly even though it is what NewSearcher picks by default, so
-      # the deployment states which provider it runs instead of leaving it to be
-      # inferred from an unset variable. Switching to Tavily is two changes and
-      # no code: `value: tavily` here, and SEARCH_API_KEY (sync: false) in the
-      # dashboard. Without the key that switch is a no-op — NewSearcher falls
-      # back here rather than failing.
+      # Tavily returns already-extracted page content where the scrape returns
+      # result snippets, so the evidence the model reasons over is the page
+      # rather than a search listing. That is the reason to pay for it, and it
+      # holds regardless of the question below.
       #
-      # The open question this setting carries: DuckDuckGo answers a residential
-      # address (measured) and may refuse a datacentre one. If it does, the
-      # research trail now says "web · çalışmadı" instead of "web · 0" — the
-      # scraper reports a page it could not read rather than reporting an empty
-      # market. Watch that pill on the first turn after this deploys.
+      # What was NOT established before switching: whether DuckDuckGo was
+      # actually being refused here. The scrape answers a residential address
+      # (measured) and may refuse a datacentre one, and Render is a datacentre —
+      # but the check was never run, so this switch is an upgrade, not a repair,
+      # and nobody should later read it as evidence that the keyless path was
+      # broken. The evidence for that would have been "web · çalışmadı" on the
+      # research trail, or the scraper's own "neither results nor a no-results
+      # notice" line in the logs.
+      #
+      # Both halves are required and the missing half is silent: NewSearcher
+      # wants provider == tavily AND a non-empty key, and falls back to the
+      # scrape rather than failing when it has only one. The boot log settles it
+      # in one line — `live search configured provider=… requested=… keyed=…`.
+      # keyed=false means SEARCH_API_KEY never reached the dashboard.
       - key: SEARCH_PROVIDER
-        value: duckduckgo
+        value: tavily
+      # sync: false — the value lives in the Render dashboard, never in the repo.
+      - key: SEARCH_API_KEY
+        sync: false
