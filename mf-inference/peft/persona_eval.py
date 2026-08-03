@@ -173,10 +173,18 @@ def local_completer(base_model: str, adapter: str, four_bit: bool,
 
 
 def run_side(complete, label: str, model: str,
-             examples: list[dict], metas: list[dict], limit: int) -> dict:
+             examples: list[dict], metas: list[dict], limit: int,
+             keep_samples: int = 6) -> dict:
     print(f"\n  {label}: {model}")
     agg = {"citation_valid": [], "grounded_format": [],
            "asked_when_thin": [], "decision_match": []}
+    # Rates say what happened; they never say why, and a 0.00 is exactly where
+    # the why matters most. persona-v1 scored asked_when_thin 0/28 and the
+    # mechanism had to be inferred from a *second* metric — grounded_format at
+    # 1.00 — because nothing here kept a single generation. Failures are kept in
+    # preference to passes for the same reason: a run that looks right needs no
+    # explaining.
+    samples: list[dict] = []
     n = min(limit, len(examples)) if limit else len(examples)
     for i in range(n):
         prompt = [m for m in examples[i]["messages"] if m["role"] != "assistant"]
@@ -184,6 +192,13 @@ def run_side(complete, label: str, model: str,
         s = score_one(text, metas[i])
         for k, v in s.items():
             agg[k].append(v)
+        if keep_samples and (any(v is False for v in s.values())
+                             or len(samples) < 2):
+            if len(samples) < keep_samples:
+                samples.append({"row": i, "mode": metas[i]["mode"],
+                                "expected_label": metas[i].get("label"),
+                                "n_sources": metas[i]["n_sources"],
+                                "scores": s, "answer": text})
         if (i + 1) % 10 == 0:
             print(f"    {i + 1}/{n}")
 
@@ -193,6 +208,7 @@ def run_side(complete, label: str, model: str,
 
     out = {k: rate(k) for k in agg}
     out["n"] = n
+    out["samples"] = samples
     print(f"    citation_valid {fmt(out['citation_valid'])}   "
           f"grounded_format {fmt(out['grounded_format'])}   "
           f"asked_when_thin {fmt(out['asked_when_thin'])}   "

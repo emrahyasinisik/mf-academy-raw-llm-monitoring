@@ -43,14 +43,41 @@ That one teaches a model to fill in a rubric. This one teaches an agent that has
 just researched a subject on the web to do two things a small base model does
 badly:
 
-1. **Cite what it was given, and only that.** Handed five numbered sources, the
-   base writes a fluent verdict drawn largely from its own pretraining and cites
-   nothing — indistinguishable, to a reader, from a sourced one. Worse, it will
-   invent a citation number the evidence does not contain.
+1. **Cite what it was given, and only that.** Handed five numbered sources, a
+   weak base writes a fluent verdict drawn largely from its own pretraining and
+   cites nothing — indistinguishable, to a reader, from a sourced one. Worse, it
+   will invent a citation number the evidence does not contain.
 2. **Ask instead of guessing.** When the decisive fact is missing — the stage,
-   the revenue, the budget — the base still commits to a verdict rather than
+   the revenue, the budget — a weak base still commits to a verdict rather than
    asking the one question that would change it. A confident verdict on absent
    evidence is the failure the product exists to avoid.
+
+> ### Measured 2026-08-03, and it changes what this data is for
+>
+> Both of those behaviours were written against `gemma-2-2b-it`. On
+> `Qwen/Qwen3-4B-Instruct-2507`, over all 100 validation rows of this set, the
+> base already scores:
+>
+> | metric | base | |
+> |---|---:|---|
+> | `citation_valid` | **1.00** | nothing to teach |
+> | `asked_when_thin` | **19/28** | nothing to teach — a **floor to protect** |
+> | `grounded_format` | 0.64 | the real gap, and it is a formatting one |
+> | `decision_match` | 15/72 | see *Known limits* before taking this as a target |
+>
+> Two of the four things this dataset was built to teach are not missing on a
+> modern 4B base.
+>
+> **The first adapter trained on it was not shipped.** 48 steps, 383 row passes:
+> `grounded_format` 0.64 → 1.00, `decision_match` 15/72 → 52/72, and
+> `asked_when_thin` **19/28 → 0/28**. All three gains are one behaviour — always
+> answer with a verdict — and that behaviour is the failure the persona exists to
+> avoid. An earlier checkpoint did not help: at step 40 the collapse was already
+> total, so this is the training mix rather than the step count.
+>
+> If you train on this set, oversample or weight the `clarify` rows. They are 32%
+> of the data, but the verdict template is rigid and easy, and on a small step
+> budget it takes the minority behaviour completely rather than gradually.
 
 **The evidence, verdicts and questions are in Turkish.** The verdict labels and
 the `KARAR / SKOR / GEREKÇE` block are part of the format the UI parses, so they
