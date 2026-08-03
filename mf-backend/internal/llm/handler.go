@@ -72,11 +72,24 @@ func Catalogue() []ModelInfo {
 // server-only: WebLLM can fetch a published MLC model, not a local build, so
 // offering it in the browser would resolve to nothing and fail at load.
 var catalogue = []ModelInfo{
+	// The untuned base, and what the inference host actually serves. It was
+	// missing from this list while being the only build loaded, which made the
+	// admin panel unable to name the running model: the select offers catalogue
+	// entries, so an operator could pick any id except the true one.
+	//
+	// That gap is worse than it sounds, because mlc_llm does not answer 404 for
+	// an id it did not load — it serves from the single loaded model and echoes
+	// the requested id back. So the wrong choice does not fail, it mislabels:
+	// every llm_runs row and every Grafana series credits a build that never ran.
+	{ID: "qwen3-4b-instruct-q4f16_1-MLC", Label: "Qwen3 4B Instruct · taban", Family: "qwen", SizeHint: "~2.3 GB", Recommended: true, Targets: []string{TargetServer}},
 	// The Flutter screen generator. This id must equal the directory name
 	// build_mlc.sh emitted — <name>-<quant>-MLC — because mlc_llm serve registers
-	// the last path segment and an OpenAI-style request is matched against it. A
-	// mismatch here is a 404 from the engine, not a fallback.
-	{ID: "qwen3-4b-flutter-q4f16_1-MLC", Label: "Qwen3 4B · Flutter üreteci", Family: "qwen", SizeHint: "~2.3 GB", Recommended: true, Targets: []string{TargetServer}},
+	// the last path segment and an OpenAI-style request is matched against it.
+	//
+	// No longer recommended: the codegen feature came off the nav on 2 Aug 2026,
+	// and this build is an adapter merge on the same base — picking it while the
+	// host serves the base is exactly the mislabelling described above.
+	{ID: "qwen3-4b-flutter-q4f16_1-MLC", Label: "Qwen3 4B · Flutter üreteci", Family: "qwen", SizeHint: "~2.3 GB", Recommended: false, Targets: []string{TargetServer}},
 	{ID: "gemma-2-2b-it-q4f16_1-MLC", Label: "Gemma 2 2B Instruct", Family: "gemma", SizeHint: "~1.4 GB", Recommended: false, Targets: []string{TargetBrowser, TargetServer}},
 	{ID: "gemma-2-2b-it-q4f32_1-MLC", Label: "Gemma 2 2B Instruct (f32)", Family: "gemma", SizeHint: "~2.5 GB", Recommended: false, Targets: []string{TargetBrowser}},
 	{ID: "Llama-3.2-1B-Instruct-q4f16_1-MLC", Label: "Llama 3.2 1B Instruct", Family: "llama", SizeHint: "~0.9 GB", Recommended: false, Targets: []string{TargetBrowser, TargetServer}},
