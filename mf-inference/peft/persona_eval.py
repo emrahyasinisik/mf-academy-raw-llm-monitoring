@@ -274,6 +274,20 @@ def main() -> None:
     # produce both costs a model load plus a full generation pass — real money
     # against a session budget, and two numbers that can disagree for no reason
     # anyone can name. rubric_eval.py carries the same pair of flags.
+    # Replace the system turn without regenerating the set. The rows carry the
+    # prompt the backend served when they were built, which is what makes them a
+    # faithful training distribution — but it also means the only way to ask
+    # "would a better instruction fix this" used to be a full regeneration, and
+    # a regenerated set is not the same set. Overriding here holds the evidence,
+    # the ordering and the ground truth fixed and changes exactly one thing.
+    #
+    # It is a measurement tool, not a deployment path: a prompt that wins here
+    # has to be landed in the backend, because that is where inference reads it
+    # from. Winning on a file nothing sends is the same failure as training
+    # against one.
+    ap.add_argument("--system-prompt-file", default="",
+                    help="replace every row's system turn with this file's "
+                         "contents; for comparing prompts on fixed evidence")
     ap.add_argument("--base-only", action="store_true",
                     help="measure the base and stop; writes --out for --baseline")
     ap.add_argument("--baseline", default="",
@@ -303,6 +317,27 @@ def main() -> None:
         sys.exit(f"eval and meta lengths differ ({len(examples)} vs {len(metas)}); "
                  "regenerate both with build_persona_dataset.py")
 
+    prompt_label = "(as generated)"
+    if args.system_prompt_file:
+        with open(args.system_prompt_file, encoding="utf-8") as fh:
+            override = fh.read().strip()
+        if not override:
+            sys.exit(f"{args.system_prompt_file} is empty")
+        swapped = 0
+        for row in examples:
+            for m in row["messages"]:
+                if m["role"] == "system":
+                    m["content"] = override
+                    swapped += 1
+        # Every row has exactly one system turn; if that stops being true the
+        # comparison is no longer one-variable and should fail rather than skew.
+        if swapped != len(examples):
+            sys.exit(f"expected one system turn per row, replaced {swapped} "
+                     f"across {len(examples)} rows")
+        prompt_label = os.path.basename(args.system_prompt_file)
+        print(f"system prompt overridden from {args.system_prompt_file} "
+              f"({len(override)} chars, {swapped} rows)")
+
     if args.local:
         before_name = f"{args.local_base_model} (base)"
         if args.baseline:
@@ -329,6 +364,7 @@ def main() -> None:
             os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
             with open(out, "w", encoding="utf-8") as fh:
                 json.dump({"before": before, "before_model": before_name,
+                           "system_prompt": prompt_label,
                            "local": True, "limit": args.limit}, fh, indent=2)
             print(f"\nwrote {out}  (base only — no adapter measured)")
             return
@@ -377,6 +413,7 @@ def main() -> None:
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump({"before": before, "after": after,
                        "before_model": before_name, "after_model": after_name,
+                       "system_prompt": prompt_label,
                        "local": args.local, "limit": args.limit}, fh, indent=2)
         print(f"\nwrote {args.out}")
 
