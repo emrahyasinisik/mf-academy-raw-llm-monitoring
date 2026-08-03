@@ -88,7 +88,7 @@ func NewAgent(chat Chatter, search Searcher, retriever WikiRetriever, set Settin
 // model it loaded and echoes the requested id back — so a stale value here does
 // not fail, which is worse than failing: every stored row and every chart then
 // attributes the run to a model that was not involved.
-const defaultModel = "qwen3-4b-flutter-q4f16_1-MLC"
+const defaultModel = "qwen3-4b-instruct-q4f16_1-MLC"
 
 // personaTemperature keeps the verdict grounded. This is an analyst, not a
 // brainstorm; a low temperature is what stops it inventing evidence.
