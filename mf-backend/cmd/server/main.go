@@ -139,7 +139,7 @@ func main() {
 	// ordering is what makes a switched-off box report itself as an unreachable
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 
@@ -261,7 +261,7 @@ func main() {
 		// because an ordinary user's browser needs the answer, and deliberately
 		// a different handler from the admin listing: that one carries config
 		// blobs which can hold upstream credentials.
-		pr.With(common.RequireAuth(tokens.Verify)).Get("/mcp-servers", adminHandler.ClientServers)
+		pr.With(common.RequireAuth(tokens.Verify), common.RequirePasswordFresh).Get("/mcp-servers", adminHandler.ClientServers)
 	})
 
 	// Control plane. Mounted outside the group for the same reason as the

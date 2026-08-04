@@ -26,8 +26,9 @@ func NewTokenService(secret string, accessTTL, refreshTTL time.Duration) *TokenS
 // accessClaims is the JWT payload. RegisteredClaims gives us standard fields
 // like expiry (exp) and subject (sub) for free.
 type accessClaims struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	PwdReset bool   `json:"pwd_reset,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -35,8 +36,9 @@ type accessClaims struct {
 func (s *TokenService) GenerateAccess(u User) (string, time.Time, error) {
 	expires := time.Now().Add(s.accessTTL)
 	claims := accessClaims{
-		Email: u.Email,
-		Role:  u.Role,
+		Email:    u.Email,
+		Role:     u.Role,
+		PwdReset: u.MustChangePassword,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   u.ID,
 			ExpiresAt: jwt.NewNumericDate(expires),
@@ -63,7 +65,12 @@ func (s *TokenService) Verify(raw string) (common.AuthClaims, error) {
 	if err != nil {
 		return common.AuthClaims{}, err
 	}
-	return common.AuthClaims{UserID: claims.Subject, Email: claims.Email, Role: claims.Role}, nil
+	return common.AuthClaims{
+		UserID:        claims.Subject,
+		Email:         claims.Email,
+		Role:          claims.Role,
+		PasswordReset: claims.PwdReset,
+	}, nil
 }
 
 // GenerateRefresh returns a cryptographically random opaque token plus its

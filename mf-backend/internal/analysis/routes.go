@@ -28,6 +28,7 @@ func (h *Handler) Routes(
 
 	r.Group(func(pr chi.Router) {
 		pr.Use(common.RequireAuth(verify))
+		pr.Use(common.RequirePasswordFresh)
 
 		pr.Group(func(sr chi.Router) {
 			sr.Use(common.Timeout(defaultTimeout))

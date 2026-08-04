@@ -297,6 +297,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, defaultTimeout, genTimeout
 	r := chi.NewRouter()
 	r.Group(func(pr chi.Router) {
 		pr.Use(common.RequireAuth(verify))
+		pr.Use(common.RequirePasswordFresh)
 		pr.With(common.Timeout(genTimeout)).Post("/chat", h.Chat)
 
 		pr.Group(func(sr chi.Router) {

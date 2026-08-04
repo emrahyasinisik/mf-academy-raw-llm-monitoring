@@ -29,6 +29,14 @@ func ErrForbidden(msg string) *APIError {
 	return &APIError{Status: http.StatusForbidden, Code: "forbidden", Message: msg}
 }
 
+func ErrPasswordChangeRequired() *APIError {
+	return &APIError{
+		Status:  http.StatusForbidden,
+		Code:    "password_change_required",
+		Message: "password change required",
+	}
+}
+
 func ErrNotFound(msg string) *APIError {
 	if msg == "" {
 		msg = "resource not found"

@@ -66,6 +66,14 @@ func (h *Handler) localRoutes(r chi.Router) {
 	// list. The distinction matters to the operator; the choice does not.
 	r.Get("/models", h.Models)
 
+	r.Route("/accounts", func(ar chi.Router) {
+		ar.Get("/", h.ListAccounts)
+		ar.Post("/", h.CreateAccount)
+		ar.Get("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", h.GetAccount)
+		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/suspend", h.SuspendAccount)
+		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/unsuspend", h.UnsuspendAccount)
+	})
+
 	r.Route("/mcp-servers", func(mr chi.Router) {
 		mr.Get("/", h.ListMCPServers)
 		mr.Post("/", h.CreateMCPServer)

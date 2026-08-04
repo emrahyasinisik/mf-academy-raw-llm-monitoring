@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
 	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/go-chi/chi/v5"
@@ -46,6 +47,23 @@ type SettingsStore interface {
 	SetActiveAdapter(ctx context.Context, id *string, userID string) (settings.Settings, error)
 }
 
+// AccountStore is the account/org surface behind /admin/accounts. It is kept
+// narrow because the handler must not grow into an impersonation or case-content
+// reader while the panel only needs account metadata.
+type AccountStore interface {
+	ListAccounts(ctx context.Context, q AccountListQuery) (AccountListResult, error)
+	CreateIndividual(ctx context.Context, name, email, hash string) (AccountSummary, AccountMember, error)
+	CreateCompany(ctx context.Context, orgName, taxID string, seats int, ownerName, ownerEmail, hash string) (AccountSummary, AccountMember, error)
+	GetAccount(ctx context.Context, id string) (AccountDetail, error)
+	SuspendAccount(ctx context.Context, id string) error
+	SetAccountStatus(ctx context.Context, id, status string) error
+}
+
+type ControlStore interface {
+	AdapterStore
+	AccountStore
+}
+
 // AdapterSwapper is the live control plane of the hot-swap runtime.
 //
 // Declared here rather than imported as a concrete type for the usual reason —
@@ -64,15 +82,28 @@ type AdapterSwapper interface {
 
 // Handler serves the admin control plane.
 type Handler struct {
-	store    AdapterStore
-	settings SettingsStore
-	mcp      MCPStore
-	runtime  AdapterSwapper
-	metrics  MetricsQuerier
+	store      AdapterStore
+	settings   SettingsStore
+	mcp        MCPStore
+	accounts   AccountStore
+	runtime    AdapterSwapper
+	metrics    MetricsQuerier
+	bcryptCost int
 }
 
-func NewHandler(store AdapterStore, set SettingsStore, mcp MCPStore, rt AdapterSwapper, mq MetricsQuerier) *Handler {
-	return &Handler{store: store, settings: set, mcp: mcp, runtime: rt, metrics: mq}
+func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
+	if bcryptCost < auth.MinHashCost {
+		bcryptCost = auth.MinHashCost
+	}
+	return &Handler{
+		store:      store,
+		settings:   set,
+		mcp:        mcp,
+		accounts:   store,
+		runtime:    rt,
+		metrics:    mq,
+		bcryptCost: bcryptCost,
+	}
 }
 
 // hotSwapReady reports whether a live swap can even be attempted. Written as a

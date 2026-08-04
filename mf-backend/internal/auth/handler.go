@@ -189,7 +189,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	cmpErr := withBcryptSlot(r.Context(), func() error {
 		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 	})
-	if !found || cmpErr != nil {
+	if !found || cmpErr != nil || user.OrgStatus == "suspended" {
 		// Same error whether the email is unknown or the password is wrong —
 		// do not leak which accounts exist.
 		common.Error(w, common.ErrUnauthorized("invalid email or password"))
@@ -245,6 +245,10 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	user, err := h.store.GetUserByID(r.Context(), session.UserID)
 	if err != nil {
 		common.Error(w, common.ErrUnauthorized("account no longer exists"))
+		return
+	}
+	if user.OrgStatus == "suspended" {
+		common.Error(w, common.ErrUnauthorized("invalid or expired refresh token"))
 		return
 	}
 	h.issueTokens(w, r, user, http.StatusOK)
@@ -331,6 +335,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.CurrentPassword))
 	}); err != nil {
 		common.Error(w, common.ErrUnauthorized("current password is incorrect"))
+		return
+	}
+	if req.NewPassword == req.CurrentPassword {
+		common.Error(w, common.ErrBadRequest("new password must differ from the current password"))
 		return
 	}
 	var newHash []byte

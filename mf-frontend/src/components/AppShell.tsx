@@ -15,10 +15,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/store/auth";
 import { needsTermsGate } from "@/lib/terms";
+import { needsPasswordGate } from "@/lib/passwordGate";
 import { legacyHashToPath } from "@/lib/adminNav";
 import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
 import { OnayView } from "./views/OnayView";
+import { ParolaView } from "./views/ParolaView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
 import { MetricsView } from "./views/MetricsView";
@@ -195,6 +197,10 @@ export function AppShell() {
 
   // Auth master view (with its own login/register subviews) — shown logged out.
   if (!user) return <AuthView />;
+
+  // Geçici parola ile ürün de koşullar da açılmaz: kullanıcı önce kalıcı parolayı
+  // seçer, sonra diğer kapılar aynı sunucu kullanıcısı üzerinden değerlendirilir.
+  if (needsPasswordGate(user)) return <ParolaView />;
 
   // Oturum var ama kabul yok: uygulamayi degil kapiyi goster. AuthView ile ayni
   // dallanma sekli, ayni yerde, cunku ikisi de "henuz uygulamaya giremez"in

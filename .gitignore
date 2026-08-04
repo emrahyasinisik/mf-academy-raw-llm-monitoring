@@ -28,3 +28,4 @@ mf-inference/models
 
 # Prometheus scrape credential (see mf-observability/.env.example)
 mf-observability/prometheus/metrics-token
+.worktrees/
