@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emrah/mf-backend/internal/analysis"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -80,6 +81,110 @@ func TestMatureWeeksCountsOnlyElapsedWeeks(t *testing.T) {
 	// Gelecekteki bir hafta başı negatif dönmemeli.
 	if got := matureWeeks(now.AddDate(0, 0, 7).Unix(), now); got != 0 {
 		t.Fatalf("future cohort = %d, want 0", got)
+	}
+}
+
+func score(v float64) *float64 { return &v }
+
+func rated(key string, value float64) analysis.Finding {
+	return analysis.Finding{Key: key, EvidenceFound: true, Score: &value}
+}
+
+func trialRubric() []analysis.Criterion {
+	return []analysis.Criterion{
+		{Key: "traction", Weight: 0.5, ScaleMax: 5},
+		{Key: "team", Weight: 0.5, ScaleMax: 5},
+	}
+}
+
+// Sıfır fark, ölçülebilecek EN İYİ tutarlılık sonucudur. Ölçülemeyen bir grup
+// için basılırsa kart hiç yapılmamış bir ölçümü kusursuz ilan eder.
+func TestConsistencyCardIsAbsentWhenThereIsNoSpreadToMeasure(t *testing.T) {
+	rubric := trialRubric()
+	one := []trialLeg{{Group: "g", CreatedAt: time.Now(), Score: score(61.5), Criteria: rubric}}
+	if card := consistencyCard(one); card != nil {
+		t.Fatalf("single run = %+v, want nil: one observation has no spread", card)
+	}
+	if card := consistencyCard(nil); card != nil {
+		t.Fatalf("no runs = %+v, want nil", card)
+	}
+
+	// overall_score her bacakta NULL: hiçbir kriter puanlanamamış grup.
+	unscored := []trialLeg{
+		{Group: "g", CreatedAt: time.Now(), Criteria: rubric},
+		{Group: "g", CreatedAt: time.Now(), Criteria: rubric},
+	}
+	if card := consistencyCard(unscored); card != nil {
+		t.Fatalf("all-NULL scores = %+v, want nil, not a 0 puan spread", card)
+	}
+}
+
+func TestConsistencyCardReportsSpreadAndRedactedLegs(t *testing.T) {
+	at := time.Date(2026, 8, 4, 9, 0, 0, 0, time.UTC)
+	rubric := trialRubric()
+	card := consistencyCard([]trialLeg{
+		{Group: "g", CreatedAt: at, Score: score(61.5), Criteria: rubric,
+			Findings: []analysis.Finding{rated("traction", 2), rated("team", 4)}},
+		{Group: "g", CreatedAt: at.Add(time.Minute), Score: score(68.75), Criteria: rubric,
+			Findings: []analysis.Finding{rated("traction", 4), rated("team", 4)}},
+		// Redakte edilmiş bacak: puanı duruyor, bulguları silinmiş.
+		{Group: "g", CreatedAt: at.Add(2 * time.Minute), Score: score(65), Criteria: rubric,
+			Redacted: true, Findings: []analysis.Finding{}},
+	})
+	if card == nil {
+		t.Fatal("card = nil, want a measured spread")
+	}
+	if card.Runs != 3 || card.RedactedRuns != 1 {
+		t.Fatalf("runs = %d, redacted = %d; want 3 and 1", card.Runs, card.RedactedRuns)
+	}
+	if card.MinTotal != 61.5 || card.MaxTotal != 68.75 || card.TotalSpread != 7.25 {
+		t.Fatalf("spread = %v (%v..%v), want 7.25 (61.5..68.75)",
+			card.TotalSpread, card.MinTotal, card.MaxTotal)
+	}
+	if card.CreatedAt != at {
+		t.Fatalf("created_at = %v, want the group's oldest leg %v", card.CreatedAt, at)
+	}
+	// team iki koşuda da 4; traction 2 ve 4. Popülasyon sapması, örneklem
+	// değil: /analysis/trials/{group} ile aynı sayı basılmalı.
+	if card.VolatileCriterion != "traction" {
+		t.Fatalf("volatile criterion = %q, want traction", card.VolatileCriterion)
+	}
+	want := analysis.PerCriterionStdDev(rubric, [][]analysis.Finding{
+		{rated("traction", 2), rated("team", 4)},
+		{rated("traction", 4), rated("team", 4)},
+		{},
+	})["traction"]
+	if card.VolatileStdDev == nil || *card.VolatileStdDev != want {
+		t.Fatalf("volatile stddev = %v, want %v — the panel and the trial endpoint "+
+			"must publish one number for one measurement", card.VolatileStdDev, want)
+	}
+	if want != 0.2 {
+		t.Fatalf("population stddev of 0.4 and 0.8 = %v, want 0.2 (stddev_samp would give ~0.283)", want)
+	}
+}
+
+func TestMostVolatilePicksTheWidestSpreadAndBreaksTiesOnKey(t *testing.T) {
+	key, sd := mostVolatile(map[string]float64{
+		"traction":    0.12,
+		"team":        0.31,
+		"market_size": 0.31,
+		"risk":        0.05,
+	})
+	if key != "market_size" {
+		t.Fatalf("criterion = %q, want market_size: a tie must resolve on the key, "+
+			"or the card alternates between two page loads", key)
+	}
+	if sd == nil || *sd != 0.31 {
+		t.Fatalf("stddev = %v, want 0.31", sd)
+	}
+
+	// Ölçülmemiş bir sapma sıfır DEĞİL yokluktur: 0,0000 "mükemmel kararlı" okunur.
+	key, sd = mostVolatile(map[string]float64{})
+	if key != "" || sd != nil {
+		t.Fatalf("empty spread = (%q, %v), want (\"\", nil)", key, sd)
+	}
+	if key, sd = mostVolatile(nil); key != "" || sd != nil {
+		t.Fatalf("nil spread = (%q, %v), want (\"\", nil)", key, sd)
 	}
 }
 
@@ -191,6 +296,7 @@ func TestStatsSerializesMissingConsistencyAsNull(t *testing.T) {
 
 func TestStatsSerializesConsistencyCard(t *testing.T) {
 	createdAt := time.Date(2026, 8, 4, 12, 30, 0, 0, time.UTC)
+	stddev := 0.1123
 	store := &fakeStatsStore{res: StatsResponse{Consistency: &ConsistencyCard{
 		Group:             "11111111-1111-1111-1111-111111111111",
 		Runs:              5,
@@ -199,7 +305,8 @@ func TestStatsSerializesConsistencyCard(t *testing.T) {
 		MinTotal:          61.5,
 		MaxTotal:          68.75,
 		VolatileCriterion: "traction",
-		VolatileStdDev:    0.1123,
+		VolatileStdDev:    &stddev,
+		RedactedRuns:      2,
 	}}}
 	h := &Handler{stats: store}
 	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
@@ -214,11 +321,44 @@ func TestStatsSerializesConsistencyCard(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if res.Consistency == nil {
+	got, want := res.Consistency, store.res.Consistency
+	if got == nil {
 		t.Fatal("consistency = nil, want card")
 	}
-	if *res.Consistency != *store.res.Consistency {
-		t.Fatalf("consistency = %+v, want %+v", res.Consistency, store.res.Consistency)
+	// Alan alan: VolatileStdDev artık pointer, ve == karşılaştırması JSON'dan
+	// dönen kartta adresleri kıyaslar.
+	if got.Group != want.Group || got.Runs != want.Runs || !got.CreatedAt.Equal(want.CreatedAt) ||
+		got.TotalSpread != want.TotalSpread || got.MinTotal != want.MinTotal ||
+		got.MaxTotal != want.MaxTotal || got.VolatileCriterion != want.VolatileCriterion ||
+		got.RedactedRuns != want.RedactedRuns {
+		t.Fatalf("consistency = %+v, want %+v", got, want)
+	}
+	if got.VolatileStdDev == nil || *got.VolatileStdDev != stddev {
+		t.Fatalf("volatile_std_dev = %v, want %v", got.VolatileStdDev, stddev)
+	}
+}
+
+func TestStatsSerializesUnmeasuredDeviationAsNull(t *testing.T) {
+	store := &fakeStatsStore{res: StatsResponse{Consistency: &ConsistencyCard{
+		Group: "22222222-2222-2222-2222-222222222222", Runs: 2,
+	}}}
+	h := &Handler{stats: store}
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	w := httptest.NewRecorder()
+
+	statsRouter(h).ServeHTTP(w, req)
+
+	var body struct {
+		Consistency map[string]json.RawMessage `json:"consistency"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := string(body.Consistency["volatile_std_dev"]); got != "null" {
+		t.Fatalf("volatile_std_dev = %s, want null", got)
+	}
+	if _, ok := body.Consistency["redacted_runs"]; !ok {
+		t.Fatal("redacted_runs must be on the wire, or the panel cannot say how many legs lost their findings")
 	}
 }
 

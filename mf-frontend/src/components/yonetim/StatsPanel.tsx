@@ -241,9 +241,19 @@ function ConsistencyCardView({ card }: { card: NonNullable<AdminStats["consisten
         </div>
       </div>
 
+      {card.redacted_runs > 0 && (
+        <p className="text-sm mt-3 max-w-2xl leading-relaxed" style={{ color: "var(--text-dim)" }}>
+          Bu grubun {formatCount(card.redacted_runs)} koşusunun bulguları silindi. Toplam
+          farkı bundan etkilenmez — puan ve kapsam yerinde duruyor — ama kriter sapması
+          kalan {formatCount(card.runs - card.redacted_runs)} koşudan hesaplanıyor.
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3 mt-4">
         <ConsistencyFact label="Aralık" value={`${formatScore(card.min_total)}–${formatScore(card.max_total)}`} />
         <ConsistencyFact label="En oynak kriter" value={card.volatile_criterion || "—"} />
+        {/* Kriter yoksa sapma da yok: "—" yanında dört haneli bir sıfır, ölçülmemiş
+            bir şey hakkında kendinden emin bir iddiadır. */}
         <ConsistencyFact label="Kriter sapması" value={formatStdDev(card.volatile_std_dev)} />
       </div>
     </section>
@@ -395,7 +405,8 @@ function formatPercent(value: number): string {
   return `%${Math.round(value * 100)}`;
 }
 
-function formatStdDev(value: number): string {
+function formatStdDev(value: number | null): string {
+  if (value === null) return "—";
   return value.toLocaleString("tr-TR", {
     minimumFractionDigits: 4,
     maximumFractionDigits: 4,

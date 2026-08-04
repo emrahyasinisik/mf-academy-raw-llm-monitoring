@@ -359,10 +359,24 @@ export interface StatBox {
   change_pct: number | null;
 }
 
+/**
+ * Yalnızca ad. Şema uyumu buradan çıkarıldı: oran penceredeki TÜM analizlerin
+ * ortalaması ve üreten adapter'a bağlanmıyor. Adapter adının altında
+ * gösterilince 90 günlük pencerede birkaç yapının ve temel modelin ortalaması
+ * tek bir yapının karnesi gibi okunuyordu — ve panel okuyucuyu o sayıya bakarak
+ * geri almaya çağırıyor.
+ */
 export interface ActiveAdapterBox {
+  /** "" = aktif adapter yok, temel model yanıtlıyor. */
   name: string;
-  valid_rate: number;
+}
+
+/** Pencerenin şema uyumu — her adapter ve temel model birlikte. */
+export interface SchemaValidityBox {
+  /** 0..1, pencere içi şema uyumu. */
+  rate: number;
   previous_rate: number;
+  /** Yüzde PUANI farkı; iki pencereden biri boşsa null. */
   change_points: number | null;
 }
 
@@ -371,6 +385,7 @@ export interface StatsBoxes {
   total_reports: StatBox;
   reports_last_24h: StatBox;
   active_adapter: ActiveAdapterBox;
+  schema_validity: SchemaValidityBox;
 }
 
 export interface StatsDay {
@@ -406,6 +421,13 @@ export interface CohortRow {
   mature_weeks: number;
 }
 
+/**
+ * Aynı vakanın tekrar tekrar koşulduğunda ne kadar oynadığı — panelin
+ * yayınlanabilir tek ölçümü.
+ *
+ * Kartın kendisi null olabilir: ölçülemeyen bir grup için sıfır fark basmak,
+ * hiç yapılmamış bir ölçümü kusursuz ilan etmek olur.
+ */
 export interface ConsistencyCard {
   group: string;
   runs: number;
@@ -413,8 +435,17 @@ export interface ConsistencyCard {
   total_spread: number;
   min_total: number;
   max_total: number;
+  /** Ölçülecek kriter yoksa "" — yanındaki sapma da null olur. */
   volatile_criterion: string;
-  volatile_std_dev: number;
+  /** Null = ölçülmedi. 0 basmak "mükemmel kararlı" okunur. */
+  volatile_std_dev: number | null;
+  /**
+   * Bulguları silinmiş bacak sayısı. Puan, kapsam ve şema geçerliliği
+   * redaksiyondan sağ çıkar, bulgular çıkmaz — ve kriter sapması bulgulardan
+   * hesaplanır. 30 günlük saklama süpürmesinden sonra bu her grubun normal
+   * hali, o yüzden eksik gözlem sayısı kartta yazıyor.
+   */
+  redacted_runs: number;
 }
 
 export interface AdminStats {

@@ -2,14 +2,13 @@ package admin
 
 import (
 	"context"
-	"database/sql"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/emrah/mf-backend/internal/analysis"
 )
 
 func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, error) {
@@ -28,7 +27,7 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		windowValidRate float64
 		priorReports    int64
 		priorValidRate  float64
-		activeChange    *float64
+		activeChange  *float64
 		newUsers        = map[int64]int{}
 		assessments     = map[int64]int{}
 		schemaValid     = map[int64]int{}
@@ -271,13 +270,25 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 	}, nil
 }
 
+// latestConsistency reduces the most recent trial group to the card the sales
+// material publishes, or returns nil when there is nothing honest to publish.
+//
+// The legs are fetched and reduced in Go rather than aggregated in SQL, and
+// that is a reversal of the first implementation worth recording. The SQL used
+// stddev_samp, which divides by n-1; analysis.PerCriterionStdDev divides by n,
+// because a trial is every run there was, not a sample drawn from a larger
+// population. On the default five-run trial the two differ by about 11.8%, so
+// GET /analysis/trials/{group} and this panel published materially different
+// numbers for the same measurement. Calling the one function is the only fix
+// that cannot drift apart again — and it puts the tie-break somewhere a unit
+// test can reach.
+//
+// One query, all legs. A group is capped at analysis.maxTrials (10) rows, so
+// materialising them costs nothing, and the endpoint runs under a 5s
+// REQUEST_TIMEOUT shared with its siblings — a query per leg would spend that
+// budget on round trips.
 func (s *Store) latestConsistency(ctx context.Context) (*ConsistencyCard, error) {
-	var (
-		card     ConsistencyCard
-		minTotal sql.NullFloat64
-		maxTotal sql.NullFloat64
-	)
-	err := s.db.QueryRow(ctx, `
+	rows, err := s.db.Query(ctx, `
 		WITH latest AS (
 			SELECT trial_group
 			  FROM assessments
@@ -285,61 +296,138 @@ func (s *Store) latestConsistency(ctx context.Context) (*ConsistencyCard, error)
 			 GROUP BY trial_group
 			 ORDER BY max(created_at) DESC
 			 LIMIT 1
-		),
-		summary AS (
-			SELECT a.trial_group::text AS group_id,
-			       count(*)::int AS runs,
-			       min(a.created_at) AS created_at,
-			       min(a.overall_score) AS min_total,
-			       max(a.overall_score) AS max_total
-			  FROM assessments a
-			  JOIN latest l ON l.trial_group = a.trial_group
-			 GROUP BY a.trial_group
-		),
-		volatile AS (
-			SELECT f.finding->>'key' AS criterion,
-			       stddev_samp(
-			           ((f.finding->>'score')::double precision) /
-			           CASE
-			             WHEN coalesce((c.criterion->>'scale_max')::double precision, 0) <= 0 THEN 5
-			             ELSE (c.criterion->>'scale_max')::double precision
-			           END
-			       ) AS stddev
-			  FROM assessments a
-			  JOIN latest l ON l.trial_group = a.trial_group
-			  CROSS JOIN LATERAL jsonb_array_elements(a.findings) AS f(finding)
-			  JOIN LATERAL jsonb_array_elements(a.criteria_snapshot) AS c(criterion)
-			    ON c.criterion->>'key' = f.finding->>'key'
-			 WHERE coalesce((f.finding->>'evidence_found')::boolean, false)
-			   AND f.finding->>'score' IS NOT NULL
-			 GROUP BY criterion
-			HAVING count(*) >= 2
-			 ORDER BY stddev DESC, criterion ASC
-			 LIMIT 1
 		)
-		SELECT s.group_id, s.runs, s.created_at, s.min_total, s.max_total,
-		       coalesce(v.criterion, ''), coalesce(v.stddev, 0)
-		  FROM summary s
-		  LEFT JOIN volatile v ON true
-	`).Scan(
-		&card.Group, &card.Runs, &card.CreatedAt, &minTotal, &maxTotal,
-		&card.VolatileCriterion, &card.VolatileStdDev)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
+		SELECT a.trial_group::text, a.created_at, a.overall_score, a.redacted_at,
+		       a.criteria_snapshot, a.findings
+		  FROM assessments a
+		  JOIN latest l ON l.trial_group = a.trial_group
+		 ORDER BY a.created_at
+	`)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	if minTotal.Valid {
-		card.MinTotal = round2(minTotal.Float64)
+	legs := []trialLeg{}
+	for rows.Next() {
+		var (
+			leg                      trialLeg
+			redactedAt               *time.Time
+			rawCriteria, rawFindings []byte
+		)
+		if err := rows.Scan(&leg.Group, &leg.CreatedAt, &leg.Score, &redactedAt,
+			&rawCriteria, &rawFindings); err != nil {
+			return nil, err
+		}
+		leg.Redacted = redactedAt != nil
+		if err := json.Unmarshal(rawCriteria, &leg.Criteria); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(rawFindings, &leg.Findings); err != nil {
+			return nil, err
+		}
+		legs = append(legs, leg)
 	}
-	if maxTotal.Valid {
-		card.MaxTotal = round2(maxTotal.Float64)
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	card.TotalSpread = round2(card.MaxTotal - card.MinTotal)
-	card.VolatileStdDev = round4(card.VolatileStdDev)
-	return &card, nil
+	return consistencyCard(legs), nil
+}
+
+// trialLeg is one run of a consistency group, carrying only what the card is
+// computed from.
+type trialLeg struct {
+	Group     string
+	CreatedAt time.Time
+	// Score is the leg's weighted total, nil when no criterion could be scored
+	// at all. Nullable in the column for that reason, so it is nullable here.
+	Score    *float64
+	Redacted bool
+	Criteria []analysis.Criterion
+	Findings []analysis.Finding
+}
+
+// consistencyCard reduces a trial group to the published figure, or to nothing.
+//
+// Separated from the query so the two ways this can have no answer are covered
+// by a test rather than by inspection — both used to produce a card reading
+// "0 puan", and zero is the *best* possible consistency result.
+func consistencyCard(legs []trialLeg) *ConsistencyCard {
+	// A single run has no spread. Neither has a group whose every
+	// overall_score is NULL, which is what a group looks like when nothing in
+	// the case could be scored — min and max are then both absent and the old
+	// max-min arithmetic quietly returned 0. Publishing a flawless figure for a
+	// measurement that was never taken is the one failure this card cannot
+	// afford, and the panel already renders the card's absence.
+	if len(legs) < 2 {
+		return nil
+	}
+
+	card := ConsistencyCard{
+		// Oldest leg first, so this is the group's own timestamp. The rubric is
+		// read from the same leg for the reason summarise() does: every run in
+		// a group shares one snapshot.
+		Group:     legs[0].Group,
+		CreatedAt: legs[0].CreatedAt,
+		Runs:      len(legs),
+	}
+
+	var lowTotal, topTotal float64
+	scored := false
+	runs := make([][]analysis.Finding, 0, len(legs))
+	for _, leg := range legs {
+		if leg.Redacted {
+			card.RedactedRuns++
+		}
+		if leg.Score != nil {
+			switch {
+			case !scored:
+				lowTotal, topTotal, scored = *leg.Score, *leg.Score, true
+			case *leg.Score < lowTotal:
+				lowTotal = *leg.Score
+			case *leg.Score > topTotal:
+				topTotal = *leg.Score
+			}
+		}
+		runs = append(runs, leg.Findings)
+	}
+	if !scored {
+		return nil
+	}
+
+	card.MinTotal, card.MaxTotal = round2(lowTotal), round2(topTotal)
+	card.TotalSpread = round2(topTotal - lowTotal)
+	card.VolatileCriterion, card.VolatileStdDev = mostVolatile(
+		analysis.PerCriterionStdDev(legs[0].Criteria, runs))
+	return &card
+}
+
+// mostVolatile picks the criterion that moved most, or nothing at all.
+//
+// Keys are sorted before the scan so a tie resolves the same way on every
+// request: two criteria that moved identically would otherwise alternate in the
+// card between one page load and the next, which reads as instability in the
+// measurement rather than in the rubric. This is the ORDER BY stddev DESC,
+// criterion ASC the SQL used to carry.
+//
+// An empty map gives ("", nil), never ("", 0) — see ConsistencyCard.
+func mostVolatile(spread map[string]float64) (string, *float64) {
+	if len(spread) == 0 {
+		return "", nil
+	}
+	keys := make([]string, 0, len(spread))
+	for key := range spread {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	best, highest := keys[0], spread[keys[0]]
+	for _, key := range keys[1:] {
+		if spread[key] > highest {
+			best, highest = key, spread[key]
+		}
+	}
+	return best, &highest
 }
 
 func daySpine(from, to time.Time) []int64 {
@@ -404,10 +492,6 @@ func matureWeeks(weekStart int64, now time.Time) int {
 
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
-}
-
-func round4(v float64) float64 {
-	return math.Round(v*10000) / 10000
 }
 
 func utcDayUnix(t time.Time) int64 {

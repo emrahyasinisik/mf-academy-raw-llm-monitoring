@@ -67,15 +67,40 @@ type CohortRow struct {
 	MatureWeeks int   `json:"mature_weeks"` // kohortun üstünden geçen tam hafta
 }
 
+// ConsistencyCard is the panel's one publishable measurement: how far apart the
+// same case scored when it was run repeatedly.
+//
+// The whole card is nil unless a real spread was measured — see
+// latestConsistency. Zero spread is the best result this can report, so
+// emitting it for a group that could not be measured would publish a perfect
+// consistency figure for a measurement that never happened.
 type ConsistencyCard struct {
-	Group             string    `json:"group"`
-	Runs              int       `json:"runs"`
-	CreatedAt         time.Time `json:"created_at"`
-	TotalSpread       float64   `json:"total_spread"` // en yüksek - en düşük ağırlıklı toplam
-	MinTotal          float64   `json:"min_total"`
-	MaxTotal          float64   `json:"max_total"`
-	VolatileCriterion string    `json:"volatile_criterion"`
-	VolatileStdDev    float64   `json:"volatile_std_dev"`
+	Group       string    `json:"group"`
+	Runs        int       `json:"runs"`
+	CreatedAt   time.Time `json:"created_at"`
+	TotalSpread float64   `json:"total_spread"` // en yüksek - en düşük ağırlıklı toplam
+	MinTotal    float64   `json:"min_total"`
+	MaxTotal    float64   `json:"max_total"`
+
+	// The criterion that moved most across the legs, and by how much. Both nil
+	// or both empty: a criterion with no deviation beside it, or a deviation
+	// with no criterion, is a number about nothing. The old shape coalesced
+	// them to '' and 0 and rendered "En oynak kriter: —" next to a confident
+	// "Kriter sapması: 0,0000".
+	VolatileCriterion string   `json:"volatile_criterion"`
+	VolatileStdDev    *float64 `json:"volatile_std_dev"`
+
+	// RedactedRuns is how many legs have had their findings blanked, by their
+	// owner or by the 30-day retention sweep.
+	//
+	// Runs counts the whole group because score, coverage and schema_valid
+	// survive redaction; findings do not, and VolatileStdDev is computed from
+	// findings. Three redacted legs of five produce a deviation over two
+	// observations that looks exactly like one over five, and after a month
+	// this is the normal state of every group — so the shortfall is reported
+	// rather than left to pass as a smaller spread. Same reason
+	// analysis.TrialResult carries redacted_runs.
+	RedactedRuns int `json:"redacted_runs"`
 }
 
 type StatsResponse struct {
