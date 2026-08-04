@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/emrah/mf-backend/internal/common"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -26,7 +27,8 @@ type fakeStore struct {
 	revokedAll  int
 	revokeAllFn func(userID string) (int64, error)
 
-	created         int    // number of CreateUser calls; a refused registration must leave this at 0
+	created         int // number of CreateUser calls; a refused registration must leave this at 0
+	sessionsCreated int
 	acceptedVersion string // version passed to the most recent AcceptTerms call
 }
 
@@ -71,6 +73,7 @@ func (f *fakeStore) UpdatePassword(_ context.Context, id, _ string) error {
 }
 
 func (f *fakeStore) CreateSession(context.Context, string, string, string, string, time.Time) (string, error) {
+	f.sessionsCreated++
 	return "session-1", nil
 }
 func (f *fakeStore) FindValidSessionByHash(context.Context, string) (string, string, error) {
@@ -164,6 +167,33 @@ func TestLoginSpendsEqualWorkOnUnknownAccount(t *testing.T) {
 	if ratio > 3 || ratio < 0.33 {
 		t.Errorf("timing ratio %.1fx (existing %v, missing %v); the two paths must be indistinguishable",
 			ratio, existingDur, missingDur)
+	}
+}
+
+func TestLoginRejectsSuspendedOrgMember(t *testing.T) {
+	realHash, err := bcrypt.GenerateFromPassword([]byte("correct-password"), testHashCost)
+	if err != nil {
+		t.Fatalf("seeding hash: %v", err)
+	}
+	store := &fakeStore{
+		user: User{ID: "u1", Email: "member@corp.io", OrgStatus: "suspended"},
+		hash: string(realHash),
+	}
+	h := newTestHandler(store)
+
+	wSuspended := postJSON(h.Login, `{"email":"member@corp.io","password":"correct-password"}`)
+	wMissing := postJSON(newTestHandler(&fakeStore{notFound: true}).Login,
+		`{"email":"member@corp.io","password":"correct-password"}`)
+
+	if wSuspended.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", wSuspended.Code, wSuspended.Body.String())
+	}
+	if wSuspended.Body.String() != wMissing.Body.String() {
+		t.Fatalf("suspended response differs from invalid login:\n suspended: %s\n invalid:    %s",
+			wSuspended.Body.String(), wMissing.Body.String())
+	}
+	if store.sessionsCreated != 0 {
+		t.Fatalf("CreateSession called %d times, want 0", store.sessionsCreated)
 	}
 }
 
@@ -372,6 +402,51 @@ func TestRegisterDoesNotCreateUserWhenRefused(t *testing.T) {
 	}
 }
 
+func TestCreateUserCreatesIndividualOrgInTransaction(t *testing.T) {
+	tx := &recordingTx{
+		rows: []pgx.Row{
+			scanRow{values: []any{"org-1"}},
+			scanRow{values: []any{
+				"user-1", "new@user.io", "New User", "user", false,
+				time.Unix(1, 0), time.Unix(2, 0), ptr(time.Unix(3, 0)),
+			}},
+		},
+	}
+
+	user, err := createUserWithIndividualOrg(context.Background(), func(context.Context) (authTx, error) {
+		tx.began = true
+		return tx, nil
+	}, "new@user.io", "hash", "New User", TermsVersion)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if !tx.began || !tx.committed || tx.rolledBack != 1 {
+		t.Fatalf("transaction flags began=%v committed=%v rolledBack=%d, want began+committed+deferred rollback",
+			tx.began, tx.committed, tx.rolledBack)
+	}
+	if len(tx.queries) != 2 {
+		t.Fatalf("queries = %d, want 2", len(tx.queries))
+	}
+	if !strings.Contains(tx.queries[0], "INSERT INTO organizations") ||
+		!strings.Contains(tx.queries[0], "VALUES ($1, 'individual', 1)") {
+		t.Fatalf("organization query did not create an individual org:\n%s", tx.queries[0])
+	}
+	if tx.args[0][0] != "New User" {
+		t.Fatalf("organization name arg = %#v, want display name", tx.args[0][0])
+	}
+	if !strings.Contains(tx.queries[1], "INSERT INTO users") ||
+		!strings.Contains(tx.queries[1], "org_id") ||
+		!strings.Contains(tx.queries[1], "must_change_password") {
+		t.Fatalf("user query did not write org_id and password-reset flag:\n%s", tx.queries[1])
+	}
+	if tx.args[1][3] != "org-1" {
+		t.Fatalf("user org_id arg = %#v, want org-1", tx.args[1][3])
+	}
+	if user.ID != "user-1" || user.Email != "new@user.io" {
+		t.Fatalf("returned user = %#v", user)
+	}
+}
+
 // AcceptTerms is the catch-up path for accounts that predate the terms. It
 // must be safe to call twice: the caller may not know whether they already
 // accepted, and a second call is success, not an error.
@@ -387,3 +462,58 @@ func TestAcceptTermsRecordsAndIsIdempotent(t *testing.T) {
 		t.Errorf("stored version %q, want %q", st.acceptedVersion, TermsVersion)
 	}
 }
+
+type recordingTx struct {
+	began      bool
+	committed  bool
+	rolledBack int
+	rows       []pgx.Row
+	queries    []string
+	args       [][]any
+}
+
+func (t *recordingTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
+	t.queries = append(t.queries, sql)
+	t.args = append(t.args, args)
+	row := t.rows[0]
+	t.rows = t.rows[1:]
+	return row
+}
+
+func (t *recordingTx) Commit(context.Context) error {
+	t.committed = true
+	return nil
+}
+
+func (t *recordingTx) Rollback(context.Context) error {
+	t.rolledBack++
+	return nil
+}
+
+type scanRow struct {
+	values []any
+	err    error
+}
+
+func (r scanRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	for i := range dest {
+		switch d := dest[i].(type) {
+		case *string:
+			*d = r.values[i].(string)
+		case *bool:
+			*d = r.values[i].(bool)
+		case *time.Time:
+			*d = r.values[i].(time.Time)
+		case **time.Time:
+			*d = r.values[i].(*time.Time)
+		default:
+			panic("unsupported scan destination")
+		}
+	}
+	return nil
+}
+
+func ptr[T any](v T) *T { return &v }

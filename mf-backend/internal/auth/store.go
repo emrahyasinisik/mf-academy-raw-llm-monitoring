@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,20 +21,61 @@ func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 // ErrNoRows is returned when a lookup finds nothing.
 var ErrNoRows = errors.New("no rows")
 
-// CreateUser inserts a user together with the acceptance that created them.
-//
-// One statement, not two. A separate acceptance write could fail after the
-// account exists, leaving a user who never agreed to anything and no way to
-// tell that apart from a user who registered before the terms existed.
+type authTx interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+// CreateUser inserts a user, the acceptance that created them, and their
+// individual organization in one transaction.
 func (s *Store) CreateUser(ctx context.Context, email, passwordHash, name, termsVersion string) (User, error) {
+	return createUserWithIndividualOrg(ctx, func(ctx context.Context) (authTx, error) {
+		return s.db.Begin(ctx)
+	}, email, passwordHash, name, termsVersion)
+}
+
+func createUserWithIndividualOrg(
+	ctx context.Context,
+	begin func(context.Context) (authTx, error),
+	email, passwordHash, name, termsVersion string,
+) (User, error) {
 	var u User
-	err := s.db.QueryRow(ctx,
-		`INSERT INTO users (email, password_hash, name, terms_accepted_at, terms_version)
-		 VALUES ($1, $2, $3, now(), $4)
+
+	tx, err := begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	orgName := strings.TrimSpace(name)
+	if orgName == "" {
+		orgName = email
+	}
+
+	var orgID string
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO organizations (name, type, seat_limit)
+		 VALUES ($1, 'individual', 1)
+		 RETURNING id`,
+		orgName,
+	).Scan(&orgID); err != nil {
+		return User{}, err
+	}
+
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (email, password_hash, name, org_id, org_role, must_change_password, terms_accepted_at, terms_version)
+		 VALUES ($1, $2, $3, $4, 'owner', false, now(), $5)
 		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at`,
-		email, passwordHash, name, termsVersion,
+		email, passwordHash, name, orgID, termsVersion,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
-	return u, err
+	if err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, err
+	}
+	return u, nil
 }
 
 // AcceptTerms records acceptance for a user who registered before the terms
@@ -54,9 +96,13 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 	var u User
 	var hash string
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at, password_hash
-		 FROM users WHERE email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash)
+		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
+		        u.created_at, u.updated_at, u.terms_accepted_at, u.password_hash,
+		        COALESCE(o.status, 'active') AS org_status
+		 FROM users u
+		 LEFT JOIN organizations o ON o.id = u.org_id
+		 WHERE u.email = $1`, email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrNoRows
 	}

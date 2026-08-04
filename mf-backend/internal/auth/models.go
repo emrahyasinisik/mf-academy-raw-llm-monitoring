@@ -14,6 +14,7 @@ type User struct {
 	Name               string    `json:"name"`
 	Role               string    `json:"role"`
 	MustChangePassword bool      `json:"must_change_password"`
+	OrgStatus          string    `json:"-"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 

@@ -189,7 +189,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	cmpErr := withBcryptSlot(r.Context(), func() error {
 		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 	})
-	if !found || cmpErr != nil {
+	if !found || cmpErr != nil || user.OrgStatus == "suspended" {
 		// Same error whether the email is unknown or the password is wrong —
 		// do not leak which accounts exist.
 		common.Error(w, common.ErrUnauthorized("invalid email or password"))
