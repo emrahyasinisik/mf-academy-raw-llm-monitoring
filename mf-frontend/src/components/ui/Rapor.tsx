@@ -42,11 +42,12 @@ export function Rapor({
   const b = breakdown(assessment.criteria_snapshot, assessment.findings);
   const scorePct = b.overall === null ? 0 : Math.min(100, b.overall);
   const coveragePct = Math.round(b.coverage * 100);
+  // Panel passes border-0; treat that as panelMode so mt-6 does not fight mt-0.
   const panelMode = className.includes("border-0");
 
   return (
     <article
-      className={`mt-6 p-5 sm:p-6 rapor view-in ${className}`.trim()}
+      className={`${panelMode ? "mt-0 p-0" : "mt-6 p-5 sm:p-6"} rapor view-in ${className}`.trim()}
       style={
         panelMode
           ? undefined

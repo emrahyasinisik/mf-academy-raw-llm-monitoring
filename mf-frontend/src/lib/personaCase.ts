@@ -5,6 +5,31 @@
 // against this text; truncating the fixed headers would hide what the operator
 // asked for.
 
+/** Restores intake from a first user turn that primed Konu/Amaç lines. */
+export function parseIntake(content: string): {
+  topic: string;
+  purpose: string;
+  rest: string;
+} {
+  const lines = content.split("\n");
+  let i = 0;
+  let topic = "";
+  let purpose = "";
+
+  if (lines[i]?.startsWith("Konu:")) {
+    topic = lines[i].slice("Konu:".length).trim();
+    i += 1;
+  }
+  if (lines[i]?.startsWith("Amaç:")) {
+    purpose = lines[i].slice("Amaç:".length).trim();
+    i += 1;
+  }
+  // Primed turns put a blank line between headers and the free-text ask.
+  if (lines[i] === "") i += 1;
+
+  return { topic, purpose, rest: lines.slice(i).join("\n") };
+}
+
 export type PersonaCaseInput = {
   topic: string;
   purpose: string;
@@ -66,7 +91,7 @@ export function assemblePersonaCase(input: PersonaCaseInput): {
   const { topic, purpose, userReplies, lastAssistantBody, sources, budgetChars } =
     input;
 
-  let replies = [...userReplies];
+  const replies = [...userReplies];
   let assistant = lastAssistantBody;
 
   const build = () =>

@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assemblePersonaCase } from "./personaCase.ts";
+import { assemblePersonaCase, parseIntake } from "./personaCase.ts";
+
+test("parseIntake extracts Konu/Amaç and leaves the rest", () => {
+  const { topic, purpose, rest } = parseIntake(
+    "Konu: Acme AI\nAmaç: seed değerlendirme\n\nBüyüme nedir?",
+  );
+  assert.equal(topic, "Acme AI");
+  assert.equal(purpose, "seed değerlendirme");
+  assert.equal(rest, "Büyüme nedir?");
+});
+
+test("parseIntake returns empty intake when headers absent", () => {
+  const { topic, purpose, rest } = parseIntake("Sadece soru");
+  assert.equal(topic, "");
+  assert.equal(purpose, "");
+  assert.equal(rest, "Sadece soru");
+});
 
 test("puts topic in subject_title and keeps purpose section", () => {
   const { subject_title, subject } = assemblePersonaCase({
