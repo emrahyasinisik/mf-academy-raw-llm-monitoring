@@ -104,16 +104,26 @@ export function CohortGrid({ rows }: { rows: CohortDisplayRow[] }) {
       <table className="w-full text-xs tabular-nums">
         <thead>
           <tr style={{ color: "var(--text-faint)" }}>
-            <th className="py-1 pr-3 text-left font-normal">Kohort haftası</th>
-            <th className="py-1 px-3 text-right font-normal">Üye</th>
-            <th className="py-1 px-3 text-right font-normal">2. hafta</th>
-            <th className="py-1 pl-3 text-right font-normal">4. hafta</th>
+            <th scope="col" className="py-1 pr-3 text-left font-normal">
+              Kohort haftası
+            </th>
+            <th scope="col" className="py-1 px-3 text-right font-normal">
+              Üye
+            </th>
+            <th scope="col" className="py-1 px-3 text-right font-normal">
+              2. hafta
+            </th>
+            <th scope="col" className="py-1 pl-3 text-right font-normal">
+              4. hafta
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.label} style={{ color: "var(--text-dim)" }}>
-              <td className="py-1.5 pr-3">{row.label}</td>
+              <th scope="row" className="py-1.5 pr-3 text-left font-normal">
+                {row.label}
+              </th>
               <td className="py-1.5 px-3 text-right">{formatCount(row.size)}</td>
               <td className="py-1.5 px-3 text-right">{formatCohortRate(row.week2)}</td>
               <td className="py-1.5 pl-3 text-right">{formatCohortRate(row.week4)}</td>
@@ -138,7 +148,11 @@ function EmptyState() {
 
 function formatCohortRate(value: number | null) {
   if (value === null) {
-    return <span title="Kohort henüz bu yaşta değil">—</span>;
+    return (
+      <span title="Kohort henüz bu yaşta değil" aria-label="Kohort henüz bu yaşta değil">
+        —
+      </span>
+    );
   }
   return formatPercent(value);
 }
