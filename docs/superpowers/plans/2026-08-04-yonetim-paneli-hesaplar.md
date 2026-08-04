@@ -1,6 +1,6 @@
 # Yönetim Paneli — 2. Aşama (Hesaplar) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Organizasyon modeli, admin hesap açma (tek seferlik geçici parola), sunucu tarafında zorunlu parola yenileme, askıya alma, ve `/yonetim/hesaplar` paneli — özellik seti spec §3; hesap silme 5. aşamada.
 
@@ -64,7 +64,7 @@
 - Consumes: yok.
 - Produces: `organizations` tablosu; `users.org_id`, `users.org_role`, `users.must_change_password`; mevcut kullanıcılar için bireysel org geri doldurma.
 
-- [ ] **Step 1: Migration dosyasını yaz**
+- [x] **Step 1: Migration dosyasını yaz**
 
 `mf-backend/migrations/012_organizations.sql` — spec §3 SQL'si, geri doldurma dahil:
 
@@ -109,7 +109,7 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 2: Test — migration numarası benzersiz**
+- [x] **Step 2: Test — migration numarası benzersiz**
 
 ```bash
 cd mf-backend && go test ./migrations/ -run TestMigrationNumbersAreUnique -v
@@ -117,7 +117,7 @@ cd mf-backend && go test ./migrations/ -run TestMigrationNumbersAreUnique -v
 
 Expected: PASS; `012` listede.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mf-backend/migrations/012_organizations.sql
@@ -155,7 +155,7 @@ EOF
   - `UpdatePassword` bayrağı `false` yapar
   - Login/Refresh/Register token'ları bayrağı taşır
 
-- [ ] **Step 1: Failing tests in `handler_test.go`**
+- [x] **Step 1: Failing tests in `handler_test.go`**
 
 `fakeStore`'a `mustChangePassword map[string]bool` ekle. Testler:
 
@@ -194,13 +194,13 @@ func TestRequirePasswordFresh(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run — expect FAIL**
+- [x] **Step 2: Run — expect FAIL**
 
 ```bash
 cd mf-backend && go test ./internal/common/ ./internal/auth/ -count=1
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `errors.go`:
 
@@ -277,13 +277,13 @@ pr.With(common.RequireAuth(tokens.Verify), common.RequirePasswordFresh).Get("/mc
 
 **`/admin` ve `/auth` bu middleware'i almaz** (spec: ürün alt ağaçları; `/auth` açık kalmalı yoksa ChangePassword kilitlenir).
 
-- [ ] **Step 4: Run — expect PASS**
+- [x] **Step 4: Run — expect PASS**
 
 ```bash
 cd mf-backend && go test ./internal/common/ ./internal/auth/ ./internal/llm/ ./internal/analysis/ ./internal/mcp/ -count=1
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -313,14 +313,14 @@ EOF
   - `Register` / `CreateUser` transaction içinde `individual` org + `org_id` yazar.
   - `IsOrgSuspended(ctx, userID) (bool, error)` veya login sorgusunda JOIN.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```go
 func TestLoginRejectsSuspendedOrgMember(t *testing.T) { ... }
 func TestRegisterCreatesIndividualOrg(t *testing.T) { ... }
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Login path — `GetUserByEmailWithHash` sonrası veya sorguya JOIN:
 
@@ -336,7 +336,7 @@ WHERE u.email = $1
 
 `CreateUser`: BEGIN → INSERT organization → INSERT user with org_id, must_change_password=false → COMMIT.
 
-- [ ] **Step 3: Test + commit**
+- [x] **Step 3: Test + commit**
 
 ```bash
 cd mf-backend && go test ./internal/auth/ -count=1
@@ -408,7 +408,7 @@ type CreateAccountResponse struct {
 
 **Suspend:** `organizations.status='suspended'`; org üyelerinin tüm session'ları revoke (`RevokeAllSessionsForUser` her üye için). Unsuspend: `status='active'` (oturumlar geri gelmez — yeniden giriş).
 
-- [ ] **Step 1: Write failing handler tests with fake `AccountStore` interface**
+- [x] **Step 1: Write failing handler tests with fake `AccountStore` interface**
 
 ```go
 type AccountStore interface {
@@ -426,7 +426,7 @@ Tests from spec §9:
 - temporary password response'ta var, store'a hash gidiyor
 - suspend calls revoke for each member
 
-- [ ] **Step 2: Implement store + handlers; wire routes; inject bcrypt cost**
+- [x] **Step 2: Implement store + handlers; wire routes; inject bcrypt cost**
 
 `main.go` / `NewHandler`: accounts store = aynı `admin.Store` (pool). Bcrypt cost: `cfg.BcryptCost` — `admin.Handler`'a `bcryptCost int` alanı ekle (veya `CreateAccount` içinde cost parametresi).
 
@@ -442,9 +442,9 @@ r.Route("/accounts", func(ar chi.Router) {
 })
 ```
 
-- [ ] **Step 3: `go test ./internal/admin/ -count=1` PASS**
+- [x] **Step 3: `go test ./internal/admin/ -count=1` PASS**
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -473,7 +473,7 @@ EOF
 - `needsPasswordGate(user)` / `isPasswordChangeRequired(err: ApiError)`
 - `api.changePassword`, `api.admin.accounts.*`
 
-- [ ] **Step 1: Failing adminNav + passwordGate tests**
+- [x] **Step 1: Failing adminNav + passwordGate tests**
 
 ```typescript
 test("hesaplar yolu kendi bölümüne çözülür", () => {
@@ -494,7 +494,7 @@ test("must_change_password bayraklı kullanıcı kapıya düşer", () => {
 });
 ```
 
-- [ ] **Step 2: Implement nav + gate + types + api**
+- [x] **Step 2: Implement nav + gate + types + api**
 
 `PANEL_SECTIONS` — Genel'den hemen sonra:
 
@@ -515,7 +515,7 @@ changePassword: (current_password: string, new_password: string) =>
 // admin.accounts: list, create, get, suspend, unsuspend
 ```
 
-- [ ] **Step 3: `npm test` PASS; commit**
+- [x] **Step 3: `npm test` PASS; commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -544,16 +544,16 @@ EOF
 
 **Admin create user terms:** CreateAccount owner'a `terms_accepted_at = now()`, `terms_version = auth.TermsVersion` yaz — aksi halde parola değişince terms kapısına düşerler. Plan bunu Task 4 store insert'ine ekler.
 
-- [ ] **Step 1: ParolaView** — e-posta readonly, mevcut (geçici) parola, yeni parola, Türkçe metin: "İlk girişte parolanızı değiştirmeniz gerekiyor." Kayıt linki yok.
+- [x] **Step 1: ParolaView** — e-posta readonly, mevcut (geçici) parola, yeni parola, Türkçe metin: "İlk girişte parolanızı değiştirmeniz gerekiyor." Kayıt linki yok.
 
-- [ ] **Step 2: AppShell wiring**
+- [x] **Step 2: AppShell wiring**
 
 ```tsx
 if (needsPasswordGate(user)) return <ParolaView />;
 if (needsTermsGate(user)) return <OnayView />;
 ```
 
-- [ ] **Step 3: lint/test/build; commit**
+- [x] **Step 3: lint/test/build; commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -583,7 +583,7 @@ EOF
 
 Dark-only, CSS variables, Türkçe, workshop copy yok.
 
-- [ ] **Step 1: page.tsx**
+- [x] **Step 1: page.tsx**
 
 ```tsx
 import { AccountsPanel } from "@/components/yonetim/AccountsPanel";
@@ -592,11 +592,11 @@ export default function YonetimHesaplar() {
 }
 ```
 
-- [ ] **Step 2: AccountsPanel** — mevcut panel dilini izle (`OverviewPanel` kart / tablo sınıfları: `card`, `btn`, `input`, `label`, `notice`).
+- [x] **Step 2: AccountsPanel** — mevcut panel dilini izle (`OverviewPanel` kart / tablo sınıfları: `card`, `btn`, `input`, `label`, `notice`).
 
-- [ ] **Step 3: `npm run lint && npm test && npm run build`** — build çıktısında `/yonetim/hesaplar` görünmeli.
+- [x] **Step 3: `npm run lint && npm test && npm run build`** — build çıktısında `/yonetim/hesaplar` görünmeli.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -617,20 +617,20 @@ EOF
 **Files:**
 - Modify: this plan — checkboxes `[x]`
 
-- [ ] **Step 1: Full verification**
+- [x] **Step 1: Full verification**
 
 ```bash
 cd mf-backend && go test ./...
 cd mf-frontend && npm test && npm run lint && npm run build
 ```
 
-- [ ] **Step 2: Backend diff is intentional; frontend+backend both change**
+- [x] **Step 2: Backend diff is intentional; frontend+backend both change**
 
 ```bash
 git diff main --stat
 ```
 
-- [ ] **Step 3: Grep guards**
+- [x] **Step 3: Grep guards**
 
 ```bash
 # org_id must not appear as a data-scope filter in analysis/llm queries this phase
@@ -641,13 +641,13 @@ rg -i "impersonat|taklit|act.?as" mf-frontend/src/components/yonetim || true
 
 Expected: `org_id` yalnızca auth/admin accounts yollarında; analysis/llm/decision'da filtre yok.
 
-- [ ] **Step 4: Deploy note (rapora yaz)**
+- [x] **Step 4: Deploy note (rapora yaz)**
 
 1. Render'da backend deploy'u elle tetikle; migration 012 uygulandığını doğrula.
 2. Sonra Vercel frontend.
 3. Smoke: admin `/yonetim/hesaplar` → hesap aç → temp parola bir kez → o kullanıcıyla giriş → ParolaView → ürün açılır; askıya alınmış org giriş yapamaz.
 
-- [ ] **Step 5: Plan kutucuklarını işaretle + commit**
+- [x] **Step 5: Plan kutucuklarını işaretle + commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-04-yonetim-paneli-hesaplar.md
