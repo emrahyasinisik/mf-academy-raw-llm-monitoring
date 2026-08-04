@@ -23,5 +23,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) htt
 	r.Use(common.RequireOrgAdmin)
 	r.Use(common.Timeout(timeout))
 	r.Get("/me", h.Me)
+	r.Get("/members", h.ListMembers)
+	r.Post("/members", h.CreateMember)
 	return r
 }

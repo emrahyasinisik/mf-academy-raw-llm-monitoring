@@ -6,22 +6,29 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
 )
 
-// OrgStore is the persistence GET /org/me needs. Declared on the consuming side
-// so handler tests use a fake without a live PostgreSQL.
+// OrgStore is the persistence the company panel needs. Declared on the
+// consuming side so handler tests use a fake without a live PostgreSQL.
 type OrgStore interface {
 	GetOrgSummary(ctx context.Context, orgID string) (OrgSummary, error)
+	ListMembers(ctx context.Context, orgID string) ([]Member, error)
+	CreateMember(ctx context.Context, orgID, name, email, orgRole, passwordHash string) (Member, error)
 }
 
 // Handler serves the company-panel endpoints under /org.
 type Handler struct {
-	store OrgStore
+	store      OrgStore
+	bcryptCost int
 }
 
-func NewHandler(store OrgStore) *Handler {
-	return &Handler{store: store}
+func NewHandler(store OrgStore, bcryptCost int) *Handler {
+	if bcryptCost < auth.MinHashCost {
+		bcryptCost = auth.MinHashCost
+	}
+	return &Handler{store: store, bcryptCost: bcryptCost}
 }
 
 // Me returns the authenticated company admin's own org summary and role.

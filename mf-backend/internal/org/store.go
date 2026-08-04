@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -38,4 +39,56 @@ func (s *Store) GetOrgSummary(ctx context.Context, orgID string) (OrgSummary, er
 		return OrgSummary{}, err
 	}
 	return o, nil
+}
+
+// ListMembers returns every user in orgID, with optional last activity from
+// assessments / llm_runs. Scoped by the caller's claims.OrgID upstream.
+func (s *Store) ListMembers(ctx context.Context, orgID string) ([]Member, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT u.id, u.email, u.name, u.org_role, u.created_at,
+		       max(GREATEST(a.created_at, r.created_at)) AS last_activity_at
+		  FROM users u
+		  LEFT JOIN assessments a ON a.user_id = u.id
+		  LEFT JOIN llm_runs r ON r.user_id = u.id
+		 WHERE u.org_id = $1
+		 GROUP BY u.id
+		 ORDER BY u.created_at`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	members := []Member{}
+	for rows.Next() {
+		var m Member
+		if err := rows.Scan(&m.ID, &m.Email, &m.Name, &m.OrgRole, &m.CreatedAt, &m.LastActivityAt); err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+// CreateMember inserts a user under orgID with must_change_password=true.
+// The handler already checked seat_limit; unique email is enforced by the DB.
+func (s *Store) CreateMember(ctx context.Context, orgID, name, email, orgRole, passwordHash string) (Member, error) {
+	var m Member
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, name, org_id, org_role, must_change_password)
+		VALUES ($1, $2, $3, $4, $5, true)
+		RETURNING id, email, name, org_role, created_at`,
+		email, passwordHash, name, orgID, orgRole,
+	).Scan(&m.ID, &m.Email, &m.Name, &m.OrgRole, &m.CreatedAt)
+	if err != nil {
+		return Member{}, err
+	}
+	return m, nil
+}
+
+// isUniqueViolation detects Postgres 23505 without importing admin.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
