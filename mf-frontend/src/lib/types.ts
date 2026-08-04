@@ -306,7 +306,24 @@ export interface LLMSettings {
    * showed it as active.
    */
   active_gguf_adapter: string;
+  retention_days: number;
   updated_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  actor_id?: string;
+  action: string;
+  target: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditListResult {
+  entries: AuditEntry[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /**

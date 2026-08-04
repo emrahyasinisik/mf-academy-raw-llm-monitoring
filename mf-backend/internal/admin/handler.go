@@ -57,11 +57,20 @@ type AccountStore interface {
 	GetAccount(ctx context.Context, id string) (AccountDetail, error)
 	SuspendAccount(ctx context.Context, id string) error
 	SetAccountStatus(ctx context.Context, id, status string) error
+	DeleteAccount(ctx context.Context, id string) error
+}
+
+// AuditStore records and lists operator actions. detail must stay metadata-only.
+type AuditStore interface {
+	WriteAudit(ctx context.Context, actorID, action, target string, detail map[string]any) error
+	ListAudit(ctx context.Context, page, limit int) (AuditListResult, error)
 }
 
 type ControlStore interface {
 	AdapterStore
 	AccountStore
+	LegalStore
+	AuditStore
 }
 
 // AdapterSwapper is the live control plane of the hot-swap runtime.
@@ -87,12 +96,13 @@ type Handler struct {
 	mcp        MCPStore
 	accounts   AccountStore
 	legal      LegalStore
+	audit      AuditStore
 	runtime    AdapterSwapper
 	metrics    MetricsQuerier
 	bcryptCost int
 }
 
-func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal LegalStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
+func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal LegalStore, audit AuditStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
 	if bcryptCost < auth.MinHashCost {
 		bcryptCost = auth.MinHashCost
 	}
@@ -102,9 +112,19 @@ func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal Legal
 		mcp:        mcp,
 		accounts:   store,
 		legal:      legal,
+		audit:      audit,
 		runtime:    rt,
 		metrics:    mq,
 		bcryptCost: bcryptCost,
+	}
+}
+
+func (h *Handler) recordAudit(ctx context.Context, actorID, action, target string, detail map[string]any) {
+	if h.audit == nil {
+		return
+	}
+	if err := h.audit.WriteAudit(ctx, actorID, action, target, detail); err != nil {
+		slog.Error("audit write failed", "action", action, "target", target, "error", err)
 	}
 }
 
@@ -173,6 +193,28 @@ func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("settings updated", "user_id", claims.UserID)
+	fields := []string{}
+	if patch.DefaultModel != nil {
+		fields = append(fields, "default_model")
+	}
+	if patch.SystemPrompt != nil {
+		fields = append(fields, "system_prompt")
+	}
+	if patch.Temperature != nil {
+		fields = append(fields, "temperature")
+	}
+	if patch.TopP != nil {
+		fields = append(fields, "top_p")
+	}
+	if patch.MaxTokens != nil {
+		fields = append(fields, "max_tokens")
+	}
+	if patch.RetentionDays != nil {
+		fields = append(fields, "retention_days")
+	}
+	h.recordAudit(r.Context(), claims.UserID, "settings.update", "llm_settings", map[string]any{
+		"fields": fields,
+	})
 	common.JSON(w, http.StatusOK, s)
 }
 
@@ -324,6 +366,9 @@ func (h *Handler) ActivateAdapter(w http.ResponseWriter, r *http.Request) {
 	slog.Info("adapter activated", "adapter", a.Name, "model", s.ActiveModelID,
 		"gguf", a.GGUFAdapter, "hot_swapped", res.HotSwapped, "swap_ms", res.SwapMs,
 		"user_id", claims.UserID)
+	h.recordAudit(r.Context(), claims.UserID, "adapter.activate", id, map[string]any{
+		"name": a.Name,
+	})
 	common.JSON(w, http.StatusOK, res)
 }
 
@@ -348,6 +393,7 @@ func (h *Handler) DeactivateAdapter(w http.ResponseWriter, r *http.Request) {
 	res := h.swap(r.Context(), "", s)
 	slog.Info("adapter deactivated, serving base model",
 		"hot_swapped", res.HotSwapped, "user_id", claims.UserID)
+	h.recordAudit(r.Context(), claims.UserID, "adapter.deactivate", "", nil)
 	common.JSON(w, http.StatusOK, res)
 }
 

@@ -116,6 +116,18 @@ func main() {
 	// other; see internal/settings.
 	settingsStore := settings.NewStore(pool)
 
+	retentionDays, err := settingsStore.EnsureRetentionDays(ctx, cfg.RetentionDays)
+	if err != nil {
+		slog.Error("retention days seed failed", "error", err)
+		os.Exit(1)
+	}
+	if retentionDays == 0 {
+		slog.Warn("retention_days is 0: pasted case text, evidence quotes and " +
+			"prompts will not be swept")
+	} else {
+		slog.Info("retention days", "days", retentionDays, "source", "llm_settings")
+	}
+
 	adminStore := admin.NewStore(pool)
 	// The live-adapter control plane. Optional in the same way the provider is:
 	// with no inference host there is nothing to swap on, the handler reports it
@@ -139,7 +151,7 @@ func main() {
 	// ordering is what makes a switched-off box report itself as an unreachable
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 
@@ -339,10 +351,10 @@ func main() {
 	go sessionCleanup(workerCtx, authStore)
 
 	// ---- background: redact content past the retention period ----
-	if cfg.RetentionEnabled() {
-		go retentionCleanup(workerCtx, analysisStore, llmStore, decisionStore,
-			time.Duration(cfg.RetentionDays)*24*time.Hour, cfg.RetentionSweepInterval)
-	}
+	// Days come from llm_settings (seeded once from RETENTION_DAYS). Re-read on
+	// every tick so a panel change takes effect without restart.
+	go retentionCleanup(workerCtx, settingsStore, analysisStore, llmStore, decisionStore,
+		cfg.RetentionSweepInterval)
 
 	// ---- serve with graceful shutdown (Go Day 36-40) ----
 	go func() {
@@ -409,28 +421,26 @@ func sessionCleanup(ctx context.Context, store *auth.Store) {
 // the process happens to have been running.
 func retentionCleanup(
 	ctx context.Context,
+	set *settings.Store,
 	a retention.AssessmentSweeper,
 	r retention.RunSweeper,
 	c retention.ConversationSweeper,
-	age, interval time.Duration,
+	interval time.Duration,
 ) {
-	// Ten minutes, where sessionCleanup's reap gets thirty seconds, and the gap
-	// is deliberate. That reap deletes by an indexed expiry and touches a table
-	// that is trimmed hourly, so it is always small. This one issues two UPDATEs
-	// that rewrite every row past the limit, and the first run after a deploy is
-	// the whole backlog at once — on a database that has been collecting reports
-	// for a month while this feature did not exist yet, that is every row in the
-	// table. A bound sized for the steady state would cancel exactly the sweep
-	// that matters most and leave the backlog for the next tick to fail at again.
-	//
-	// Bounded all the same: workerCtx only closes at shutdown, so an UPDATE that
-	// blocks on a lock would otherwise hold a connection for the process's life
-	// and take its lock with it.
 	const sweepTimeout = 10 * time.Minute
 
 	sweep := func() {
+		s, err := set.Get(ctx)
+		if err != nil {
+			slog.Error("retention settings read", "error", err)
+			return
+		}
+		if s.RetentionDays == 0 {
+			return
+		}
 		sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
 		defer cancel()
+		age := time.Duration(s.RetentionDays) * 24 * time.Hour
 		res, err := retention.Sweep(sweepCtx, a, r, c, age, time.Now())
 		if err != nil {
 			slog.Error("retention sweep", "error", err)
@@ -438,7 +448,7 @@ func retentionCleanup(
 		if res.Assessments > 0 || res.Runs > 0 || res.Conversations > 0 {
 			slog.Info("retention sweep",
 				"assessments", res.Assessments, "runs", res.Runs,
-				"conversations", res.Conversations)
+				"conversations", res.Conversations, "days", s.RetentionDays)
 		}
 	}
 

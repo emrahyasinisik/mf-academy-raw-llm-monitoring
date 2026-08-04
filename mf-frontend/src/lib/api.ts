@@ -40,6 +40,7 @@ import type {
   LegalDocument,
   LegalListItem,
   LegalSlugDetail,
+  AuditListResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -426,6 +427,12 @@ export const api = {
         request<{ status: AccountStatus }>(`/admin/accounts/${id}/unsuspend`, {
           method: "POST",
         }),
+      delete: (id: string) =>
+        request<void>(`/admin/accounts/${id}`, { method: "DELETE" }),
+    },
+    audit: {
+      list: (page = 1, limit = 50) =>
+        request<AuditListResult>(`/admin/audit?page=${page}&limit=${limit}`),
     },
     legal: {
       list: () =>

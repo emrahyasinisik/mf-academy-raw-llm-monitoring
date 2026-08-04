@@ -132,6 +132,10 @@ func (h *Handler) PublishLegal(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrInternal("could not publish"))
 		return
 	}
+	h.recordAudit(r.Context(), claims.UserID, "legal.publish", slug, map[string]any{
+		"version":            doc.Version,
+		"requires_reconsent": doc.RequiresReconsent,
+	})
 	common.JSON(w, http.StatusOK, doc)
 }
 

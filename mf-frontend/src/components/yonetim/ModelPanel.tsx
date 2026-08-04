@@ -251,6 +251,26 @@ export function ModelPanel() {
           ))}
         </div>
 
+        <label className="block">
+          <span className="label">Saklama süresi (gün)</span>
+          <input
+            className="input mono num max-w-xs"
+            type="number"
+            min={0}
+            step={1}
+            defaultValue={settings.retention_days}
+            onBlur={(e) => {
+              const v = Number(e.target.value);
+              if (v !== settings.retention_days) {
+                save({ retention_days: v });
+              }
+            }}
+          />
+          <span className="block text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+            0 süpürgeyi kapatır. Bu sayı KVKK metnindeki süreyle aynı olmalıdır.
+          </span>
+        </label>
+
         <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
           Bu ayarlar sohbet yolunu etkiler. Analiz yolunun sıcaklığı bilerek
           sabitlenmiştir: rubrik doldurmak çıkarım işidir ve örnekleme çeşitliliği,

@@ -12,6 +12,7 @@ export type PanelSection =
   | "genel"
   | "hesaplar"
   | "belgeler"
+  | "denetim"
   | "model"
   | "mcp"
   | "loglar";
@@ -24,6 +25,7 @@ export const PANEL_SECTIONS: readonly {
   { id: "genel", label: "Genel", path: "/yonetim" },
   { id: "hesaplar", label: "Hesaplar", path: "/yonetim/hesaplar" },
   { id: "belgeler", label: "Belgeler", path: "/yonetim/belgeler" },
+  { id: "denetim", label: "Denetim", path: "/yonetim/denetim" },
   { id: "model", label: "Model & Ayarlar", path: "/yonetim/model" },
   { id: "mcp", label: "MCP Sunucuları", path: "/yonetim/mcp" },
   { id: "loglar", label: "Log Monitörü", path: "/yonetim/loglar" },
