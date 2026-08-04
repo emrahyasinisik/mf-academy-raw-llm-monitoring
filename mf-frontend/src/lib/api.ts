@@ -21,8 +21,10 @@ import type {
   MCPServer,
   AdminOverview,
   AdminLogEntry,
+  AdminStats,
   MetricsResponse,
   MetricsWindow,
+  StatsWindow,
   WikiDocument,
   WikiHit,
   WikiAnswer,
@@ -339,6 +341,8 @@ export const api = {
     // arbitrary span would have no step to go with it.
     metrics: (window: MetricsWindow) =>
       request<MetricsResponse>(`/admin/metrics?window=${window}`),
+    stats: (window: StatsWindow) =>
+      request<AdminStats>(`/admin/stats?window=${encodeURIComponent(window)}`),
     logs: (limit = 50, target = "") => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (target) params.set("target", target);

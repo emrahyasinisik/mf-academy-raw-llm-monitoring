@@ -351,6 +351,85 @@ export interface AdminOverview {
   active_adapter_id: string | null;
 }
 
+export type StatsWindow = "30d" | "90d";
+
+export interface StatBox {
+  value: number;
+  previous: number;
+  change_pct: number | null;
+}
+
+export interface ActiveAdapterBox {
+  name: string;
+  valid_rate: number;
+  previous_rate: number;
+  change_points: number | null;
+}
+
+export interface StatsBoxes {
+  total_users: StatBox;
+  total_reports: StatBox;
+  reports_last_24h: StatBox;
+  active_adapter: ActiveAdapterBox;
+}
+
+export interface StatsDay {
+  /** UTC gün başı, Unix saniye. */
+  t: number;
+  new_users: number;
+  cumulative_users: number;
+  assessments: number;
+  schema_valid: number;
+}
+
+export interface StatsTargetSeries {
+  target: string;
+  points: MetricPoint[];
+}
+
+export interface CategoryCount {
+  key: string;
+  count: number;
+}
+
+export interface StatsFunnel {
+  registered: number;
+  consented: number;
+  analyzed: number;
+}
+
+export interface CohortRow {
+  week_start: number;
+  size: number;
+  week_2: number;
+  week_4: number;
+  mature_weeks: number;
+}
+
+export interface ConsistencyCard {
+  group: string;
+  runs: number;
+  created_at: string;
+  total_spread: number;
+  min_total: number;
+  max_total: number;
+  volatile_criterion: string;
+  volatile_std_dev: number;
+}
+
+export interface AdminStats {
+  window: StatsWindow;
+  from: string;
+  to: string;
+  boxes: StatsBoxes;
+  days: StatsDay[];
+  org_types: CategoryCount[];
+  runs_by_target: StatsTargetSeries[];
+  funnel: StatsFunnel;
+  cohorts: CohortRow[];
+  consistency: ConsistencyCard | null;
+}
+
 /** Chart spans the server knows how to step. */
 export type MetricsWindow = "1h" | "6h" | "24h";
 
