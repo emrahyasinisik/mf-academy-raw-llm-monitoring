@@ -2,10 +2,6 @@ package auth
 
 import "time"
 
-// TermsVersion identifies the text a user accepted. Bump it when the wording
-// changes in a way a reasonable person would want to re-read — not for typos.
-const TermsVersion = "2026-08-01"
-
 // User is the public representation of a user — note there is NO password field.
 // We never serialize the password hash to JSON.
 type User struct {
@@ -18,11 +14,11 @@ type User struct {
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 
-	// Nil for an account that predates the terms, which is what the login gate
-	// keys on. The accepted version is stored but not returned: nothing in the
-	// product reads it yet, and a field the client cannot act on is one more
-	// thing to keep in sync.
+	// Nil until the user has accepted at least once. The version string is what
+	// the consent gate compares against the latest published kosullar row —
+	// a hardcoded constant cannot survive an editor in the panel.
 	TermsAcceptedAt *time.Time `json:"terms_accepted_at"`
+	TermsVersion    string     `json:"terms_version"`
 }
 
 // Session is a refresh-token record (one per login / device).

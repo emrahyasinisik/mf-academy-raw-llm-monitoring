@@ -37,6 +37,10 @@ import type {
   CreateAccountResponse,
   AccountStatus,
   AccountType,
+  LegalDocument,
+  LegalListItem,
+  LegalSlugDetail,
+  AuditListResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -423,6 +427,35 @@ export const api = {
         request<{ status: AccountStatus }>(`/admin/accounts/${id}/unsuspend`, {
           method: "POST",
         }),
+      delete: (id: string) =>
+        request<void>(`/admin/accounts/${id}`, { method: "DELETE" }),
     },
+    audit: {
+      list: (page = 1, limit = 50) =>
+        request<AuditListResult>(`/admin/audit?page=${page}&limit=${limit}`),
+    },
+    legal: {
+      list: () =>
+        request<{ documents: LegalListItem[] }>("/admin/legal"),
+      get: (slug: string) =>
+        request<LegalSlugDetail>(`/admin/legal/${slug}`),
+      saveDraft: (slug: string, title: string, body: string) =>
+        request<LegalDocument>(`/admin/legal/${slug}`, {
+          method: "PUT",
+          body: JSON.stringify({ title, body }),
+        }),
+      publish: (slug: string, requires_reconsent: boolean) =>
+        request<LegalDocument>(`/admin/legal/${slug}/publish`, {
+          method: "POST",
+          body: JSON.stringify({ requires_reconsent }),
+        }),
+      deleteDraft: (slug: string) =>
+        request<void>(`/admin/legal/${slug}/draft`, { method: "DELETE" }),
+    },
+  },
+
+  /** Public published legal text — no session required. */
+  legal: {
+    get: (slug: string) => request<LegalDocument>(`/legal/${slug}`),
   },
 };

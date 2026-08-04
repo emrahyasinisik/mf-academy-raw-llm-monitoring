@@ -181,6 +181,10 @@ func (h *Handler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("admin account created", "account_id", account.ID, "type", account.Type, "owner_id", owner.ID)
+	claims, _ := common.ClaimsFromContext(r.Context())
+	h.recordAudit(r.Context(), claims.UserID, "account.create", account.ID, map[string]any{
+		"type": account.Type,
+	})
 	common.JSON(w, http.StatusCreated, CreateAccountResponse{
 		Account:           account,
 		TemporaryPassword: temp,
@@ -211,6 +215,8 @@ func (h *Handler) SuspendAccount(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrInternal("could not suspend account"))
 		return
 	}
+	claims, _ := common.ClaimsFromContext(r.Context())
+	h.recordAudit(r.Context(), claims.UserID, "account.suspend", id, nil)
 	common.JSON(w, http.StatusOK, map[string]string{"status": accountStatusSuspended})
 }
 
@@ -224,7 +230,24 @@ func (h *Handler) UnsuspendAccount(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrInternal("could not unsuspend account"))
 		return
 	}
+	claims, _ := common.ClaimsFromContext(r.Context())
+	h.recordAudit(r.Context(), claims.UserID, "account.unsuspend", id, nil)
 	common.JSON(w, http.StatusOK, map[string]string{"status": accountStatusActive})
+}
+
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	claims, _ := common.ClaimsFromContext(r.Context())
+	if err := h.accounts.DeleteAccount(r.Context(), id); err != nil {
+		if errors.Is(err, ErrNoRows) {
+			common.Error(w, common.ErrNotFound("account not found"))
+			return
+		}
+		common.Error(w, common.ErrInternal("could not delete account"))
+		return
+	}
+	h.recordAudit(r.Context(), claims.UserID, "account.delete", id, nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func temporaryPassword() (string, error) {
