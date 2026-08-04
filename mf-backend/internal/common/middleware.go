@@ -25,6 +25,9 @@ type AuthClaims struct {
 	Email         string
 	Role          string
 	PasswordReset bool
+	OrgID         string
+	OrgRole       string
+	OrgType       string
 }
 
 // TokenVerifier validates a raw access token and returns its claims.
@@ -152,6 +155,27 @@ func RequirePasswordFresh(next http.Handler) http.Handler {
 		}
 		if claims.PasswordReset {
 			Error(w, ErrPasswordChangeRequired())
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireOrgAdmin opens /org/* to company owner/admin only.
+// Platform admin role alone is not enough — this is a customer surface.
+func RequireOrgAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		if !ok {
+			Error(w, ErrUnauthorized("authentication required"))
+			return
+		}
+		if claims.OrgID == "" || claims.OrgType != "company" {
+			Error(w, ErrForbidden("company admin access required"))
+			return
+		}
+		if claims.OrgRole != "owner" && claims.OrgRole != "admin" {
+			Error(w, ErrForbidden("company admin access required"))
 			return
 		}
 		next.ServeHTTP(w, r)
