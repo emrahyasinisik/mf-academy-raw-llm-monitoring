@@ -31,6 +31,7 @@ type fakeStore struct {
 	sessionsCreated int
 	acceptedVersion string // version passed to the most recent AcceptTerms call
 	updatedPassword int
+	requiredVersion string
 }
 
 func (f *fakeStore) CreateUser(context.Context, string, string, string, string) (User, error) {
@@ -41,6 +42,13 @@ func (f *fakeStore) CreateUser(context.Context, string, string, string, string) 
 func (f *fakeStore) AcceptTerms(_ context.Context, _ string, version string) error {
 	f.acceptedVersion = version
 	return nil
+}
+
+func (f *fakeStore) RequiredTermsVersion(context.Context) (string, error) {
+	if f.requiredVersion != "" {
+		return f.requiredVersion, nil
+	}
+	return "2026-08-01", nil
 }
 
 func (f *fakeStore) GetUserByEmailWithHash(_ context.Context, _ string) (User, string, error) {
@@ -468,7 +476,7 @@ func TestCreateUserCreatesIndividualOrgInTransaction(t *testing.T) {
 			scanRow{values: []any{"org-1"}},
 			scanRow{values: []any{
 				"user-1", "new@user.io", "New User", "user", false,
-				time.Unix(1, 0), time.Unix(2, 0), ptr(time.Unix(3, 0)),
+				time.Unix(1, 0), time.Unix(2, 0), ptr(time.Unix(3, 0)), "2026-08-01",
 			}},
 		},
 	}
@@ -476,7 +484,7 @@ func TestCreateUserCreatesIndividualOrgInTransaction(t *testing.T) {
 	user, err := createUserWithIndividualOrg(context.Background(), func(context.Context) (authTx, error) {
 		tx.began = true
 		return tx, nil
-	}, "new@user.io", "hash", "New User", TermsVersion)
+	}, "new@user.io", "hash", "New User", "2026-08-01")
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -518,8 +526,8 @@ func TestAcceptTermsRecordsAndIsIdempotent(t *testing.T) {
 			t.Fatalf("call %d -> status %d, want 204", i+1, w.Code)
 		}
 	}
-	if st.acceptedVersion != TermsVersion {
-		t.Errorf("stored version %q, want %q", st.acceptedVersion, TermsVersion)
+	if st.acceptedVersion != "2026-08-01" {
+		t.Errorf("stored version %q, want %q", st.acceptedVersion, "2026-08-01")
 	}
 }
 

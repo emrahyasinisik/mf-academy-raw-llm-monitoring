@@ -81,6 +81,7 @@ func withBcryptSlot(ctx context.Context, fn func() error) error {
 type UserStore interface {
 	CreateUser(ctx context.Context, email, passwordHash, name, termsVersion string) (User, error)
 	AcceptTerms(ctx context.Context, userID, version string) error
+	RequiredTermsVersion(ctx context.Context) (string, error)
 	GetUserByEmailWithHash(ctx context.Context, email string) (User, string, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetPasswordHash(ctx context.Context, id string) (string, error)
@@ -153,7 +154,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name), TermsVersion)
+	termsVersion, err := h.store.RequiredTermsVersion(r.Context())
+	if err != nil {
+		common.Error(w, common.ErrInternal("could not read terms version"))
+		return
+	}
+	if termsVersion == "" {
+		common.Error(w, common.ErrInternal("terms are not published"))
+		return
+	}
+
+	user, err := h.store.CreateUser(r.Context(), req.Email, string(hash), strings.TrimSpace(req.Name), termsVersion)
 	if err != nil {
 		if isUniqueViolation(err) {
 			common.Error(w, common.ErrConflict("email already registered"))
@@ -280,13 +291,18 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, user)
 }
 
-// AcceptTerms records that the caller accepted the current terms. It exists
-// for accounts created before the terms did — new accounts accept at
-// registration, so this is the catch-up path a frontend gate calls later.
+// AcceptTerms records that the caller accepted the current published terms.
+// Used both for accounts that predate the gate and for re-consent after a
+// requires_reconsent publish bumps the kosullar version.
 // POST /auth/accept-terms
 func (h *Handler) AcceptTerms(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())
-	if err := h.store.AcceptTerms(r.Context(), claims.UserID, TermsVersion); err != nil {
+	version, err := h.store.RequiredTermsVersion(r.Context())
+	if err != nil || version == "" {
+		common.Error(w, common.ErrInternal("could not read terms version"))
+		return
+	}
+	if err := h.store.AcceptTerms(r.Context(), claims.UserID, version); err != nil {
 		common.Error(w, common.ErrInternal("could not record acceptance"))
 		return
 	}
