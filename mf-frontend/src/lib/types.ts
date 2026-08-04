@@ -6,6 +6,9 @@ export interface User {
   name: string;
   role: string;
   must_change_password: boolean;
+  org_id: string | null;
+  org_role: string;
+  org_type: string;
   created_at: string;
   updated_at: string;
   terms_accepted_at: string | null;
