@@ -1,4 +1,5 @@
-// Stub — içerik sonraki görevlerde gelir. Başlık OrgShell'de.
+import { OverviewPanel } from "@/components/sirket/OverviewPanel";
+
 export default function SirketOzet() {
-  return null;
+  return <OverviewPanel />;
 }

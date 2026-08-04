@@ -36,24 +36,31 @@ export function TeamPanel() {
 
   const full = seatFull(org?.member_count ?? 0, org?.seat_limit ?? 0);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
+  const load = useCallback((isCurrent: () => boolean = () => true) => {
     return Promise.all([api.org.me(), api.org.members.list()])
       .then(([me, list]) => {
+        if (!isCurrent()) return;
         setOrg(me.org);
         setMembers(list.members);
       })
       .catch((e: unknown) => {
+        if (!isCurrent()) return;
         setError(
           e instanceof ApiError ? e.message : "Ekip yüklenemedi.",
         );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!isCurrent()) return;
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    void load();
+    let current = true;
+    void load(() => current);
+    return () => {
+      current = false;
+    };
   }, [load]);
 
   async function createMember(e: FormEvent<HTMLFormElement>) {

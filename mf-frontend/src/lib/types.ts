@@ -657,6 +657,65 @@ export interface CreateOrgMemberResponse {
   temporary_password: string;
 }
 
+/** Org panel usage boxes — Postgres only, scoped to the actor's company. */
+export interface OrgMemberSeatBox {
+  count: number;
+  seat_limit: number;
+}
+
+export interface OrgSchemaBox {
+  rate: number;
+}
+
+export interface OrgStatsBoxes {
+  members: OrgMemberSeatBox;
+  reports_last_24h: StatBox;
+  reports_window: StatBox;
+  schema_validity: OrgSchemaBox;
+}
+
+export interface OrgDayPoint {
+  t: number;
+  v: number;
+}
+
+export interface OrgMemberAct {
+  user_id: string;
+  name: string;
+  count: number;
+  last_at?: string | null;
+}
+
+export interface OrgStats {
+  window: StatsWindow;
+  from: string;
+  to: string;
+  boxes: OrgStatsBoxes;
+  assessments_per_day: OrgDayPoint[];
+  schema_valid_per_day: OrgDayPoint[];
+  runs_by_target: StatsTargetSeries[];
+  member_activity: OrgMemberAct[];
+}
+
+export type OrgActivityKind =
+  | "member.joined"
+  | "analysis.completed"
+  | "analysis.schema_invalid"
+  | "session.login";
+
+/** Metadata-only feed item — no case text, prompts, or findings. */
+export interface OrgActivityItem {
+  id: string;
+  kind: OrgActivityKind | string;
+  at: string;
+  actor_name?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface OrgActivityResponse {
+  items: OrgActivityItem[];
+}
+
 // ---- DeepKwiki ----
 
 export interface WikiDocument {

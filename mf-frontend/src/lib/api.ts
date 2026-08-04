@@ -49,6 +49,8 @@ import type {
   CreateOrgMemberRequest,
   CreateOrgMemberResponse,
   OrgAssignableRole,
+  OrgStats,
+  OrgActivityResponse,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -475,6 +477,15 @@ export const api = {
   // session cannot be pointed at a neighbour by editing the URL.
   org: {
     me: () => request<OrgMeResponse>("/org/me"),
+    stats: (window: StatsWindow) =>
+      request<OrgStats>(`/org/stats?window=${encodeURIComponent(window)}`),
+    activity: (opts?: { limit?: number; before?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.limit != null) params.set("limit", String(opts.limit));
+      if (opts?.before) params.set("before", opts.before);
+      const q = params.toString();
+      return request<OrgActivityResponse>(`/org/activity${q ? `?${q}` : ""}`);
+    },
     members: {
       list: () => request<OrgMemberListResult>("/org/members"),
       create: (payload: CreateOrgMemberRequest) =>

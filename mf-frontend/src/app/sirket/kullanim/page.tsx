@@ -1,4 +1,5 @@
-// Stub — içerik sonraki görevlerde gelir. Başlık OrgShell'de.
+import { UsagePanel } from "@/components/sirket/UsagePanel";
+
 export default function SirketKullanim() {
-  return null;
+  return <UsagePanel />;
 }
