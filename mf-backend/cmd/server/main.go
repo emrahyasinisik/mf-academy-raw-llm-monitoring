@@ -154,7 +154,7 @@ func main() {
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
 	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
 	orgStore := org.NewStore(pool)
-	orgHandler := org.NewHandler(orgStore, cfg.BcryptCost)
+	orgHandler := org.NewHandler(orgStore, adminStore, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 

@@ -92,6 +92,9 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("org member created", "org_id", claims.OrgID, "member_id", member.ID, "org_role", member.OrgRole)
+	h.recordAudit(r.Context(), claims.UserID, "org.member.create", member.ID, map[string]any{
+		"org_role": member.OrgRole,
+	})
 	common.JSON(w, http.StatusCreated, CreateMemberResponse{
 		Member:            member,
 		TemporaryPassword: temp,
@@ -160,6 +163,9 @@ func (h *Handler) SetMemberRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("org member role changed", "org_id", claims.OrgID, "member_id", id, "org_role", member.OrgRole)
+	h.recordAudit(r.Context(), claims.UserID, "org.member.role", id, map[string]any{
+		"org_role": member.OrgRole,
+	})
 	common.JSON(w, http.StatusOK, member)
 }
 
@@ -173,7 +179,8 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
-	if _, err := h.loadMutableMember(r.Context(), claims.OrgID, id); err != nil {
+	target, err := h.loadMutableMember(r.Context(), claims.OrgID, id)
+	if err != nil {
 		common.Error(w, err)
 		return
 	}
@@ -189,6 +196,9 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("org member deleted", "org_id", claims.OrgID, "member_id", id)
+	h.recordAudit(r.Context(), claims.UserID, "org.member.remove", id, map[string]any{
+		"org_role": target.OrgRole,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

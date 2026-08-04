@@ -135,7 +135,7 @@ func TestOrgMeRequiresOrgAdmin(t *testing.T) {
 	store := &fakeOrgStore{orgs: map[string]OrgSummary{
 		"org-a": {ID: "org-a", Name: "A", Type: "company", SeatLimit: 5, Status: "active", MemberCount: 2},
 	}}
-	h := NewHandler(store, bcrypt.MinCost)
+	h := NewHandler(store, nil, bcrypt.MinCost)
 	rtr := h.Routes(claimsVerifier(common.AuthClaims{
 		UserID: "u1", OrgID: "org-a", OrgRole: "member", OrgType: "company",
 	}), time.Second)
@@ -158,7 +158,7 @@ func TestOrgMeReturnsActorOrgOnly(t *testing.T) {
 		"org-a": {ID: "org-a", Name: "Acme", Type: "company", SeatLimit: 5, Status: "active", MemberCount: 3},
 		"org-b": {ID: "org-b", Name: "Beta", Type: "company", SeatLimit: 10, Status: "active", MemberCount: 8},
 	}}
-	h := NewHandler(store, bcrypt.MinCost)
+	h := NewHandler(store, nil, bcrypt.MinCost)
 	rtr := h.Routes(claimsVerifier(common.AuthClaims{
 		UserID: "u1", OrgID: "org-a", OrgRole: "owner", OrgType: "company",
 	}), time.Second)
@@ -193,7 +193,7 @@ func TestOrgMePasswordResetBlocked(t *testing.T) {
 	store := &fakeOrgStore{orgs: map[string]OrgSummary{
 		"org-a": {ID: "org-a", Name: "Acme", Type: "company", SeatLimit: 5, Status: "active", MemberCount: 1},
 	}}
-	h := NewHandler(store, bcrypt.MinCost)
+	h := NewHandler(store, nil, bcrypt.MinCost)
 	rtr := h.Routes(claimsVerifier(common.AuthClaims{
 		UserID: "u1", OrgID: "org-a", OrgRole: "admin", OrgType: "company", PasswordReset: true,
 	}), time.Second)
@@ -219,7 +219,7 @@ func TestOrgMePasswordResetBlocked(t *testing.T) {
 }
 
 func orgAdminRouter(store OrgStore) http.Handler {
-	h := NewHandler(store, bcrypt.MinCost)
+	h := NewHandler(store, nil, bcrypt.MinCost)
 	return h.Routes(claimsVerifier(common.AuthClaims{
 		UserID: "u1", OrgID: "org-a", OrgRole: "admin", OrgType: "company",
 	}), time.Second)

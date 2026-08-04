@@ -26,14 +26,15 @@ type OrgStore interface {
 // Handler serves the company-panel endpoints under /org.
 type Handler struct {
 	store      OrgStore
+	audit      AuditWriter
 	bcryptCost int
 }
 
-func NewHandler(store OrgStore, bcryptCost int) *Handler {
+func NewHandler(store OrgStore, audit AuditWriter, bcryptCost int) *Handler {
 	if bcryptCost < auth.MinHashCost {
 		bcryptCost = auth.MinHashCost
 	}
-	return &Handler{store: store, bcryptCost: bcryptCost}
+	return &Handler{store: store, audit: audit, bcryptCost: bcryptCost}
 }
 
 // Me returns the authenticated company admin's own org summary and role.
