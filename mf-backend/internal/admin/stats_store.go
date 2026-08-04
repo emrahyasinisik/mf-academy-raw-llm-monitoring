@@ -2,10 +2,14 @@ package admin
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, error) {
@@ -32,6 +36,7 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		runsByTarget    = map[string]map[int64]int{}
 		funnel          Funnel
 		cohorts         = []CohortRow{}
+		consistency     *ConsistencyCard
 	)
 
 	err := s.db.QueryRow(ctx, `
@@ -228,6 +233,11 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 	}
 	rows.Close()
 
+	consistency, err = s.latestConsistency(ctx)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read consistency card: %w", err)
+	}
+
 	return StatsResponse{
 		Boxes: StatsBoxes{
 			TotalUsers: StatBox{
@@ -257,7 +267,79 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		RunsByTarget: assembleTargets(spine, runsByTarget),
 		Funnel:       funnel,
 		Cohorts:      cohorts,
+		Consistency:  consistency,
 	}, nil
+}
+
+func (s *Store) latestConsistency(ctx context.Context) (*ConsistencyCard, error) {
+	var (
+		card     ConsistencyCard
+		minTotal sql.NullFloat64
+		maxTotal sql.NullFloat64
+	)
+	err := s.db.QueryRow(ctx, `
+		WITH latest AS (
+			SELECT trial_group
+			  FROM assessments
+			 WHERE trial_group IS NOT NULL
+			 GROUP BY trial_group
+			 ORDER BY max(created_at) DESC
+			 LIMIT 1
+		),
+		summary AS (
+			SELECT a.trial_group::text AS group_id,
+			       count(*)::int AS runs,
+			       min(a.created_at) AS created_at,
+			       min(a.overall_score) AS min_total,
+			       max(a.overall_score) AS max_total
+			  FROM assessments a
+			  JOIN latest l ON l.trial_group = a.trial_group
+			 GROUP BY a.trial_group
+		),
+		volatile AS (
+			SELECT f.finding->>'key' AS criterion,
+			       stddev_samp(
+			           ((f.finding->>'score')::double precision) /
+			           CASE
+			             WHEN coalesce((c.criterion->>'scale_max')::double precision, 0) <= 0 THEN 5
+			             ELSE (c.criterion->>'scale_max')::double precision
+			           END
+			       ) AS stddev
+			  FROM assessments a
+			  JOIN latest l ON l.trial_group = a.trial_group
+			  CROSS JOIN LATERAL jsonb_array_elements(a.findings) AS f(finding)
+			  JOIN LATERAL jsonb_array_elements(a.criteria_snapshot) AS c(criterion)
+			    ON c.criterion->>'key' = f.finding->>'key'
+			 WHERE coalesce((f.finding->>'evidence_found')::boolean, false)
+			   AND f.finding->>'score' IS NOT NULL
+			 GROUP BY criterion
+			HAVING count(*) >= 2
+			 ORDER BY stddev DESC, criterion ASC
+			 LIMIT 1
+		)
+		SELECT s.group_id, s.runs, s.created_at, s.min_total, s.max_total,
+		       coalesce(v.criterion, ''), coalesce(v.stddev, 0)
+		  FROM summary s
+		  LEFT JOIN volatile v ON true
+	`).Scan(
+		&card.Group, &card.Runs, &card.CreatedAt, &minTotal, &maxTotal,
+		&card.VolatileCriterion, &card.VolatileStdDev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if minTotal.Valid {
+		card.MinTotal = round2(minTotal.Float64)
+	}
+	if maxTotal.Valid {
+		card.MaxTotal = round2(maxTotal.Float64)
+	}
+	card.TotalSpread = round2(card.MaxTotal - card.MinTotal)
+	card.VolatileStdDev = round4(card.VolatileStdDev)
+	return &card, nil
 }
 
 func daySpine(from, to time.Time) []int64 {
@@ -322,6 +404,10 @@ func matureWeeks(weekStart int64, now time.Time) int {
 
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+func round4(v float64) float64 {
+	return math.Round(v*10000) / 10000
 }
 
 func utcDayUnix(t time.Time) int64 {

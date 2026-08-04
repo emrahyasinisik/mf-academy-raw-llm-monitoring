@@ -209,10 +209,55 @@ export function StatsPanel() {
                 </section>
               ))}
             </div>
+            {data.consistency ? <ConsistencyCardView card={data.consistency} /> : null}
           </div>
         )
       )}
     </section>
+  );
+}
+
+function ConsistencyCardView({ card }: { card: NonNullable<AdminStats["consistency"]> }) {
+  return (
+    <section className="card item-in p-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em]" style={{ color: "var(--text-faint)" }}>
+            Tutarlılık ölçümü
+          </p>
+          <h4 className="font-display font-semibold text-[1.15rem] mt-1">
+            İlk eleme toplam farkı {formatScore(card.total_spread)} puan
+          </h4>
+          <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: "var(--text-dim)" }}>
+            Aynı vaka {formatCount(card.runs)} kez koşuldu; yayınlanacak sayı bu grubun
+            en düşük ve en yüksek toplamı arasındaki farktır.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+            Grup tarihi
+          </p>
+          <p className="font-medium">{formatDateTime(card.created_at)}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3 mt-4">
+        <ConsistencyFact label="Aralık" value={`${formatScore(card.min_total)}–${formatScore(card.max_total)}`} />
+        <ConsistencyFact label="En oynak kriter" value={card.volatile_criterion || "—"} />
+        <ConsistencyFact label="Kriter sapması" value={formatStdDev(card.volatile_std_dev)} />
+      </div>
+    </section>
+  );
+}
+
+function ConsistencyFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-soft)" }}>
+      <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+        {label}
+      </p>
+      <p className="font-display text-lg font-semibold mt-1">{value}</p>
+    </div>
   );
 }
 
@@ -329,8 +374,32 @@ function formatWeek(unixSeconds: number): string {
   });
 }
 
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+}
+
+function formatScore(value: number): string {
+  return value.toLocaleString("tr-TR", {
+    maximumFractionDigits: 2,
+  });
+}
+
 function formatPercent(value: number): string {
   return `%${Math.round(value * 100)}`;
+}
+
+function formatStdDev(value: number): string {
+  return value.toLocaleString("tr-TR", {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  });
 }
 
 function formatPointChange(value: number | null): string {

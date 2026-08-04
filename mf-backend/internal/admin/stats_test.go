@@ -169,6 +169,59 @@ func TestStatsDefaultsToThirtyDayWindow(t *testing.T) {
 	}
 }
 
+func TestStatsSerializesMissingConsistencyAsNull(t *testing.T) {
+	store := &fakeStatsStore{res: StatsResponse{Consistency: nil}}
+	h := &Handler{stats: store}
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	w := httptest.NewRecorder()
+
+	statsRouter(h).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := string(body["consistency"]); got != "null" {
+		t.Fatalf("consistency = %s, want null", got)
+	}
+}
+
+func TestStatsSerializesConsistencyCard(t *testing.T) {
+	createdAt := time.Date(2026, 8, 4, 12, 30, 0, 0, time.UTC)
+	store := &fakeStatsStore{res: StatsResponse{Consistency: &ConsistencyCard{
+		Group:             "11111111-1111-1111-1111-111111111111",
+		Runs:              5,
+		CreatedAt:         createdAt,
+		TotalSpread:       7.25,
+		MinTotal:          61.5,
+		MaxTotal:          68.75,
+		VolatileCriterion: "traction",
+		VolatileStdDev:    0.1123,
+	}}}
+	h := &Handler{stats: store}
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	w := httptest.NewRecorder()
+
+	statsRouter(h).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res StatsResponse
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res.Consistency == nil {
+		t.Fatal("consistency = nil, want card")
+	}
+	if *res.Consistency != *store.res.Consistency {
+		t.Fatalf("consistency = %+v, want %+v", res.Consistency, store.res.Consistency)
+	}
+}
+
 func TestStatsRejectsUnknownWindow(t *testing.T) {
 	h := &Handler{stats: &fakeStatsStore{}}
 	req := httptest.NewRequest(http.MethodGet, "/stats?window=7d", nil)
