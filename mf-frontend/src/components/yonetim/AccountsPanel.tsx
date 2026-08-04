@@ -25,6 +25,10 @@ const statusLabels: Record<AccountStatus, string> = {
   suspended: "Askıda",
 };
 
+const orgRoleLabels: Record<string, string> = {
+  owner: "Sahip",
+};
+
 const emptyResult: AccountListResult = {
   accounts: [],
   total: 0,
@@ -194,7 +198,7 @@ export function AccountsPanel() {
             <input
               className="input"
               value={filters.q}
-              placeholder="ad veya e-posta"
+              placeholder="ad, e-posta veya vergi no"
               onChange={(e) => setFilters({ ...filters, q: e.target.value })}
             />
           </label>
@@ -328,7 +332,7 @@ function AccountTable({
       <table className="w-full text-xs">
         <thead>
           <tr style={{ background: "var(--panel-2)" }}>
-            {["ad", "tür", "durum", "üye", "kayıt", "son hareket", "oluşturma", ""].map(
+            {["hesap adı", "tür", "üye sayısı", "analiz sayısı", "son etkinlik", "durum", ""].map(
               (h) => (
                 <th
                   key={h}
@@ -361,16 +365,13 @@ function AccountTable({
               <td className="px-4 py-2.5">
                 <span className="pill">{typeLabels[account.type]}</span>
               </td>
-              <td className="px-4 py-2.5">
-                <StatusPill status={account.status} />
-              </td>
               <td className="px-4 py-2.5 mono num">{account.member_count}</td>
               <td className="px-4 py-2.5 mono num">{account.assessment_count}</td>
               <td className="px-4 py-2.5 mono" style={{ color: "var(--text-faint)" }}>
                 {formatDateTime(account.last_activity_at)}
               </td>
-              <td className="px-4 py-2.5 mono" style={{ color: "var(--text-faint)" }}>
-                {formatDate(account.created_at)}
+              <td className="px-4 py-2.5">
+                <StatusPill status={account.status} />
               </td>
               <td className="px-4 py-2.5 text-right">
                 <button className="btn btn-ghost btn-sm" onClick={() => onSelect(account.id)}>
@@ -580,7 +581,7 @@ function DetailCard({
       <div className="grid gap-2 sm:grid-cols-4">
         <MiniStat label="Tür" value={typeLabels[detail.type]} />
         <MiniStat label="Üye" value={String(detail.member_count)} />
-        <MiniStat label="Kayıt" value={String(detail.assessment_count)} />
+        <MiniStat label="Analiz" value={String(detail.assessment_count)} />
         <MiniStat label="Oturum" value={String(detail.sessions.length)} />
       </div>
 
@@ -610,7 +611,9 @@ function DetailCard({
                     {member.email}
                   </span>
                 </span>
-                <span className="pill">{member.org_role}</span>
+                <span className="pill">
+                  {orgRoleLabels[member.org_role] ?? member.org_role}
+                </span>
               </li>
             ))}
           </ul>
@@ -637,14 +640,14 @@ function DetailCard({
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="mono truncate" style={{ color: "var(--text)" }}>
-                    {session.ip || "ip yok"}
+                    {session.ip || "IP yok"}
                   </span>
                   <span className="mono" style={{ color: "var(--text-faint)" }}>
                     {formatDateTime(session.expires_at)}
                   </span>
                 </div>
                 <p className="truncate mt-1" style={{ color: "var(--text-faint)" }}>
-                  {session.user_agent || "user-agent yok"}
+                  {session.user_agent || "tarayıcı bilgisi yok"}
                 </p>
               </li>
             ))}
@@ -670,11 +673,6 @@ function StatusPill({ status }: { status: AccountStatus }) {
       {statusLabels[status]}
     </span>
   );
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("tr-TR");
 }
 
 function formatDateTime(value: string | null) {
