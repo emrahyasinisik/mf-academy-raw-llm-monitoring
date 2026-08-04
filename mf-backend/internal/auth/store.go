@@ -113,8 +113,13 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
+		        u.created_at, u.updated_at, u.terms_accepted_at,
+		        COALESCE(o.status, 'active') AS org_status
+		   FROM users u
+		   LEFT JOIN organizations o ON o.id = u.org_id
+		  WHERE u.id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}

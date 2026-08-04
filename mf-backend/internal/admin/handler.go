@@ -55,9 +55,8 @@ type AccountStore interface {
 	CreateIndividual(ctx context.Context, name, email, hash string) (AccountSummary, AccountMember, error)
 	CreateCompany(ctx context.Context, orgName, taxID string, seats int, ownerName, ownerEmail, hash string) (AccountSummary, AccountMember, error)
 	GetAccount(ctx context.Context, id string) (AccountDetail, error)
+	SuspendAccount(ctx context.Context, id string) error
 	SetAccountStatus(ctx context.Context, id, status string) error
-	ListMemberIDs(ctx context.Context, orgID string) ([]string, error)
-	RevokeAllSessionsForUser(ctx context.Context, userID string) (int64, error)
 }
 
 type ControlStore interface {

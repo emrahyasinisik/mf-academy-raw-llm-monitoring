@@ -240,6 +240,32 @@ func TestRefreshRejectsExpiredWithoutMassRevocation(t *testing.T) {
 	}
 }
 
+func TestRefreshRejectsSuspendedOrgMember(t *testing.T) {
+	store := &fakeStore{
+		user:   User{ID: "u1", Email: "member@corp.io", OrgStatus: "suspended"},
+		lookup: SessionLookup{SessionID: "s1", UserID: "u1"},
+	}
+	h := newTestHandler(store)
+
+	r := httptest.NewRequest("POST", "/auth/refresh", strings.NewReader(`{"refresh_token":"still-live"}`))
+	w := httptest.NewRecorder()
+	h.Refresh(w, r)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", w.Code, w.Body.String())
+	}
+	if store.sessionsCreated != 0 {
+		t.Fatalf("CreateSession called %d times, want 0", store.sessionsCreated)
+	}
+	var errBody common.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errBody); err != nil {
+		t.Fatalf("error body did not decode: %v", err)
+	}
+	if errBody.Error != "unauthorized" {
+		t.Fatalf("error code = %q, want unauthorized", errBody.Error)
+	}
+}
+
 // A password change exists to eject someone. It is worthless if the intruder's
 // refresh token keeps working afterwards.
 func TestChangePasswordRevokesSessionsAndReissues(t *testing.T) {

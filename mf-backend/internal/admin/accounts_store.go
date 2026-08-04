@@ -10,7 +10,6 @@ import (
 )
 
 type accountTx interface {
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Commit(ctx context.Context) error
@@ -170,32 +169,41 @@ func (s *Store) SetAccountStatus(ctx context.Context, id, status string) error {
 	return nil
 }
 
-func (s *Store) ListMemberIDs(ctx context.Context, orgID string) ([]string, error) {
-	rows, err := s.db.Query(ctx, `SELECT id FROM users WHERE org_id = $1 ORDER BY created_at`, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+func (s *Store) SuspendAccount(ctx context.Context, id string) error {
+	return suspendAccount(ctx, func(ctx context.Context) (accountTx, error) {
+		return s.db.Begin(ctx)
+	}, id)
 }
 
-func (s *Store) RevokeAllSessionsForUser(ctx context.Context, userID string) (int64, error) {
-	tag, err := s.db.Exec(ctx,
-		`UPDATE sessions SET revoked_at = now()
-		 WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+func suspendAccount(ctx context.Context, begin func(context.Context) (accountTx, error), id string) error {
+	tx, err := begin(ctx)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	return tag.RowsAffected(), nil
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE organizations SET status = 'suspended', updated_at = now() WHERE id = $1`,
+		id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoRows
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE sessions s
+		    SET revoked_at = now()
+		   FROM users u
+		  WHERE s.user_id = u.id
+		    AND u.org_id = $1
+		    AND s.revoked_at IS NULL`,
+		id)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) listMembers(ctx context.Context, orgID string) ([]AccountMember, error) {

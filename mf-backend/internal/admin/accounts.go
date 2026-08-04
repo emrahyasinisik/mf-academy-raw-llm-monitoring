@@ -203,24 +203,13 @@ func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) SuspendAccount(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if err := h.accounts.SetAccountStatus(r.Context(), id, accountStatusSuspended); err != nil {
+	if err := h.accounts.SuspendAccount(r.Context(), id); err != nil {
 		if errors.Is(err, ErrNoRows) {
 			common.Error(w, common.ErrNotFound("account not found"))
 			return
 		}
 		common.Error(w, common.ErrInternal("could not suspend account"))
 		return
-	}
-	members, err := h.accounts.ListMemberIDs(r.Context(), id)
-	if err != nil {
-		common.Error(w, common.ErrInternal("could not list account members"))
-		return
-	}
-	for _, userID := range members {
-		if _, err := h.accounts.RevokeAllSessionsForUser(r.Context(), userID); err != nil {
-			common.Error(w, common.ErrInternal("could not revoke account sessions"))
-			return
-		}
 	}
 	common.JSON(w, http.StatusOK, map[string]string{"status": accountStatusSuspended})
 }

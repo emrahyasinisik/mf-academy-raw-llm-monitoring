@@ -7,10 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -24,12 +27,12 @@ type fakeAccountStore struct {
 	createdSeats int
 	storedHash   string
 
-	statusCalls []struct {
+	suspendErr   error
+	suspendCalls []string
+	statusCalls  []struct {
 		id     string
 		status string
 	}
-	memberIDs []string
-	revoked   []string
 }
 
 func (f *fakeAccountStore) ListAccounts(context.Context, AccountListQuery) (AccountListResult, error) {
@@ -70,21 +73,17 @@ func (f *fakeAccountStore) GetAccount(context.Context, string) (AccountDetail, e
 	return AccountDetail{}, nil
 }
 
+func (f *fakeAccountStore) SuspendAccount(_ context.Context, id string) error {
+	f.suspendCalls = append(f.suspendCalls, id)
+	return f.suspendErr
+}
+
 func (f *fakeAccountStore) SetAccountStatus(_ context.Context, id, status string) error {
 	f.statusCalls = append(f.statusCalls, struct {
 		id     string
 		status string
 	}{id: id, status: status})
 	return nil
-}
-
-func (f *fakeAccountStore) ListMemberIDs(context.Context, string) ([]string, error) {
-	return append([]string(nil), f.memberIDs...), nil
-}
-
-func (f *fakeAccountStore) RevokeAllSessionsForUser(_ context.Context, userID string) (int64, error) {
-	f.revoked = append(f.revoked, userID)
-	return 1, nil
 }
 
 func accountsRouter(h *Handler) http.Handler {
@@ -144,8 +143,8 @@ func TestCreateCompanyFailureDoesNotReturnTemporaryPassword(t *testing.T) {
 	}
 }
 
-func TestSuspendAccountSetsStatusAndRevokesEveryMemberSession(t *testing.T) {
-	store := &fakeAccountStore{memberIDs: []string{"u1", "u2", "u3"}}
+func TestSuspendAccountUsesAtomicStoreOperation(t *testing.T) {
+	store := &fakeAccountStore{}
 	h := &Handler{accounts: store, bcryptCost: bcrypt.MinCost}
 	req := httptest.NewRequest(http.MethodPost, "/accounts/org-1/suspend", nil)
 	w := httptest.NewRecorder()
@@ -155,10 +154,85 @@ func TestSuspendAccountSetsStatusAndRevokesEveryMemberSession(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if len(store.statusCalls) != 1 || store.statusCalls[0].id != "org-1" || store.statusCalls[0].status != accountStatusSuspended {
-		t.Fatalf("want suspended status call for org-1, got %+v", store.statusCalls)
+	if len(store.suspendCalls) != 1 || store.suspendCalls[0] != "org-1" {
+		t.Fatalf("want one atomic suspend call for org-1, got %v", store.suspendCalls)
 	}
-	if got := store.revoked; len(got) != 3 || got[0] != "u1" || got[1] != "u2" || got[2] != "u3" {
-		t.Fatalf("want all member sessions revoked, got %v", got)
+	if len(store.statusCalls) != 0 {
+		t.Fatalf("handler must not split suspend into status/revoke calls, got %+v", store.statusCalls)
 	}
+}
+
+func TestSuspendAccountReportsAtomicStoreFailure(t *testing.T) {
+	store := &fakeAccountStore{suspendErr: errors.New("revoke failed")}
+	h := &Handler{accounts: store, bcryptCost: bcrypt.MinCost}
+	req := httptest.NewRequest(http.MethodPost, "/accounts/org-1/suspend", nil)
+	w := httptest.NewRecorder()
+
+	accountsRouter(h).ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(store.suspendCalls) != 1 || store.suspendCalls[0] != "org-1" {
+		t.Fatalf("want one atomic suspend call for org-1, got %v", store.suspendCalls)
+	}
+}
+
+func TestSuspendAccountRollsBackWhenSessionRevokeFails(t *testing.T) {
+	tx := &recordingAccountTx{execErrAt: 2}
+
+	err := suspendAccount(context.Background(), func(context.Context) (accountTx, error) {
+		return tx, nil
+	}, "org-1")
+
+	if err == nil {
+		t.Fatal("want session revoke error")
+	}
+	if tx.committed {
+		t.Fatal("failed revoke must not commit the suspended status")
+	}
+	if tx.rolledBack != 1 {
+		t.Fatalf("rollback count = %d, want 1", tx.rolledBack)
+	}
+	if len(tx.execs) != 2 {
+		t.Fatalf("exec count = %d, want org update + session revoke", len(tx.execs))
+	}
+	if !strings.Contains(tx.execs[0], "UPDATE organizations") ||
+		!strings.Contains(tx.execs[0], "status = 'suspended'") {
+		t.Fatalf("first exec must suspend the org:\n%s", tx.execs[0])
+	}
+	if !strings.Contains(tx.execs[1], "UPDATE sessions") ||
+		!strings.Contains(tx.execs[1], "FROM users") ||
+		!strings.Contains(tx.execs[1], "u.org_id = $1") {
+		t.Fatalf("second exec must revoke sessions by org in the same transaction:\n%s", tx.execs[1])
+	}
+}
+
+type recordingAccountTx struct {
+	execErrAt  int
+	execs      []string
+	committed  bool
+	rolledBack int
+}
+
+func (t *recordingAccountTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	panic("QueryRow is not used by suspendAccount")
+}
+
+func (t *recordingAccountTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	t.execs = append(t.execs, sql)
+	if t.execErrAt == len(t.execs) {
+		return pgconn.CommandTag{}, errors.New("revoke failed")
+	}
+	return pgconn.NewCommandTag("UPDATE 1"), nil
+}
+
+func (t *recordingAccountTx) Commit(context.Context) error {
+	t.committed = true
+	return nil
+}
+
+func (t *recordingAccountTx) Rollback(context.Context) error {
+	t.rolledBack++
+	return nil
 }

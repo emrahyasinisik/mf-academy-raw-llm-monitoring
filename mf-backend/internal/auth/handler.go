@@ -247,6 +247,10 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrUnauthorized("account no longer exists"))
 		return
 	}
+	if user.OrgStatus == "suspended" {
+		common.Error(w, common.ErrUnauthorized("invalid or expired refresh token"))
+		return
+	}
 	h.issueTokens(w, r, user, http.StatusOK)
 }
 
