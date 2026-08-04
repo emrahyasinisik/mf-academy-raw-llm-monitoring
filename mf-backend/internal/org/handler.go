@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/emrah/mf-backend/internal/common"
@@ -21,6 +22,11 @@ type OrgStore interface {
 	GetMember(ctx context.Context, userID string) (Member, string, error)
 	SetMemberRole(ctx context.Context, userID, orgRole string) (Member, error)
 	DeleteMember(ctx context.Context, userID string) error
+	// Stats returns org-scoped usage series for [from, to). Caller passes
+	// claims.OrgID — never a client-supplied org id.
+	Stats(ctx context.Context, orgID string, from, to time.Time) (OrgStats, error)
+	// Activity returns newest-first metadata events for org members.
+	Activity(ctx context.Context, orgID string, limit int, before *time.Time) ([]ActivityItem, error)
 }
 
 // Handler serves the company-panel endpoints under /org.

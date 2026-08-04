@@ -54,3 +54,99 @@ type CreateMemberResponse struct {
 type SetMemberRoleRequest struct {
 	OrgRole string `json:"org_role"`
 }
+
+// ---- Usage / stats (Postgres only; never Prometheus) ----
+
+// StatBox is a current-vs-previous figure with an optional percent change.
+// Previous == 0 leaves ChangePct nil so we do not invent a growth rate.
+type StatBox struct {
+	Value     float64  `json:"value"`
+	Previous  float64  `json:"previous"`
+	ChangePct *float64 `json:"change_pct"`
+}
+
+// MemberSeatBox is the live seat fill — not a windowed series.
+type MemberSeatBox struct {
+	Count     int `json:"count"`
+	SeatLimit int `json:"seat_limit"`
+}
+
+// SchemaBox is the window's schema-compliance rate only. No adapter name:
+// company admins do not roll adapters, and attributing the rate to one would
+// mislabel a multi-adapter window the same way the admin panel once did.
+type SchemaBox struct {
+	Rate float64 `json:"rate"` // 0..1
+}
+
+// OrgStatsBoxes is the summary strip on /sirket and /sirket/kullanim.
+type OrgStatsBoxes struct {
+	Members        MemberSeatBox `json:"members"`
+	ReportsLast24h StatBox       `json:"reports_last_24h"`
+	ReportsWindow  StatBox       `json:"reports_window"`
+	SchemaValidity SchemaBox     `json:"schema_validity"`
+}
+
+// DayPoint is one UTC day bucket for a single series (count or valid count).
+type DayPoint struct {
+	T int64 `json:"t"` // UTC day start, unix seconds
+	V int   `json:"v"`
+}
+
+// SeriesPoint is one day value in a named target series.
+type SeriesPoint struct {
+	T int64   `json:"t"`
+	V float64 `json:"v"`
+}
+
+// TargetSeries is llm_runs volume broken by browser|server.
+type TargetSeries struct {
+	Target string        `json:"target"`
+	Points []SeriesPoint `json:"points"`
+}
+
+// MemberAct is per-seat analysis volume in the window — id, name, count,
+// last_at. No case text, scores, or findings.
+type MemberAct struct {
+	UserID string     `json:"user_id"`
+	Name   string     `json:"name"`
+	Count  int        `json:"count"`
+	LastAt *time.Time `json:"last_at,omitempty"`
+}
+
+// OrgStats is GET /org/stats — every series scoped to claims.OrgID members.
+type OrgStats struct {
+	Window            string         `json:"window"` // "30d" | "90d"
+	From              time.Time      `json:"from"`
+	To                time.Time      `json:"to"`
+	Boxes             OrgStatsBoxes  `json:"boxes"`
+	AssessmentsPerDay []DayPoint     `json:"assessments_per_day"`
+	SchemaValidPerDay []DayPoint     `json:"schema_valid_per_day"`
+	RunsByTarget      []TargetSeries `json:"runs_by_target"`
+	MemberActivity    []MemberAct    `json:"member_activity"`
+}
+
+// ---- Activity feed (metadata only) ----
+
+// Activity kinds on the company feed. Case titles, prompts, findings and
+// transcripts never appear — the org admin must not open another member's
+// report from this surface.
+const (
+	ActivityMemberJoined          = "member.joined"
+	ActivityAnalysisCompleted     = "analysis.completed"
+	ActivityAnalysisSchemaInvalid = "analysis.schema_invalid"
+	ActivitySessionLogin          = "session.login"
+)
+
+// ActivityItem is one metadata event in GET /org/activity.
+type ActivityItem struct {
+	ID        string         `json:"id"`
+	Kind      string         `json:"kind"`
+	At        time.Time      `json:"at"`
+	ActorName string         `json:"actor_name,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"` // counts/flags only
+}
+
+// ActivityResponse is GET /org/activity.
+type ActivityResponse struct {
+	Items []ActivityItem `json:"items"`
+}
