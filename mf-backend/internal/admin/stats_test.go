@@ -52,6 +52,79 @@ func TestParseWindow(t *testing.T) {
 	}
 }
 
+func TestDaySpineCoversEveryDayOfWindow(t *testing.T) {
+	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	from := to.AddDate(0, 0, -30)
+	spine := daySpine(from, to)
+	if len(spine) != 30 {
+		t.Fatalf("len = %d, want 30", len(spine))
+	}
+	if spine[0] != from.Unix() {
+		t.Fatalf("first = %d, want %d", spine[0], from.Unix())
+	}
+	if spine[29] != to.AddDate(0, 0, -1).Unix() {
+		t.Fatalf("last = %d, want %d", spine[29], to.AddDate(0, 0, -1).Unix())
+	}
+}
+
+func TestAssembleDaysZeroFillsAndAccumulates(t *testing.T) {
+	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	from := to.AddDate(0, 0, -3)
+	spine := daySpine(from, to)
+	newUsers := map[int64]int{spine[0]: 2, spine[2]: 1} // ortadaki gün boş
+	days := assembleDays(spine, 10, newUsers, map[int64]int{spine[2]: 5}, map[int64]int{spine[2]: 4})
+
+	if len(days) != 3 {
+		t.Fatalf("len = %d, want 3", len(days))
+	}
+	if days[1].NewUsers != 0 || days[1].Assessments != 0 {
+		t.Fatalf("gap day must be zero, got %+v", days[1])
+	}
+	want := []int{12, 12, 13}
+	for i, w := range want {
+		if days[i].CumulativeUsers != w {
+			t.Fatalf("day %d cumulative = %d, want %d", i, days[i].CumulativeUsers, w)
+		}
+	}
+	if days[2].SchemaValid != 4 || days[2].Assessments != 5 {
+		t.Fatalf("day 2 = %+v", days[2])
+	}
+}
+
+func TestChangePctIsNilWithoutABaseline(t *testing.T) {
+	if got := changePct(5, 0); got != nil {
+		t.Fatalf("no baseline must give nil, got %v", *got)
+	}
+	got := changePct(150, 100)
+	if got == nil || *got != 50 {
+		t.Fatalf("want +50, got %v", got)
+	}
+	down := changePct(50, 100)
+	if down == nil || *down != -50 {
+		t.Fatalf("want -50, got %v", down)
+	}
+}
+
+func TestAssembleTargetsZeroFillsEachTarget(t *testing.T) {
+	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	spine := daySpine(to.AddDate(0, 0, -2), to)
+	series := assembleTargets(spine, map[string]map[int64]int{
+		"server":  {spine[1]: 3},
+		"browser": {spine[0]: 1},
+	})
+	if len(series) != 2 || series[0].Target != "browser" {
+		t.Fatalf("targets must be sorted for a stable colour order: %+v", series)
+	}
+	for _, s := range series {
+		if len(s.Points) != 2 {
+			t.Fatalf("%s: %d points, want 2", s.Target, len(s.Points))
+		}
+	}
+	if series[1].Points[1].V != 3 {
+		t.Fatalf("server day 2 = %v, want 3", series[1].Points[1].V)
+	}
+}
+
 func TestStatsDefaultsToThirtyDayWindow(t *testing.T) {
 	store := &fakeStatsStore{}
 	h := &Handler{stats: store}

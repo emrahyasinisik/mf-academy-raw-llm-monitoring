@@ -2,9 +2,254 @@ package admin
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"sort"
 	"time"
 )
 
 func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, error) {
-	return StatsResponse{}, nil
+	priorFrom := from.Add(-to.Sub(from))
+	spine := daySpine(from, to)
+
+	var (
+		totalUsers      int64
+		usersAtFrom     int64
+		totalReports    int64
+		reportsAtFrom   int64
+		reportsLast24h  int64
+		reportsPrev24h  int64
+		activeAdapter   string
+		windowReports   int64
+		windowValidRate float64
+		priorReports    int64
+		priorValidRate  float64
+		activeChange    *float64
+		newUsers        = map[int64]int{}
+		assessments     = map[int64]int{}
+		schemaValid     = map[int64]int{}
+		orgTypes        = []CategoryCount{}
+		runsByTarget    = map[string]map[int64]int{}
+	)
+
+	err := s.db.QueryRow(ctx, `
+		SELECT
+		    (SELECT count(*) FROM users),
+		    (SELECT count(*) FROM users WHERE created_at < $1),
+		    (SELECT count(*) FROM assessments),
+		    (SELECT count(*) FROM assessments WHERE created_at < $1),
+		    (SELECT count(*) FROM assessments WHERE created_at > now() - interval '24 hours'),
+		    (SELECT count(*) FROM assessments
+		       WHERE created_at > now() - interval '48 hours'
+		         AND created_at <= now() - interval '24 hours'),
+		    coalesce((SELECT a.name FROM llm_settings s
+		                LEFT JOIN llm_adapters a ON a.id = s.active_adapter_id
+		               WHERE s.id = 1), ''),
+		    (SELECT count(*) FROM assessments WHERE created_at >= $1 AND created_at < $2),
+		    (SELECT coalesce(avg(schema_valid::int), 0) FROM assessments
+		       WHERE created_at >= $1 AND created_at < $2),
+		    (SELECT count(*) FROM assessments WHERE created_at >= $3 AND created_at < $1),
+		    (SELECT coalesce(avg(schema_valid::int), 0) FROM assessments
+		       WHERE created_at >= $3 AND created_at < $1)
+	`, from, to, priorFrom).Scan(
+		&totalUsers, &usersAtFrom, &totalReports, &reportsAtFrom, &reportsLast24h,
+		&reportsPrev24h, &activeAdapter, &windowReports, &windowValidRate,
+		&priorReports, &priorValidRate)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read stat boxes: %w", err)
+	}
+	if windowReports > 0 && priorReports > 0 {
+		v := round2((windowValidRate - priorValidRate) * 100)
+		activeChange = &v
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT date_trunc('day', created_at AT TIME ZONE 'UTC'), count(*)
+		  FROM users WHERE created_at >= $1 AND created_at < $2 GROUP BY 1
+	`, from, to)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read daily users: %w", err)
+	}
+	for rows.Next() {
+		var (
+			day   time.Time
+			count int64
+		)
+		if err := rows.Scan(&day, &count); err != nil {
+			rows.Close()
+			return StatsResponse{}, fmt.Errorf("scan daily users: %w", err)
+		}
+		newUsers[utcDayUnix(day)] = int(count)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return StatsResponse{}, fmt.Errorf("read daily users: %w", err)
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT date_trunc('day', created_at AT TIME ZONE 'UTC'),
+		       count(*), count(*) FILTER (WHERE schema_valid)
+		  FROM assessments WHERE created_at >= $1 AND created_at < $2 GROUP BY 1
+	`, from, to)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read daily assessments: %w", err)
+	}
+	for rows.Next() {
+		var (
+			day        time.Time
+			count      int64
+			validCount int64
+		)
+		if err := rows.Scan(&day, &count, &validCount); err != nil {
+			rows.Close()
+			return StatsResponse{}, fmt.Errorf("scan daily assessments: %w", err)
+		}
+		t := utcDayUnix(day)
+		assessments[t] = int(count)
+		schemaValid[t] = int(validCount)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return StatsResponse{}, fmt.Errorf("read daily assessments: %w", err)
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `SELECT type, count(*) FROM organizations GROUP BY 1 ORDER BY 1`)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read organization types: %w", err)
+	}
+	for rows.Next() {
+		var (
+			c     CategoryCount
+			count int64
+		)
+		if err := rows.Scan(&c.Key, &count); err != nil {
+			rows.Close()
+			return StatsResponse{}, fmt.Errorf("scan organization types: %w", err)
+		}
+		c.Count = int(count)
+		orgTypes = append(orgTypes, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return StatsResponse{}, fmt.Errorf("read organization types: %w", err)
+	}
+	rows.Close()
+
+	rows, err = s.db.Query(ctx, `
+		SELECT target, date_trunc('day', created_at AT TIME ZONE 'UTC'), count(*)
+		  FROM llm_runs WHERE created_at >= $1 AND created_at < $2 GROUP BY 1, 2
+	`, from, to)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read runs by target: %w", err)
+	}
+	for rows.Next() {
+		var (
+			target string
+			day    time.Time
+			count  int64
+		)
+		if err := rows.Scan(&target, &day, &count); err != nil {
+			rows.Close()
+			return StatsResponse{}, fmt.Errorf("scan runs by target: %w", err)
+		}
+		if runsByTarget[target] == nil {
+			runsByTarget[target] = map[int64]int{}
+		}
+		runsByTarget[target][utcDayUnix(day)] = int(count)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return StatsResponse{}, fmt.Errorf("read runs by target: %w", err)
+	}
+	rows.Close()
+
+	return StatsResponse{
+		Boxes: StatsBoxes{
+			TotalUsers: StatBox{
+				Value:     float64(totalUsers),
+				Previous:  float64(usersAtFrom),
+				ChangePct: changePct(float64(totalUsers), float64(usersAtFrom)),
+			},
+			TotalReports: StatBox{
+				Value:     float64(totalReports),
+				Previous:  float64(reportsAtFrom),
+				ChangePct: changePct(float64(totalReports), float64(reportsAtFrom)),
+			},
+			ReportsLast24h: StatBox{
+				Value:     float64(reportsLast24h),
+				Previous:  float64(reportsPrev24h),
+				ChangePct: changePct(float64(reportsLast24h), float64(reportsPrev24h)),
+			},
+			ActiveAdapter: ActiveAdapterBox{
+				Name:         activeAdapter,
+				ValidRate:    windowValidRate,
+				PreviousRate: priorValidRate,
+				ChangePoints: activeChange,
+			},
+		},
+		Days:         assembleDays(spine, int(usersAtFrom), newUsers, assessments, schemaValid),
+		OrgTypes:     orgTypes,
+		RunsByTarget: assembleTargets(spine, runsByTarget),
+	}, nil
+}
+
+func daySpine(from, to time.Time) []int64 {
+	spine := []int64{}
+	for day := from.UTC(); day.Before(to.UTC()); day = day.Add(24 * time.Hour) {
+		spine = append(spine, day.Unix())
+	}
+	return spine
+}
+
+func assembleDays(spine []int64, baseUsers int, newUsers, assessments, schemaValid map[int64]int) []DayPoint {
+	days := []DayPoint{}
+	cumulative := baseUsers
+	for _, t := range spine {
+		cumulative += newUsers[t]
+		days = append(days, DayPoint{
+			T:               t,
+			NewUsers:        newUsers[t],
+			CumulativeUsers: cumulative,
+			Assessments:     assessments[t],
+			SchemaValid:     schemaValid[t],
+		})
+	}
+	return days
+}
+
+func changePct(current, previous float64) *float64 {
+	if previous == 0 {
+		return nil
+	}
+	v := round2((current - previous) / previous * 100)
+	return &v
+}
+
+func assembleTargets(spine []int64, byTarget map[string]map[int64]int) []TargetSeries {
+	targets := make([]string, 0, len(byTarget))
+	for target := range byTarget {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+
+	series := []TargetSeries{}
+	for _, target := range targets {
+		points := make([]SeriesPoint, 0, len(spine))
+		for _, t := range spine {
+			points = append(points, SeriesPoint{T: t, V: float64(byTarget[target][t])})
+		}
+		series = append(series, TargetSeries{Target: target, Points: points})
+	}
+	return series
+}
+
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+func utcDayUnix(t time.Time) int64 {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Unix()
 }
