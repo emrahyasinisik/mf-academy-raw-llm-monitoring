@@ -44,12 +44,11 @@ export type MasterView =
 // değerlendirmek için, panel sistemi işletmek için, ve ikisi aynı başlık
 // çubuğunu paylaşınca hangisinde olduğun kayboluyordu. Panele giden bağlantı
 // header'da, yalnızca yönetici rolüne görünür.
-// Metrics sits beside Yönetim and follows the same rule: listed for everyone,
-// with the view explaining the role it needs. It is a separate master view
-// rather than a fifth admin tab because it is the one screen here that reads
-// from the metrics store rather than the database — when the inference box is
-// off, this goes quiet while every admin tab keeps working, and a tab that
-// empties for reasons its neighbours do not share belongs on its own.
+// Metrics stays in the product nav and remains listed for everyone, with the
+// view explaining the role it needs. It is separate from the /yonetim panel
+// because it reads from the metrics store rather than the database — when the
+// inference box is off, this goes quiet while the admin panel keeps working,
+// and a tab that empties for reasons the panel does not share belongs here.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
   { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "persona", label: "Persona", Icon: IconSpark },
