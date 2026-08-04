@@ -86,12 +86,13 @@ type Handler struct {
 	settings   SettingsStore
 	mcp        MCPStore
 	accounts   AccountStore
+	legal      LegalStore
 	runtime    AdapterSwapper
 	metrics    MetricsQuerier
 	bcryptCost int
 }
 
-func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
+func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal LegalStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
 	if bcryptCost < auth.MinHashCost {
 		bcryptCost = auth.MinHashCost
 	}
@@ -100,6 +101,7 @@ func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, rt AdapterS
 		settings:   set,
 		mcp:        mcp,
 		accounts:   store,
+		legal:      legal,
 		runtime:    rt,
 		metrics:    mq,
 		bcryptCost: bcryptCost,

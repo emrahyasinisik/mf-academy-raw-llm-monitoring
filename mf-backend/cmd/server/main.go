@@ -139,7 +139,7 @@ func main() {
 	// ordering is what makes a switched-off box report itself as an unreachable
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 
@@ -256,6 +256,11 @@ func main() {
 		})
 
 		pr.Mount("/auth", authHandler.Routes(tokens.Verify, authLimiter.Middleware))
+
+		// Public legal texts — same group as /auth so the login screen can show
+		// privacy/terms before anyone has a session. Drafts never leave this
+		// handler; only the latest published row is returned.
+		pr.Get("/legal/{slug}", adminHandler.PublicLegal)
 
 		// Which MCP servers this client may connect to. Outside the admin gate
 		// because an ordinary user's browser needs the answer, and deliberately
