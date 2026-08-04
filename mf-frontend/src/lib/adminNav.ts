@@ -15,6 +15,7 @@ export type PanelSection =
   | "denetim"
   | "model"
   | "mcp"
+  | "metrikler"
   | "loglar";
 
 export const PANEL_SECTIONS: readonly {
@@ -28,6 +29,7 @@ export const PANEL_SECTIONS: readonly {
   { id: "denetim", label: "Denetim", path: "/yonetim/denetim" },
   { id: "model", label: "Model & Ayarlar", path: "/yonetim/model" },
   { id: "mcp", label: "MCP Sunucuları", path: "/yonetim/mcp" },
+  { id: "metrikler", label: "Metrikler", path: "/yonetim/metrikler" },
   { id: "loglar", label: "Log Monitörü", path: "/yonetim/loglar" },
 ];
 
@@ -40,6 +42,7 @@ export function sectionFromPath(pathname: string): PanelSection {
 
 // Panel `#admin` hash'inde yaşarken paylaşılmış bağlantılar var. Silmek yerine
 // eşliyoruz — bu reponun kuralı: nav'dan inen rota adreslenebilir kalır.
+// `#metrics` de panele taşındı; eski ürün-nav bağlantısı aynı kuralı izler.
 const LEGACY_TABS: Record<string, string> = {
   "": "/yonetim",
   overview: "/yonetim",
@@ -48,9 +51,10 @@ const LEGACY_TABS: Record<string, string> = {
   logs: "/yonetim/loglar",
 };
 
-/** Eski `#admin[/sekme]` hash'i → yeni yol. Panel dışı hash için null. */
+/** Eski hash → yeni yol. Panel dışı / bilinmeyen hash için null. */
 export function legacyHashToPath(hash: string): string | null {
   const [view, tab = ""] = hash.replace(/^#/, "").split("/");
+  if (view === "metrics") return "/yonetim/metrikler";
   if (view !== "admin") return null;
   return Object.hasOwn(LEGACY_TABS, tab) ? LEGACY_TABS[tab] : "/yonetim";
 }
