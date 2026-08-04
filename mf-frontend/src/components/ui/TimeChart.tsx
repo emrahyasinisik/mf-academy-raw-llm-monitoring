@@ -32,9 +32,13 @@ const SURFACE = "var(--panel)";
 const H = 170;
 const PAD = { top: 12, right: 14, bottom: 22, left: 44 };
 
-export type ChartUnit = "rps" | "seconds" | "count" | string;
+export type ChartUnit = "rps" | "seconds" | "count" | "percent" | (string & {});
 
 export function formatValue(v: number, unit: ChartUnit): string {
+  if (unit === "percent") {
+    // Oranlar 0..1 aralığında geliyor; eksende "0.75" değil "%75" okunur.
+    return `%${Math.round(v * 100)}`;
+  }
   if (unit === "seconds") {
     // Sub-second latencies are the common case and "0.04s" reads as noise.
     if (v === 0) return "0";
