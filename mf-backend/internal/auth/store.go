@@ -30,9 +30,9 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash, name, terms
 	err := s.db.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash, name, terms_accepted_at, terms_version)
 		 VALUES ($1, $2, $3, now(), $4)
-		 RETURNING id, email, name, role, created_at, updated_at, terms_accepted_at`,
+		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at`,
 		email, passwordHash, name, termsVersion,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	return u, err
 }
 
@@ -54,9 +54,9 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 	var u User
 	var hash string
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, created_at, updated_at, terms_accepted_at, password_hash
+		`SELECT id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at, password_hash
 		 FROM users WHERE email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrNoRows
 	}
@@ -67,8 +67,8 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
-		`SELECT id, email, name, role, created_at, updated_at, terms_accepted_at FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+		`SELECT id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at FROM users WHERE id = $1`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
@@ -90,8 +90,8 @@ func (s *Store) UpdateName(ctx context.Context, id, name string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
 		`UPDATE users SET name = $2, updated_at = now() WHERE id = $1
-		 RETURNING id, email, name, role, created_at, updated_at, terms_accepted_at`, id, name,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at`, id, name,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
@@ -101,7 +101,7 @@ func (s *Store) UpdateName(ctx context.Context, id, name string) (User, error) {
 // UpdatePassword sets a new password hash.
 func (s *Store) UpdatePassword(ctx context.Context, id, newHash string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, id, newHash)
+		`UPDATE users SET password_hash = $2, must_change_password = false, updated_at = now() WHERE id = $1`, id, newHash)
 	return err
 }
 

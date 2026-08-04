@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,5 +50,45 @@ func TestTimeoutCancelsOverrunningHandler(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("handler was never cancelled")
+	}
+}
+
+func TestRequirePasswordFresh(t *testing.T) {
+	nextCalled := false
+	h := RequirePasswordFresh(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(ContextWithClaims(r.Context(), AuthClaims{
+		UserID:        "u1",
+		PasswordReset: true,
+	}))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	if nextCalled {
+		t.Fatal("next handler ran despite password reset requirement")
+	}
+	var body ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error body did not decode: %v", err)
+	}
+	if body.Error != "password_change_required" {
+		t.Fatalf("error code = %q, want password_change_required", body.Error)
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(ContextWithClaims(r.Context(), AuthClaims{UserID: "u1"}))
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("fresh status = %d, want 204; body=%s", w.Code, w.Body.String())
+	}
+	if !nextCalled {
+		t.Fatal("next handler did not run for fresh password")
 	}
 }

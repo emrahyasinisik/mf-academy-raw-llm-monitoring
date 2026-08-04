@@ -9,12 +9,13 @@ const TermsVersion = "2026-08-01"
 // User is the public representation of a user — note there is NO password field.
 // We never serialize the password hash to JSON.
 type User struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Email              string    `json:"email"`
+	Name               string    `json:"name"`
+	Role               string    `json:"role"`
+	MustChangePassword bool      `json:"must_change_password"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 
 	// Nil for an account that predates the terms, which is what the login gate
 	// keys on. The accepted version is stored but not returned: nothing in the

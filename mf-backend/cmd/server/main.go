@@ -261,7 +261,7 @@ func main() {
 		// because an ordinary user's browser needs the answer, and deliberately
 		// a different handler from the admin listing: that one carries config
 		// blobs which can hold upstream credentials.
-		pr.With(common.RequireAuth(tokens.Verify)).Get("/mcp-servers", adminHandler.ClientServers)
+		pr.With(common.RequireAuth(tokens.Verify), common.RequirePasswordFresh).Get("/mcp-servers", adminHandler.ClientServers)
 	})
 
 	// Control plane. Mounted outside the group for the same reason as the

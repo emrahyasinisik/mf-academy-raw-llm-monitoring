@@ -19,6 +19,7 @@ import (
 func (s *Server) Routes(verify common.TokenVerifier, genTimeout time.Duration) http.Handler {
 	r := chi.NewRouter()
 	r.Use(common.RequireAuth(verify))
+	r.Use(common.RequirePasswordFresh)
 	r.Use(common.Timeout(genTimeout))
 
 	r.Post("/", s.Handler)

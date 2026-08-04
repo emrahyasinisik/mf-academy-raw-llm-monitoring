@@ -21,9 +21,10 @@ const authClaimsKey ctxKey = "auth_claims"
 // AuthClaims is the identity extracted from a validated access token and
 // stashed on the request context for handlers to read.
 type AuthClaims struct {
-	UserID string
-	Email  string
-	Role   string
+	UserID        string
+	Email         string
+	Role          string
+	PasswordReset bool
 }
 
 // TokenVerifier validates a raw access token and returns its claims.
@@ -138,6 +139,23 @@ func RequireAuth(verify TokenVerifier) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ContextWithClaims(r.Context(), claims)))
 		})
 	}
+}
+
+// RequirePasswordFresh keeps temporary-password accounts on the auth surface
+// until they choose a password the admin no longer knows.
+func RequirePasswordFresh(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		if !ok {
+			Error(w, ErrUnauthorized("authentication required"))
+			return
+		}
+		if claims.PasswordReset {
+			Error(w, ErrPasswordChangeRequired())
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RoleAdmin is the only privileged role. See migration 004 for why the set is

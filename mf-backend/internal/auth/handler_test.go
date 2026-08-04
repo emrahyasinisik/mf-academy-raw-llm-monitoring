@@ -16,9 +16,10 @@ import (
 // fakeStore is an in-memory UserStore. The handlers depend on the interface
 // rather than *Store, so these tests need no database.
 type fakeStore struct {
-	user     User
-	hash     string
-	notFound bool
+	user               User
+	hash               string
+	notFound           bool
+	mustChangePassword map[string]bool
 
 	lookup      SessionLookup
 	lookupErr   error
@@ -43,15 +44,31 @@ func (f *fakeStore) GetUserByEmailWithHash(_ context.Context, _ string) (User, s
 	if f.notFound {
 		return User{}, "", ErrNoRows
 	}
-	return f.user, f.hash, nil
+	return f.userWithPasswordFlag(f.user), f.hash, nil
 }
 
-func (f *fakeStore) GetUserByID(context.Context, string) (User, error) { return f.user, nil }
+func (f *fakeStore) userWithPasswordFlag(u User) User {
+	if f.mustChangePassword != nil {
+		u.MustChangePassword = f.mustChangePassword[u.ID]
+	}
+	return u
+}
+
+func (f *fakeStore) GetUserByID(_ context.Context, id string) (User, error) {
+	u := f.user
+	u.ID = id
+	return f.userWithPasswordFlag(u), nil
+}
 func (f *fakeStore) GetPasswordHash(context.Context, string) (string, error) {
 	return f.hash, nil
 }
 func (f *fakeStore) UpdateName(context.Context, string, string) (User, error) { return f.user, nil }
-func (f *fakeStore) UpdatePassword(context.Context, string, string) error     { return nil }
+func (f *fakeStore) UpdatePassword(_ context.Context, id, _ string) error {
+	if f.mustChangePassword != nil {
+		f.mustChangePassword[id] = false
+	}
+	return nil
+}
 
 func (f *fakeStore) CreateSession(context.Context, string, string, string, string, time.Time) (string, error) {
 	return "session-1", nil
@@ -223,6 +240,109 @@ func TestChangePasswordRevokesSessionsAndReissues(t *testing.T) {
 	}
 	if out.AccessToken == "" || out.RefreshToken == "" {
 		t.Error("response carries no fresh token pair")
+	}
+}
+
+func TestPasswordResetClaimBlocksProductButNotAuth(t *testing.T) {
+	current, err := bcrypt.GenerateFromPassword([]byte("old-password"), testHashCost)
+	if err != nil {
+		t.Fatalf("seeding hash: %v", err)
+	}
+	store := &fakeStore{
+		user:               User{ID: "u1", Email: "a@b.io"},
+		hash:               string(current),
+		mustChangePassword: map[string]bool{"u1": true},
+	}
+	h := newTestHandler(store)
+
+	access, _, err := h.tokens.GenerateAccess(store.userWithPasswordFlag(store.user))
+	if err != nil {
+		t.Fatalf("GenerateAccess: %v", err)
+	}
+	claims, err := h.tokens.Verify(access)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !claims.PasswordReset {
+		t.Fatal("verified claims did not preserve pwd_reset")
+	}
+
+	nextCalled := false
+	product := common.RequirePasswordFresh(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		nextCalled = true
+	}))
+	r := httptest.NewRequest(http.MethodGet, "/analysis", nil)
+	r = r.WithContext(common.ContextWithClaims(r.Context(), claims))
+	w := httptest.NewRecorder()
+	product.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("product status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	if nextCalled {
+		t.Fatal("product handler ran despite password reset requirement")
+	}
+	var errBody common.ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &errBody); err != nil {
+		t.Fatalf("error body did not decode: %v", err)
+	}
+	if errBody.Error != "password_change_required" {
+		t.Fatalf("error code = %q, want password_change_required", errBody.Error)
+	}
+
+	r = httptest.NewRequest("POST", "/auth/change-password",
+		strings.NewReader(`{"current_password":"old-password","new_password":"a-new-password"}`))
+	r = r.WithContext(common.ContextWithClaims(r.Context(), common.AuthClaims{UserID: "u1", PasswordReset: true}))
+	w = httptest.NewRecorder()
+	h.ChangePassword(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("change password status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var out TokenPair
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("response did not decode as a token pair: %v", err)
+	}
+	claims, err = h.tokens.Verify(out.AccessToken)
+	if err != nil {
+		t.Fatalf("Verify changed-password access token: %v", err)
+	}
+	if claims.PasswordReset {
+		t.Fatal("changed-password access token still has pwd_reset")
+	}
+}
+
+func TestRefreshPreservesPasswordResetFlag(t *testing.T) {
+	tokens := NewTokenService(strings.Repeat("s", 48), time.Minute, time.Hour)
+	refresh, hash, _, err := tokens.GenerateRefresh()
+	if err != nil {
+		t.Fatalf("GenerateRefresh: %v", err)
+	}
+	store := &fakeStore{
+		user:               User{ID: "u1", Email: "a@b.io"},
+		lookup:             SessionLookup{SessionID: "s1", UserID: "u1"},
+		mustChangePassword: map[string]bool{"u1": true},
+	}
+	h := NewHandler(store, tokens, testHashCost)
+	store.lookup = SessionLookup{SessionID: "s1", UserID: "u1"}
+	if HashToken(refresh) != hash {
+		t.Fatal("refresh hash seed mismatch")
+	}
+
+	r := httptest.NewRequest("POST", "/auth/refresh", strings.NewReader(`{"refresh_token":"`+refresh+`"}`))
+	w := httptest.NewRecorder()
+	h.Refresh(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var out TokenPair
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("response did not decode as a token pair: %v", err)
+	}
+	claims, err := h.tokens.Verify(out.AccessToken)
+	if err != nil {
+		t.Fatalf("Verify refreshed access token: %v", err)
+	}
+	if !claims.PasswordReset {
+		t.Fatal("refreshed access token lost pwd_reset")
 	}
 }
 
