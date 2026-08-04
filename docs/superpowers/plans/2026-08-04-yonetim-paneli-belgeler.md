@@ -45,54 +45,54 @@
 
 **Files:** `mf-backend/migrations/013_legal_documents.sql`
 
-- [ ] Tablo + index (spec SQL)
-- [ ] Seed: `gizlilik` + `kosullar`, version `2026-08-01`, `is_draft=false`, `published_at=now()`, body = mevcut view metinlerinin Markdown hali
-- [ ] `go test ./migrations/` unique numbers
+- [x] Tablo + index (spec SQL)
+- [x] Seed: `gizlilik` + `kosullar`, version `2026-08-01`, `is_draft=false`, `published_at=now()`, body = mevcut view metinlerinin Markdown hali
+- [x] `go test ./migrations/` unique numbers
 
 ### Task 2: Legal store + public GET + admin CRUD
 
 **Files:** `legal_store.go`, `legal.go`, `legal_test.go`, `routes.go`, `main.go`, Handler wire
 
-- [ ] Models: Document, publish req (`requires_reconsent`)
-- [ ] GetPublished(slug); List; GetSlug (history+draft); SaveDraft; Publish; DeleteDraft
-- [ ] Publish: reconsent → yeni `YYYY-MM-DD` (+suffix); değilse önceki version
-- [ ] Public `GET /legal/{slug}` — draft dönmez; 404 boş
-- [ ] Admin routes under `/admin/legal`
-- [ ] Tests: publish bump vs keep; public hides draft; empty DB safe
+- [x] Models: Document, publish req (`requires_reconsent`)
+- [x] GetPublished(slug); List; GetSlug (history+draft); SaveDraft; Publish; DeleteDraft
+- [x] Publish: reconsent → yeni `YYYY-MM-DD` (+suffix); değilse önceki version
+- [x] Public `GET /legal/{slug}` — draft dönmez; 404 boş
+- [x] Admin routes under `/admin/legal`
+- [x] Tests: publish bump vs keep; public hides draft; empty DB safe
 
 ### Task 3: Auth kapısı TermsVersion → DB
 
 **Files:** `auth/models.go`, `handler.go`, `store.go`, `handler_test.go`
 
-- [ ] `TermsVersion` const kaldır
-- [ ] Store/handler: `RequiredTermsVersion(ctx) (string, error)` — latest published `kosullar`
-- [ ] Register + AcceptTerms bu versiyonu yazar
-- [ ] AcceptTerms: reconsent için `terms_accepted_at IS NULL` kısıtı kalkar (version her kabulde güncellenir; ilk kabulde tarih set)
-- [ ] User JSON’a `terms_version` ekle
-- [ ] Tests güncelle
+- [x] `TermsVersion` const kaldır
+- [x] Store/handler: `RequiredTermsVersion(ctx) (string, error)` — latest published `kosullar`
+- [x] Register + AcceptTerms bu versiyonu yazar
+- [x] AcceptTerms: reconsent için `terms_accepted_at IS NULL` kısıtı kalkar (version her kabulde güncellenir; ilk kabulde tarih set)
+- [x] User JSON’a `terms_version` ekle
+- [x] Tests güncelle
 
 ### Task 4: Frontend terms + public views
 
 **Files:** `terms.ts`, `terms.test.ts`, types, Gizlilik/Kosullar views, api
 
-- [ ] `needsTermsGate(user, requiredVersion)`
-- [ ] Views: `GET /legal/{slug}` → RichText; yüklenirken skeleton; 404 notice
-- [ ] AppShell/OnayView wire
+- [x] `needsTermsGate(user, requiredVersion)`
+- [x] Views: `GET /legal/{slug}` → RichText; yüklenirken skeleton; 404 notice
+- [x] AppShell/OnayView wire
 
 ### Task 5: Admin Belgeler paneli
 
 **Files:** adminNav, LegalPanel, page, api
 
-- [ ] Nav `belgeler`
-- [ ] Yan yana textarea + RichText önizleme
-- [ ] Kaydet / Yayınla (reconsent checkbox) / Taslağı at
-- [ ] `npm test` + `go test ./internal/admin/... ./internal/auth/...`
+- [x] Nav `belgeler`
+- [x] Yan yana textarea + RichText önizleme
+- [x] Kaydet / Yayınla (reconsent checkbox) / Taslağı at
+- [x] `npm test` + `go test ./internal/admin/... ./internal/auth/...`
 
 ### Task 6: Closeout
 
-- [ ] Full focused suites green
-- [ ] Local commits (no PR)
-- [ ] Ledger note if using SDD
+- [x] Full focused suites green
+- [x] Local commits (no PR)
+- [x] Ledger note if using SDD
 
 ---
 
