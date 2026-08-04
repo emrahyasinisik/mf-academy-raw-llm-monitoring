@@ -1,4 +1,4 @@
--- 015_persona_assessment.sql — link a persona thread to its latest rubric report.
+-- 016_persona_assessment.sql — link a persona thread to its latest rubric report.
 --
 -- The persona conversation gathers the case; analysis/run produces the auditable
 -- report. Without this column the side panel cannot reopen "this thread's
