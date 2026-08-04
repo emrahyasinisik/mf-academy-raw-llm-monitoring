@@ -104,6 +104,13 @@ Ayrı olan, giriş **ekranı** ve kabuk. Kararı rol veriyor:
   ayırt etmeyen tek mesaj kuralı burada da geçerli.
 - Kimlik yanlış → mevcut auth ne diyorsa o.
 
+**Onay kapısı panelde çalışmıyor.** Ürün tarafında koşulları kabul etmemiş
+kullanıcı uygulamayı değil kapıyı görüyor; panelde bu kural geçerli değil.
+Sebebi kolaylık değil, kilitlenme: 4. aşamada operatör hukuki metni panelden
+düzeltecek, ve düzeltilecek metnin eski hâlini kabul etmeden panele
+giremiyorsa metni hiç düzeltemez. Operatör burada hizmeti tüketen taraf değil,
+veri sorumlusunun kendisi.
+
 Backend'de rota işi yok. `/admin/*` zaten iki gate'in altında ve yeni uçlar aynı
 alt ağaca eklendiği için gate'i miras alıyor — [`routes.go`](../../../mf-backend/internal/admin/routes.go)
 bunu bilerek böyle kurmuş.
