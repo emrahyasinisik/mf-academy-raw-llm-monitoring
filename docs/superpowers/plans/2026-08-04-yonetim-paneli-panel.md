@@ -164,11 +164,11 @@ type StatsStore interface {
 - Consumes: `common.JSON`, `common.Error`, `common.ErrBadRequest`, `common.ErrInternal` (`internal/common/response.go`, `errors.go`).
 - Produces: yukarıdaki **Sözleşme** bloğunun tamamı; `parseWindow(raw string) (days int, label string, err error)`; `StatsStore` arayüzü; `Handler.Stats(w, r)`.
 
-- [ ] **Step 1: Sözleşme tiplerini yaz**
+- [x] **Step 1: Sözleşme tiplerini yaz**
 
 `mf-backend/internal/admin/stats.go` dosyasını aç, yukarıdaki **Sözleşme** bloğundaki Go tiplerini birebir yaz (alan adları, JSON etiketleri ve yorumlar dahil). Dosyanın başına neden tek uç olduğunu anlatan kısa bir yorum koy — spec §4: altı chart için altı istek, biri zaman aşımına uğradığında panelin yarısını yalan yapar.
 
-- [ ] **Step 2: `parseWindow` için başarısız test yaz**
+- [x] **Step 2: `parseWindow` için başarısız test yaz**
 
 `mf-backend/internal/admin/stats_test.go`:
 
@@ -198,12 +198,12 @@ func TestParseWindow(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Testi çalıştır, düştüğünü gör**
+- [x] **Step 3: Testi çalıştır, düştüğünü gör**
 
 Run: `cd mf-backend && go test ./internal/admin/ -run TestParseWindow`
 Expected: derleme hatası — `undefined: parseWindow`.
 
-- [ ] **Step 4: `parseWindow`'u yaz**
+- [x] **Step 4: `parseWindow`'u yaz**
 
 ```go
 // Yalnızca iki pencere var, ve serbest bir gün sayısı kabul etmiyoruz: her
@@ -221,7 +221,7 @@ func parseWindow(raw string) (int, string, error) {
 }
 ```
 
-- [ ] **Step 5: Handler testlerini yaz (sahte store)**
+- [x] **Step 5: Handler testlerini yaz (sahte store)**
 
 `stats_test.go`'ye ekle — `accounts_test.go:20-98` desenini izle (sahte struct + `localRoutes` ile router):
 
@@ -293,7 +293,7 @@ func TestStatsPassesNinetyDayWindowToStore(t *testing.T) {
 
 `statsRouter` test yardımcısını `accounts_test.go:94-98`'deki `accountsRouter` gibi yaz: `chi.NewRouter()` + `r.Get("/stats", h.Stats)`.
 
-- [ ] **Step 6: Handler'ı ve bağlantıları yaz**
+- [x] **Step 6: Handler'ı ve bağlantıları yaz**
 
 `stats.go`'ye:
 
@@ -343,14 +343,14 @@ func normalizeStats(res *StatsResponse) {
 
 `handler.go`: `StatsStore` arayüzünü diğer tüketici arayüzlerinin (`AccountStore`, `handler.go:50-60`) yanına ekle; `Handler` struct'ına `stats StatsStore` alanı; `New(...)` imzasına parametre. `routes.go`: `localRoutes` içine `r.Get("/stats", h.Stats)` — `/overview` satırının hemen altına, **yerel (timeout'lu) gruba**, `/metrics` grubuna değil. `cmd/server/main.go`: mevcut `*admin.Store`'u yeni parametreye geçir. Bu görevde `Store`'a `stats_store.go`'da yalnızca imzası doğru, boş bir `Stats` metodu eklenir (`return StatsResponse{}, nil`) — Task 2 aynı metodun gövdesini gerçek sorgularla doldurur. `nil` store geçme: derleme geçer, ilk istek panic eder.
 
-- [ ] **Step 7: Testler ve derleme**
+- [x] **Step 7: Testler ve derleme**
 
 ```bash
 cd mf-backend && go build ./... && go test ./internal/admin/
 ```
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add mf-backend/internal/admin/stats.go mf-backend/internal/admin/stats_store.go \
@@ -385,7 +385,7 @@ EOF
 
 **Neden Go'da birleştiriyoruz:** SQL seyrek gruplanmış satır döndürür, gün omurgası ve kümülatif toplam Go'da kurulur. Böylece kova mantığı canlı Postgres olmadan test edilir — repoda veritabanı gerektiren test yok.
 
-- [ ] **Step 1: Saf yardımcılar için başarısız testleri yaz**
+- [x] **Step 1: Saf yardımcılar için başarısız testleri yaz**
 
 `stats_test.go`'ye ekle:
 
@@ -464,12 +464,12 @@ func TestAssembleTargetsZeroFillsEachTarget(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Testleri çalıştır, düştüklerini gör**
+- [x] **Step 2: Testleri çalıştır, düştüklerini gör**
 
 Run: `cd mf-backend && go test ./internal/admin/ -run 'TestDaySpine|TestAssemble|TestChangePct'`
 Expected: derleme hatası — `undefined: daySpine` vb.
 
-- [ ] **Step 3: Saf yardımcıları yaz**
+- [x] **Step 3: Saf yardımcıları yaz**
 
 `stats_store.go` içinde:
 
@@ -480,12 +480,12 @@ Expected: derleme hatası — `undefined: daySpine` vb.
 
 `assembleDays` boş omurgada `[]DayPoint{}` döndürmeli, `nil` değil — Task 1'in "null değil boş dizi" sözleşmesi.
 
-- [ ] **Step 4: Testleri çalıştır, geçtiklerini gör**
+- [x] **Step 4: Testleri çalıştır, geçtiklerini gör**
 
 Run: `cd mf-backend && go test ./internal/admin/ -run 'TestDaySpine|TestAssemble|TestChangePct' -v`
 Expected: PASS.
 
-- [ ] **Step 5: SQL'i yaz**
+- [x] **Step 5: SQL'i yaz**
 
 `(s *Store) Stats(ctx, from, to)` — sorgu sayısı bütçesi 5s'lik istek zaman aşımı altında; **satır başına sorgu yok**, her şey gruplanmış toplama.
 
@@ -550,14 +550,14 @@ SELECT target, date_trunc('day', created_at AT TIME ZONE 'UTC'), count(*)
 
 Her `Query` sonrası `rows.Err()` kontrol edilir (pgx'te `Next` false döndüğünde hata sessizce yutulur). Sonuçlar `map[int64]int`'lere toplanıp Step 3'ün yardımcılarına verilir. `OrgTypes` ve `RunsByTarget` boşken `nil` değil boş dilim döner.
 
-- [ ] **Step 6: Derle ve bütün paketi test et**
+- [x] **Step 6: Derle ve bütün paketi test et**
 
 ```bash
 cd mf-backend && go build ./... && go test ./internal/admin/
 ```
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mf-backend/internal/admin/stats_store.go mf-backend/internal/admin/stats_test.go
@@ -591,7 +591,7 @@ EOF
 
 **Neden bu ikisi:** spec §4 — üye sayısı büyürken aktivasyon düşüyorsa büyüme sahtedir. Üye grafiği bu ikisi olmadan yanıltıcıdır.
 
-- [ ] **Step 1: `matureWeeks` için başarısız test yaz**
+- [x] **Step 1: `matureWeeks` için başarısız test yaz**
 
 ```go
 func TestMatureWeeksCountsOnlyElapsedWeeks(t *testing.T) {
@@ -611,12 +611,12 @@ func TestMatureWeeksCountsOnlyElapsedWeeks(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Testi çalıştır, düştüğünü gör**
+- [x] **Step 2: Testi çalıştır, düştüğünü gör**
 
 Run: `cd mf-backend && go test ./internal/admin/ -run TestMatureWeeks`
 Expected: `undefined: matureWeeks`.
 
-- [ ] **Step 3: `matureWeeks`'i yaz**
+- [x] **Step 3: `matureWeeks`'i yaz**
 
 ```go
 // Kaç tam hafta geçtiği, kohortun 2. ve 4. hafta hücresinin okunabilir olup
@@ -631,7 +631,7 @@ func matureWeeks(weekStart int64, now time.Time) int {
 }
 ```
 
-- [ ] **Step 4: Huni ve kohort SQL'ini `Stats`'a ekle**
+- [x] **Step 4: Huni ve kohort SQL'ini `Stats`'a ekle**
 
 6. **Huni** — pencerede kaydolanlar üzerinden, tek satır:
 
@@ -662,14 +662,14 @@ SELECT date_trunc('week', u.created_at AT TIME ZONE 'UTC') AS w,
 
 Her satırın `MatureWeeks` alanı `matureWeeks(weekStart, time.Now().UTC())` ile doldurulur. `Cohorts` boşken boş dilim.
 
-- [ ] **Step 5: Testler ve derleme**
+- [x] **Step 5: Testler ve derleme**
 
 ```bash
 cd mf-backend && go build ./... && go test ./internal/admin/
 ```
 Expected: PASS. Task 1'in sahte store testleri hâlâ geçmeli — `Funnel` sıfır değerleriyle serileşir, `Cohorts` boş dizi.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mf-backend/internal/admin/stats_store.go mf-backend/internal/admin/stats_test.go
@@ -705,11 +705,11 @@ EOF
   - `api.ts`: `api.admin.stats(window: StatsWindow)` → `Promise<AdminStats>`.
   - `stats.ts`: `changeLabel`, `changeTone`, `daySeries`, `validitySeries`, `targetSeries`, `funnelRates`, `cohortRate`, `shareRows`.
 
-- [ ] **Step 1: Tipleri yaz**
+- [x] **Step 1: Tipleri yaz**
 
 `types.ts`'ye, `AdminOverview` (satır 339-352) bloğunun altına, backend JSON etiketleriyle **birebir** aynı alan adlarıyla: `change_pct: number | null`, `days: StatsDay[]`, `runs_by_target: StatsTargetSeries[]`, `consistency: ConsistencyCard | null` vb. `AdminStats` alanları: `window`, `from`, `to`, `boxes`, `days`, `org_types`, `runs_by_target`, `funnel`, `cohorts`, `consistency`.
 
-- [ ] **Step 2: API istemcisini yaz**
+- [x] **Step 2: API istemcisini yaz**
 
 `api.ts`'de `metrics` (satır 340-341) hemen altına:
 
@@ -718,7 +718,7 @@ stats: (window: StatsWindow) =>
   request<AdminStats>(`/admin/stats?window=${encodeURIComponent(window)}`),
 ```
 
-- [ ] **Step 3: Saf yardımcı testlerini yaz**
+- [x] **Step 3: Saf yardımcı testlerini yaz**
 
 `mf-frontend/src/lib/stats.test.ts` — uzantılı import (`from "./stats.ts"`), `node:test` + `node:assert/strict` (`adminNav.test.ts` deseni):
 
@@ -800,12 +800,12 @@ test("hedef serileri en yoğun ikiyle sınırlanır ve sıralı gelir", () => {
 });
 ```
 
-- [ ] **Step 4: Testleri çalıştır, düştüklerini gör**
+- [x] **Step 4: Testleri çalıştır, düştüklerini gör**
 
 Run: `cd mf-frontend && npm test`
 Expected: FAIL — `Cannot find module './stats.ts'`.
 
-- [ ] **Step 5: `stats.ts`'i yaz**
+- [x] **Step 5: `stats.ts`'i yaz**
 
 Dosya başına neden saf olduğunu anlatan kısa yorum: kova, oran ve olgunluk mantığı bileşenden ayrı durduğu için `node --test` ile koşabiliyor (spec §9).
 
@@ -818,14 +818,14 @@ Dosya başına neden saf olduğunu anlatan kısa yorum: kova, oran ve olgunluk m
 - `cohortRate(count, size, matureWeeks, needWeeks): number | null` — `matureWeeks < needWeeks` → `null`; `size === 0` → `0`.
 - `shareRows(list: CategoryCount[]): { key: string; label: string; count: number; share: number }[]` — toplam sıfırsa boş liste; etiketler `individual` → "Bireysel", `company` → "Şirket".
 
-- [ ] **Step 6: Testler + lint + derleme**
+- [x] **Step 6: Testler + lint + derleme**
 
 ```bash
 cd mf-frontend && npm test && npm run lint && npm run build
 ```
 Expected: hepsi PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mf-frontend/src/lib/stats.ts mf-frontend/src/lib/stats.test.ts \
@@ -857,7 +857,7 @@ EOF
 - Consumes: `api.admin.stats`, `stats.ts` yardımcıları, `Stat` (`components/yonetim/Stat.tsx`), `TimeChart` + `ChartUnit`, `Segmented` (`components/ui/Segmented.tsx`), `AccountsPanel` yükleme/hata desenleri.
 - Produces: `export function StatsPanel()`; `TimeChart`'ta `unit="percent"` desteği (0..1 değeri `%42` olarak yazar).
 
-- [ ] **Step 1: `percent` birimini ekle**
+- [x] **Step 1: `percent` birimini ekle**
 
 `TimeChart.tsx`'de `formatValue` (satır 37-50) başına:
 
@@ -870,11 +870,11 @@ if (unit === "percent") {
 
 `ChartUnit` birleşimine `"percent"` ekle. Mevcut `"rps" | "seconds" | "count"` davranışı değişmez — `MetricsView` aynı çıktıyı vermeye devam etmeli.
 
-- [ ] **Step 2: Pencere seçici ve veri yükleme**
+- [x] **Step 2: Pencere seçici ve veri yükleme**
 
 `StatsPanel.tsx` — `"use client"`. `useState<StatsWindow>("30d")`, `useEffect` içinde `api.admin.stats(window)`; hata `notice notice-bad`, yükleme `skeleton` kartları (`OverviewPanel.tsx:19-31` deseni). Pencere seçici mevcut `Segmented` bileşeniyle (30 gün / 90 gün) — yeni bir seçici yazılmaz.
 
-- [ ] **Step 3: Dört kutu**
+- [x] **Step 3: Dört kutu**
 
 `Stat` bileşenini kullan. Değişim satırı `hint` içine yazılır; `Stat`'ın imzası **değişmemeli** ya da yalnızca opsiyonel alanla genişlemeli — `OverviewPanel`'in altı çağrısı bozulmadan derlenmeli.
 
@@ -887,7 +887,7 @@ if (unit === "percent") {
 
 Aktif adapter kutusunun alt satırı **yüzde puanı** taşır ("+3 puan"), yüzde değişimi değil — iki oranın farkını yüzde diye sunmak okuyana yanlış büyüklük verir.
 
-- [ ] **Step 4: Zaman serisi chart'ları**
+- [x] **Step 4: Zaman serisi chart'ları**
 
 Dört `TimeChart`, her biri `card` içinde başlık + bir cümlelik açıklamayla:
 
@@ -898,14 +898,14 @@ Dört `TimeChart`, her biri `card` içinde başlık + bir cümlelik açıklamayl
 
 Tablo görünümü için panelin başında tek bir aç/kapa dursun ve hepsine geçsin (`MetricsView.tsx:142` deseni).
 
-- [ ] **Step 5: Doğrula**
+- [x] **Step 5: Doğrula**
 
 ```bash
 cd mf-frontend && npm test && npm run lint && npm run build
 ```
 Expected: PASS (`npm test` regresyon içindir — `formatValue` değişti).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mf-frontend/src/components/yonetim/StatsPanel.tsx mf-frontend/src/components/ui/TimeChart.tsx
@@ -939,7 +939,7 @@ EOF
 
 **Neden yeni bağımlılık yok:** spec §11 — `TimeChart` zaten elle çiziliyor, üç üretim bağımlılığı olan bir frontend'e dördüncüsü chart için gelmiyor. Bu üç görselin hepsi `div` + CSS genişliği; SVG bile gerekmiyor.
 
-- [ ] **Step 1: `Breakdown.tsx`'i yaz**
+- [x] **Step 1: `Breakdown.tsx`'i yaz**
 
 Üç bileşen, hepsi `"use client"` gerektirmeyen saf sunum (state yok):
 
@@ -956,7 +956,7 @@ export function CohortGrid({ rows }: { rows: { label: string; size: number; week
 
 Renkler `var(--series-1)` / `var(--series-2)`, `var(--line)`, `var(--text-dim)` üzerinden; sabit hex yazılmaz (bu bileşenler tooltip swatch'ı okumadığı için `TimeChart`'ın literal gerekçesi burada geçerli değil).
 
-- [ ] **Step 2: `StatsPanel`'e bağla**
+- [x] **Step 2: `StatsPanel`'e bağla**
 
 `StatsPanel`'e üç kart daha:
 
@@ -966,7 +966,7 @@ Renkler `var(--series-1)` / `var(--series-2)`, `var(--line)`, `var(--text-dim)` 
 
 Ayrıca **çalışma hacmi** chart'ı: `TimeChart series={targetSeries(data.runs_by_target)} unit="count"`.
 
-- [ ] **Step 3: Sayfaya bağla**
+- [x] **Step 3: Sayfaya bağla**
 
 `mf-frontend/src/app/yonetim/page.tsx`:
 
@@ -986,14 +986,14 @@ export default function Page() {
 
 `OverviewPanel` **silinmez ve içi boşaltılmaz** — p95, adapter build ve 24 saatlik şema uyumu operasyonel sayılar ve `StatsPanel`'in pencereli görünümünde karşılıkları yok. Gerekirse üstüne "Anlık durum" başlığı eklenir.
 
-- [ ] **Step 4: Doğrula**
+- [x] **Step 4: Doğrula**
 
 ```bash
 cd mf-frontend && npm test && npm run lint && npm run build
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mf-frontend/src/components/ui/Breakdown.tsx \
@@ -1030,11 +1030,11 @@ EOF
 
 **Kapsam notu:** bu görev düşerse panel eksik olmaz — `consistency` alanı `null` döner ve frontend kartı basmaz. Diğer yedi görev bunun üstüne bir şey inşa etmiyor.
 
-- [ ] **Step 1: Sahte store testini yaz**
+- [x] **Step 1: Sahte store testini yaz**
 
 `stats_test.go`'ye: `fakeStatsStore` `Consistency: nil` döndürdüğünde yanıtın `"consistency": null` taşıdığını ve frontend sözleşmesinin bozulmadığını; dolu döndüğünde alanların JSON'a birebir geçtiğini doğrulayan bir test.
 
-- [ ] **Step 2: Store sorgusunu yaz**
+- [x] **Step 2: Store sorgusunu yaz**
 
 En son trial grubu:
 
@@ -1052,27 +1052,27 @@ Grup yoksa `nil` döner, hata değil: henüz trial koşulmamış olması bir ar�
 
 `internal/admin`'in `internal/analysis`'e bağımlılığı yeni bir yön açıyorsa (import döngüsü riski) skorlama tarafını çağırmak yerine standart sapmayı SQL'de `stddev_samp` ile hesapla ve bunu görev raporunda gerekçesiyle belirt.
 
-- [ ] **Step 3: Backend'i doğrula**
+- [x] **Step 3: Backend'i doğrula**
 
 ```bash
 cd mf-backend && go build ./... && go test ./...
 ```
 Expected: PASS.
 
-- [ ] **Step 4: Kartı ekle**
+- [x] **Step 4: Kartı ekle**
 
 `StatsPanel`'in **sonuna** (spec §4: "panelde bir kart", diğer her şeyden sonra) `data.consistency` doluysa bir kart: spread değeri, kaç koşum, en oynak kriter ve standart sapması, grubun tarihi. `null` ise hiçbir şey basılmaz — boş bir kart, olmayan bir ölçümü varmış gibi gösterir (spec §4 sonu).
 
 Kart metni ürünün konumlandırma diline uymalı: satılan eksen **ilk elemede tutarlılık**; "en iyi model" ya da "AI karar verir" yazılmaz.
 
-- [ ] **Step 5: Frontend'i doğrula**
+- [x] **Step 5: Frontend'i doğrula**
 
 ```bash
 cd mf-frontend && npm test && npm run lint && npm run build
 ```
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mf-backend/internal/admin/ mf-frontend/src/components/yonetim/StatsPanel.tsx
@@ -1103,7 +1103,7 @@ EOF
 - Consumes: 1-7. görevlerin tamamı.
 - Produces: yeşil bir dal ve kapanış kaydı.
 
-- [ ] **Step 1: Bütün paketleri koştur**
+- [x] **Step 1: Bütün paketleri koştur**
 
 ```bash
 cd mf-backend && go build ./... && go test ./...
@@ -1111,15 +1111,15 @@ cd ../mf-frontend && npm test && npm run lint && npm run build
 ```
 Expected: hepsi PASS. Çıktıları rapor dosyasına yaz.
 
-- [ ] **Step 2: Sözleşme denetimi**
+- [x] **Step 2: Sözleşme denetimi**
 
 `mf-backend/internal/admin/stats.go`'daki JSON etiketlerini `mf-frontend/src/lib/types.ts`'teki alan adlarıyla tek tek karşılaştır. Bir isim uyuşmazlığı `undefined` olarak sessizce geçer ve chart boş çizer — derleme bunu yakalamaz.
 
-- [ ] **Step 3: Boş veritabanı sözleşmesi**
+- [x] **Step 3: Boş veritabanı sözleşmesi**
 
 `grep` ile doğrula: `Days`, `OrgTypes`, `RunsByTarget`, `Cohorts` hiçbir yolda `nil` dönmüyor (spec §9: boş veritabanında sıfırlarla döner, çökmez).
 
-- [ ] **Step 4: Plan kutucuklarını işaretle ve commit**
+- [x] **Step 4: Plan kutucuklarını işaretle ve commit**
 
 ```bash
 git add docs/
