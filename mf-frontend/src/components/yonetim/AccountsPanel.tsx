@@ -156,7 +156,7 @@ export function AccountsPanel() {
       await navigator.clipboard.writeText(created.temporary_password);
       setNotice("Geçici parola panoya kopyalandı.");
     } catch {
-      setNotice("Kopyalanamadı. Parolayı bu ekrandan elle al.");
+      setNotice("Kopyalanamadı. Parolayı bu ekrandan manuel olarak alın.");
     }
   }
 

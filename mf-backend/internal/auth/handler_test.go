@@ -30,6 +30,7 @@ type fakeStore struct {
 	created         int // number of CreateUser calls; a refused registration must leave this at 0
 	sessionsCreated int
 	acceptedVersion string // version passed to the most recent AcceptTerms call
+	updatedPassword int
 }
 
 func (f *fakeStore) CreateUser(context.Context, string, string, string, string) (User, error) {
@@ -66,6 +67,7 @@ func (f *fakeStore) GetPasswordHash(context.Context, string) (string, error) {
 }
 func (f *fakeStore) UpdateName(context.Context, string, string) (User, error) { return f.user, nil }
 func (f *fakeStore) UpdatePassword(_ context.Context, id, _ string) error {
+	f.updatedPassword++
 	if f.mustChangePassword != nil {
 		f.mustChangePassword[id] = false
 	}
@@ -296,6 +298,38 @@ func TestChangePasswordRevokesSessionsAndReissues(t *testing.T) {
 	}
 	if out.AccessToken == "" || out.RefreshToken == "" {
 		t.Error("response carries no fresh token pair")
+	}
+}
+
+func TestChangePasswordRejectsReusingCurrentPassword(t *testing.T) {
+	current, err := bcrypt.GenerateFromPassword([]byte("temp-password"), testHashCost)
+	if err != nil {
+		t.Fatalf("seeding hash: %v", err)
+	}
+	store := &fakeStore{
+		user:               User{ID: "u1", Email: "a@b.io"},
+		hash:               string(current),
+		mustChangePassword: map[string]bool{"u1": true},
+	}
+	h := newTestHandler(store)
+
+	r := httptest.NewRequest("POST", "/auth/change-password",
+		strings.NewReader(`{"current_password":"temp-password","new_password":"temp-password"}`))
+	r = r.WithContext(common.ContextWithClaims(r.Context(), common.AuthClaims{UserID: "u1", PasswordReset: true}))
+	w := httptest.NewRecorder()
+	h.ChangePassword(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if store.updatedPassword != 0 {
+		t.Fatalf("UpdatePassword called %d times, want 0", store.updatedPassword)
+	}
+	if store.revokedAll != 0 || store.sessionsCreated != 0 {
+		t.Fatalf("reused password must not rotate sessions; revoked=%d created=%d", store.revokedAll, store.sessionsCreated)
+	}
+	if !store.mustChangePassword["u1"] {
+		t.Fatal("reused temporary password must leave pwd_reset gate in place")
 	}
 }
 

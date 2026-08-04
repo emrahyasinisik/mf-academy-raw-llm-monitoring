@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/emrah/mf-backend/internal/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -18,27 +17,7 @@ type accountTx interface {
 
 func (s *Store) ListAccounts(ctx context.Context, q AccountListQuery) (AccountListResult, error) {
 	offset := (q.Page - 1) * q.Limit
-	rows, err := s.db.Query(ctx, `
-		WITH account_rows AS (
-			SELECT o.id, o.name, o.type, o.tax_id, o.seat_limit, o.status,
-			       count(DISTINCT u.id)::int AS member_count,
-			       count(DISTINCT a.id)::int AS assessment_count,
-			       max(GREATEST(a.created_at, r.created_at)) AS last_activity_at,
-			       o.created_at
-			  FROM organizations o
-			  LEFT JOIN users u ON u.org_id = o.id
-			  LEFT JOIN assessments a ON a.user_id = u.id
-			  LEFT JOIN llm_runs r ON r.user_id = u.id
-			 WHERE ($1 = '' OR o.name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
-			   AND ($2 = '' OR o.type = $2)
-			   AND ($3 = '' OR o.status = $3)
-			 GROUP BY o.id
-		)
-		SELECT id, name, type, tax_id, seat_limit, status, member_count, assessment_count,
-		       last_activity_at, created_at, count(*) OVER()::int
-		  FROM account_rows
-		 ORDER BY created_at DESC
-		 LIMIT $4 OFFSET $5`,
+	rows, err := s.db.Query(ctx, listAccountsSQL,
 		q.Q, q.Type, q.Status, q.Limit, offset)
 	if err != nil {
 		return AccountListResult{}, err
@@ -59,6 +38,36 @@ func (s *Store) ListAccounts(ctx context.Context, q AccountListQuery) (AccountLi
 	}
 	return res, nil
 }
+
+const listAccountsSQL = `
+		WITH account_rows AS (
+			SELECT o.id, o.name, o.type, o.tax_id, o.seat_limit, o.status,
+			       count(DISTINCT u.id)::int AS member_count,
+			       count(DISTINCT a.id)::int AS assessment_count,
+			       max(GREATEST(a.created_at, r.created_at)) AS last_activity_at,
+			       o.created_at
+			  FROM organizations o
+			  LEFT JOIN users u ON u.org_id = o.id
+			  LEFT JOIN assessments a ON a.user_id = u.id
+			  LEFT JOIN llm_runs r ON r.user_id = u.id
+			 WHERE ($1 = ''
+			        OR o.name ILIKE '%' || $1 || '%'
+			        OR o.tax_id ILIKE '%' || $1 || '%'
+			        OR EXISTS (
+			            SELECT 1
+			              FROM users search_users
+			             WHERE search_users.org_id = o.id
+			               AND search_users.email ILIKE '%' || $1 || '%'
+			        ))
+			   AND ($2 = '' OR o.type = $2)
+			   AND ($3 = '' OR o.status = $3)
+			 GROUP BY o.id
+		)
+		SELECT id, name, type, tax_id, seat_limit, status, member_count, assessment_count,
+		       last_activity_at, created_at, count(*) OVER()::int
+		  FROM account_rows
+		 ORDER BY created_at DESC
+		 LIMIT $4 OFFSET $5`
 
 func (s *Store) CreateIndividual(ctx context.Context, name, email, hash string) (AccountSummary, AccountMember, error) {
 	tx, err := s.db.Begin(ctx)
@@ -103,10 +112,10 @@ func createAccountOwner(
 
 	var owner AccountMember
 	err = tx.QueryRow(ctx,
-		`INSERT INTO users (email, password_hash, name, org_id, org_role, must_change_password, terms_accepted_at, terms_version)
-		 VALUES ($1, $2, $3, $4, 'owner', true, now(), $5)
+		`INSERT INTO users (email, password_hash, name, org_id, org_role, must_change_password)
+		 VALUES ($1, $2, $3, $4, 'owner', true)
 		 RETURNING id, email, name, org_role, created_at`,
-		ownerEmail, hash, ownerName, account.ID, auth.TermsVersion,
+		ownerEmail, hash, ownerName, account.ID,
 	).Scan(&owner.ID, &owner.Email, &owner.Name, &owner.OrgRole, &owner.CreatedAt)
 	if err != nil {
 		return AccountSummary{}, AccountMember{}, err

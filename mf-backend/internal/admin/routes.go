@@ -69,9 +69,9 @@ func (h *Handler) localRoutes(r chi.Router) {
 	r.Route("/accounts", func(ar chi.Router) {
 		ar.Get("/", h.ListAccounts)
 		ar.Post("/", h.CreateAccount)
-		ar.Get("/{id}", h.GetAccount)
-		ar.Post("/{id}/suspend", h.SuspendAccount)
-		ar.Post("/{id}/unsuspend", h.UnsuspendAccount)
+		ar.Get("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", h.GetAccount)
+		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/suspend", h.SuspendAccount)
+		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/unsuspend", h.UnsuspendAccount)
 	})
 
 	r.Route("/mcp-servers", func(mr chi.Router) {

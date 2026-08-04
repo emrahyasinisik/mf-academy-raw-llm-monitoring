@@ -337,6 +337,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		common.Error(w, common.ErrUnauthorized("current password is incorrect"))
 		return
 	}
+	if req.NewPassword == req.CurrentPassword {
+		common.Error(w, common.ErrBadRequest("new password must differ from the current password"))
+		return
+	}
 	var newHash []byte
 	if err := withBcryptSlot(r.Context(), func() error {
 		var e error
