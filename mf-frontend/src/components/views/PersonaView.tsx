@@ -258,12 +258,16 @@ export function PersonaView() {
       });
       setReport(a);
       setLinkedAssessmentId(a.id);
-      await api.patchConversation(threadId, { assessment_id: a.id });
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === threadId ? { ...t, assessment_id: a.id } : t,
-        ),
-      );
+      try {
+        await api.patchConversation(threadId, { assessment_id: a.id });
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === threadId ? { ...t, assessment_id: a.id } : t,
+          ),
+        );
+      } catch {
+        setReportError("Rapor hazır; konuşmaya bağlanamadı.");
+      }
     } catch (e) {
       setReportError(
         e instanceof ApiError ? e.message : "Rapor üretilemedi.",
@@ -575,7 +579,7 @@ export function PersonaView() {
                   msg={m}
                   showReportCta={i === lastAssistantIndex}
                   linkedAssessmentId={linkedAssessmentId}
-                  reportLoaded={report !== null && !reportError}
+                  reportLoaded={report !== null}
                   reportLoading={reportLoading}
                   onProduceReport={() => void produceReport()}
                   onShowReport={() => setPanelOpen(true)}

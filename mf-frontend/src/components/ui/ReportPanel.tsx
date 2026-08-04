@@ -37,14 +37,18 @@ export function ReportPanel({
         onWidthChange(clampReportPanelWidth(vw - ev.clientX, vw));
       };
 
-      const onUp = () => {
+      const onEnd = () => {
         document.body.style.userSelect = "";
         window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        window.removeEventListener("lostpointercapture", onEnd);
       };
 
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
+      window.addEventListener("lostpointercapture", onEnd);
     },
     [onWidthChange],
   );
@@ -52,7 +56,7 @@ export function ReportPanel({
   if (!open) return null;
 
   const overall =
-    assessment && !loading && !error
+    assessment && !loading
       ? breakdown(assessment.criteria_snapshot, assessment.findings).overall
       : null;
 
@@ -98,7 +102,7 @@ export function ReportPanel({
           </p>
         )}
 
-        {!loading && error && (
+        {!loading && error && !assessment && (
           <div className="space-y-3">
             <div className="notice notice-bad" role="alert">
               {error}
@@ -111,8 +115,15 @@ export function ReportPanel({
           </div>
         )}
 
-        {!loading && !error && assessment && (
-          <Rapor assessment={assessment} className="mt-0 border-0 shadow-none" />
+        {!loading && assessment && (
+          <>
+            {error && (
+              <div className="notice notice-warn mb-3" role="status">
+                {error}
+              </div>
+            )}
+            <Rapor assessment={assessment} className="mt-0 border-0 shadow-none" />
+          </>
         )}
       </div>
     </aside>
