@@ -253,8 +253,21 @@ de bu.
 
 ### Gösterilenler
 
-Üstte dört kutu, her birinin yanında önceki pencereye göre değişim yüzdesi:
-toplam üye, toplam rapor, son 24 saat, aktif adapter.
+Üstte beş kutu: toplam üye, toplam rapor, son 24 saat, aktif adapter, şema
+uyumu.
+
+Bu tasarım dört kutu diyordu ve şema uyumunu aktif adapter kutusunun altına
+yazıyordu; uygulama sırasında bunun bir etiket hatası olduğu görüldü. Oran,
+pencere içindeki her analizin ortalaması ve üreten adapter'a bağlanmıyor —
+90 günlük pencerede birkaç yapı ile temel modeli kapsıyor. Bir adapter'ın adının
+altında durunca, panelin geri alma çağrısı çoğunlukla başka yapıları ölçen bir
+sayıya dayanıyordu. Kendi kutusuna alındı. Adapter başına doğru atfetmek
+`adapter_id` filtresi ve aktivasyona göre daraltılmış bir pencere gerektiriyor,
+bu da bu aşamanın işi değil.
+
+Değişim yüzdesi her kutuda aynı şeyi kıyaslamıyor, ve kutu metinleri bunu
+ayırıyor: ilk iki kutuda taban **pencere başındaki** toplam (yani pencere içi
+büyüme), "son 24 saat" kutusunda ise gerçekten önceki 24 saat.
 
 | Chart | Ne gösterir | Kaynak |
 |---|---|---|

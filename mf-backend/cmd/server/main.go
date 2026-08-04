@@ -151,7 +151,7 @@ func main() {
 	// ordering is what makes a switched-off box report itself as an unreachable
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
-	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
+	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 

@@ -66,11 +66,16 @@ type AuditStore interface {
 	ListAudit(ctx context.Context, page, limit int) (AuditListResult, error)
 }
 
+type StatsStore interface {
+	Stats(ctx context.Context, from, to time.Time) (StatsResponse, error)
+}
+
 type ControlStore interface {
 	AdapterStore
 	AccountStore
 	LegalStore
 	AuditStore
+	StatsStore
 }
 
 // AdapterSwapper is the live control plane of the hot-swap runtime.
@@ -97,12 +102,13 @@ type Handler struct {
 	accounts   AccountStore
 	legal      LegalStore
 	audit      AuditStore
+	stats      StatsStore
 	runtime    AdapterSwapper
 	metrics    MetricsQuerier
 	bcryptCost int
 }
 
-func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal LegalStore, audit AuditStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
+func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal LegalStore, audit AuditStore, stats StatsStore, rt AdapterSwapper, mq MetricsQuerier, bcryptCost int) *Handler {
 	if bcryptCost < auth.MinHashCost {
 		bcryptCost = auth.MinHashCost
 	}
@@ -113,6 +119,7 @@ func NewHandler(store ControlStore, set SettingsStore, mcp MCPStore, legal Legal
 		accounts:   store,
 		legal:      legal,
 		audit:      audit,
+		stats:      stats,
 		runtime:    rt,
 		metrics:    mq,
 		bcryptCost: bcryptCost,

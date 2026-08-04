@@ -246,6 +246,11 @@ Grafana backend'e **hiç dokunmuyor**. Prometheus 15 saniyede bir gidip
 Uygulama hiçbir yere veri **göndermiyor** — sadece sorulduğunda cevap veriyor.
 Bunun güzel sonucu: izleme sistemi tamamen çökse backend bunu fark etmez bile.
 
+Yönetim panelindeki `/admin/stats` bu zincirin dışında duruyor: ekranın ürün
+serileri doğrudan Postgres'ten okunuyor. Bu yüzden izleme ya da inference tarafı
+kapalıyken panel boş bir ürün gibi davranmıyor; veritabanındaki işi göstermeye
+devam ediyor.
+
 **Metrikler nerede üretiliyor?**
 
 - `mf-backend/internal/common/metrics.go` — HTTP tarafı (istek sayısı, latency

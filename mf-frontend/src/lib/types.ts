@@ -397,6 +397,112 @@ export interface AdminOverview {
   active_adapter_id: string | null;
 }
 
+export type StatsWindow = "30d" | "90d";
+
+export interface StatBox {
+  value: number;
+  previous: number;
+  change_pct: number | null;
+}
+
+/**
+ * Yalnızca ad. Şema uyumu buradan çıkarıldı: oran penceredeki TÜM analizlerin
+ * ortalaması, hangi adapter'ın ürettiğine bakmıyor. Adapter adının altında
+ * gösterilince 90 günlük pencerede birkaç yapının ve temel modelin ortalaması
+ * tek bir yapının başarısı gibi okunuyordu.
+ */
+export interface ActiveAdapterBox {
+  name: string;
+}
+
+/** Pencerenin şema uyumu — her adapter ve temel model birlikte. */
+export interface SchemaValidityBox {
+  rate: number;
+  previous_rate: number;
+  change_points: number | null;
+}
+
+export interface StatsBoxes {
+  total_users: StatBox;
+  total_reports: StatBox;
+  reports_last_24h: StatBox;
+  active_adapter: ActiveAdapterBox;
+  schema_validity: SchemaValidityBox;
+}
+
+export interface StatsDay {
+  /** UTC gün başı, Unix saniye. */
+  t: number;
+  new_users: number;
+  cumulative_users: number;
+  assessments: number;
+  schema_valid: number;
+}
+
+export interface StatsTargetSeries {
+  target: string;
+  points: MetricPoint[];
+}
+
+export interface CategoryCount {
+  key: string;
+  count: number;
+}
+
+export interface StatsFunnel {
+  registered: number;
+  consented: number;
+  analyzed: number;
+}
+
+export interface CohortRow {
+  week_start: number;
+  size: number;
+  week_2: number;
+  week_4: number;
+  mature_weeks: number;
+}
+
+/**
+ * Aynı vakanın tekrar tekrar koşulduğunda ne kadar oynadığı — panelin
+ * yayınlanabilir tek ölçümü.
+ *
+ * Kartın kendisi null olabilir: ölçülemeyen bir grup için sıfır fark basmak,
+ * hiç yapılmamış bir ölçümü kusursuz ilan etmek olur.
+ */
+export interface ConsistencyCard {
+  group: string;
+  runs: number;
+  created_at: string;
+  total_spread: number;
+  min_total: number;
+  max_total: number;
+  /** Ölçülecek kriter yoksa "" — yanındaki sapma da null olur. */
+  volatile_criterion: string;
+  /** Null = ölçülmedi. 0 basmak "mükemmel kararlı" okunur. */
+  volatile_std_dev: number | null;
+  /**
+   * Bulguları silinmiş bacak sayısı. Puan, kapsam ve şema geçerliliği
+   * redaksiyondan sağ çıkar, bulgular çıkmaz — ve kriter sapması bulgulardan
+   * hesaplanır. 30 günlük saklama süpürmesinden sonra bu her grubun normal
+   * hali, o yüzden eksik gözlem sayısı kartta yazıyor.
+   */
+  redacted_runs: number;
+}
+
+export interface AdminStats {
+  window: StatsWindow;
+  from: string;
+  to: string;
+  boxes: StatsBoxes;
+  days: StatsDay[];
+  org_types: CategoryCount[];
+  runs_by_target: StatsTargetSeries[];
+  funnel: StatsFunnel;
+  cohorts: CohortRow[];
+  consistency: ConsistencyCard | null;
+}
+
 /** Chart spans the server knows how to step. */
 export type MetricsWindow = "1h" | "6h" | "24h";
 
