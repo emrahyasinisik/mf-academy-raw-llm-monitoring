@@ -1,9 +1,8 @@
 "use client";
 
-// AppShell is the client-side router for the SPA. It owns the two-level
-// navigation state — master view plus the active subview — and mirrors it into
-// the URL hash as `#master/subview`, so any view is shareable and the browser's
-// back button works, with no full-page reload.
+// AppShell is the client-side router for the SPA. It owns the active master
+// view and mirrors it into the URL hash, so any view is shareable and the
+// browser's back button works, with no full-page reload.
 //
 // A view that has been opened stays mounted and is hidden rather than removed.
 // That is not a performance tweak: generation on the box takes tens of seconds,
@@ -113,20 +112,19 @@ function Pane({ active, children }: { active: boolean; children: React.ReactNode
   );
 }
 
-// An unknown or missing subview is left empty on purpose — each master view
-// falls back to its own default, so the router never needs to know their names.
-function parseHash(): { view: MasterView; sub: string } | null {
-  const [v, s] = window.location.hash.replace(/^#/, "").split("/");
-  return isMaster(v) ? { view: v, sub: s ?? "" } : null;
+// Any extra hash segment is ignored: AppShell owns only the master view now.
+function parseHash(): MasterView | null {
+  const [v] = window.location.hash.replace(/^#/, "").split("/");
+  return isMaster(v) ? v : null;
 }
 
 // Reads the hash during the initial render rather than in an effect, so a deep
 // link paints the right view immediately instead of flashing the default one.
 // Safe under SSR: the shell renders its loading state until auth resolves, so
 // the server and the client agree on the first paint.
-function initialRoute(): { view: MasterView; sub: string } {
+function initialRoute(): MasterView {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? { view: "analiz", sub: "" };
+  return parsed ?? "analiz";
 }
 
 export function AppShell() {
@@ -148,11 +146,10 @@ export function AppShell() {
   // transition that moves the route computes it once, in the same update.
   const [route, setRoute] = useState<{
     view: MasterView;
-    sub: string;
     opened: ReadonlySet<MasterView>;
   }>(() => {
     const first = initialRoute();
-    return { ...first, opened: new Set([first.view]) };
+    return { view: first, opened: new Set([first]) };
   });
   const { view, opened } = route;
 
@@ -178,13 +175,12 @@ export function AppShell() {
       const parsed = parseHash();
       if (!parsed) return;
       setRoute((prev) => ({
-        view: parsed.view,
-        sub: parsed.sub,
+        view: parsed,
         // A new Set only when it would actually differ, so navigating back to a
         // view already open does not hand every consumer a fresh reference.
-        opened: prev.opened.has(parsed.view)
+        opened: prev.opened.has(parsed)
           ? prev.opened
-          : new Set(prev.opened).add(parsed.view),
+          : new Set(prev.opened).add(parsed),
       }));
     };
     window.addEventListener("hashchange", sync);
@@ -327,7 +323,7 @@ export function AppShell() {
 /**
  * The master nav, with a single indicator that travels between items rather than
  * one indicator per item fading in and out. The moving element is what makes the
- * two-level navigation legible: it shows that these four are one control.
+ * master navigation legible: it shows that these items are one control.
  *
  * The position is measured rather than computed from index, because the labels
  * are different widths and they change width again when the webfont swaps in.

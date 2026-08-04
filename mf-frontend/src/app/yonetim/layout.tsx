@@ -5,6 +5,7 @@ import { PanelGate } from "@/components/yonetim/PanelGate";
 // birbirinden ayırt edilebilmeli.
 export const metadata: Metadata = {
   title: "Yönetim — MasterFabric",
+  robots: { index: false, follow: false },
 };
 
 export default function YonetimLayout({

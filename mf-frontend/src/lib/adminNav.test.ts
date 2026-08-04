@@ -45,6 +45,12 @@ test("bilinmeyen admin alt sekmesi panelin köküne gider", () => {
   assert.equal(legacyHashToPath("#admin/kayip-sekme"), "/yonetim");
 });
 
+test("prototip admin alt sekmeleri panelin köküne gider", () => {
+  assert.equal(legacyHashToPath("#admin/__proto__"), "/yonetim");
+  assert.equal(legacyHashToPath("#admin/constructor"), "/yonetim");
+  assert.equal(legacyHashToPath("#admin/toString"), "/yonetim");
+});
+
 // Diğer master görünümlerin hash'lerine dokunulmuyor: null, "burada işim yok"
 // demek ve AppShell'in yönlendirme yapmamasını sağlıyor.
 test("panel dışı hash'ler eşlenmez", () => {

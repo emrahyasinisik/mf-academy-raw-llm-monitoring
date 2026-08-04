@@ -42,5 +42,5 @@ const LEGACY_TABS: Record<string, string> = {
 export function legacyHashToPath(hash: string): string | null {
   const [view, tab = ""] = hash.replace(/^#/, "").split("/");
   if (view !== "admin") return null;
-  return LEGACY_TABS[tab] ?? "/yonetim";
+  return Object.hasOwn(LEGACY_TABS, tab) ? LEGACY_TABS[tab] : "/yonetim";
 }
