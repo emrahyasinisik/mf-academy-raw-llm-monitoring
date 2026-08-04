@@ -178,6 +178,27 @@ export function AccountsPanel() {
     }
   }
 
+  async function deleteAccount(account: AccountDetail) {
+    const ok = window.confirm(
+      `"${account.name}" hesabını ve üyelerinin verisini kalıcı olarak silmek istiyor musunuz? Bu geri alınamaz.`,
+    );
+    if (!ok) return;
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await api.admin.accounts.delete(account.id);
+      setNotice("Hesap silindi.");
+      setSelectedId("");
+      setDetail(null);
+      await loadList();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Hesap silinemedi.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <section className="card p-4 space-y-3">
@@ -292,6 +313,7 @@ export function AccountsPanel() {
           saving={saving}
           onSuspend={(account) => setSuspension(account, true)}
           onUnsuspend={(account) => setSuspension(account, false)}
+          onDelete={(account) => void deleteAccount(account)}
         />
       </div>
     </div>
@@ -519,12 +541,14 @@ function DetailCard({
   saving,
   onSuspend,
   onUnsuspend,
+  onDelete,
 }: {
   detail: AccountDetail | null;
   loading: boolean;
   saving: boolean;
   onSuspend: (account: AccountDetail) => void;
   onUnsuspend: (account: AccountDetail) => void;
+  onDelete: (account: AccountDetail) => void;
 }) {
   if (loading) {
     return (
@@ -575,6 +599,13 @@ function DetailCard({
               Askıyı kaldır
             </button>
           )}
+          <button
+            className="btn btn-danger btn-sm"
+            disabled={saving}
+            onClick={() => onDelete(detail)}
+          >
+            Hesabı sil
+          </button>
         </div>
       </div>
 

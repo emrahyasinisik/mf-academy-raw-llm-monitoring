@@ -1,17 +1,46 @@
-import { test } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { needsTermsGate } from "./terms.ts";
 
-test("kabul etmemiş kullanıcı kapıya düşer", () => {
-  assert.equal(needsTermsGate({ terms_accepted_at: null }), true);
-});
+describe("needsTermsGate", () => {
+  it("closes when never accepted", () => {
+    assert.equal(
+      needsTermsGate({ terms_accepted_at: null, terms_version: "" }, "2026-08-01"),
+      true,
+    );
+  });
 
-test("kabul etmiş kullanıcı uygulamayı görür", () => {
-  assert.equal(needsTermsGate({ terms_accepted_at: "2026-08-01T10:00:00Z" }), false);
-});
+  it("opens when version matches", () => {
+    assert.equal(
+      needsTermsGate(
+        { terms_accepted_at: "2026-08-01T10:00:00Z", terms_version: "2026-08-01" },
+        "2026-08-01",
+      ),
+      false,
+    );
+  });
 
-// Oturum yokken kapı yok: o durumda giriş ekranı gösteriliyor ve kapıyı da
-// göstermek, henüz kim olduğunu bilmediğimiz birinden kabul istemek olurdu.
-test("oturum yoksa kapı yok", () => {
-  assert.equal(needsTermsGate(null), false);
+  it("closes when version lags a reconsent publish", () => {
+    assert.equal(
+      needsTermsGate(
+        { terms_accepted_at: "2026-08-01T10:00:00Z", terms_version: "2026-08-01" },
+        "2026-08-04",
+      ),
+      true,
+    );
+  });
+
+  it("ignores logged-out callers", () => {
+    assert.equal(needsTermsGate(null, "2026-08-01"), false);
+  });
+
+  it("does not lock everyone when nothing is published yet", () => {
+    assert.equal(
+      needsTermsGate(
+        { terms_accepted_at: "2026-08-01T10:00:00Z", terms_version: "2026-08-01" },
+        null,
+      ),
+      false,
+    );
+  });
 });

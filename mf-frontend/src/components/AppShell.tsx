@@ -14,6 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/store/auth";
+import { api } from "@/lib/api";
 import { needsTermsGate } from "@/lib/terms";
 import { needsPasswordGate } from "@/lib/passwordGate";
 import { legacyHashToPath } from "@/lib/adminNav";
@@ -132,6 +133,9 @@ function initialRoute(): MasterView {
 export function AppShell() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
+  const [requiredTermsVersion, setRequiredTermsVersion] = useState<
+    string | null
+  >(null);
 
   // Where we are, and everywhere we have been — one piece of state, because
   // they change together and only ever from one place.
@@ -154,6 +158,28 @@ export function AppShell() {
     return { view: first, opened: new Set([first]) };
   });
   const { view, opened } = route;
+
+  // Onay kapısı sabit değil: son yayınlanmış kosullar versiyonunu her oturumda
+  // okuyoruz. Önbelleklemek, birden fazla instance'ta kapıyı sunucuya göre
+  // farklı gösterirdi.
+  useEffect(() => {
+    if (!user) {
+      setRequiredTermsVersion(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const doc = await api.legal.get("kosullar");
+        if (!cancelled) setRequiredTermsVersion(doc.version);
+      } catch {
+        if (!cancelled) setRequiredTermsVersion(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   // #admin ölmedi, taşındı. Bağlantısı paylaşılmış olan kimse 404 görmesin —
   // bu reponun kuralı: nav'dan inen rota adreslenebilir kalır. Yönlendirme
@@ -205,7 +231,7 @@ export function AppShell() {
   // Oturum var ama kabul yok: uygulamayi degil kapiyi goster. AuthView ile ayni
   // dallanma sekli, ayni yerde, cunku ikisi de "henuz uygulamaya giremez"in
   // farkli sebepleri.
-  if (needsTermsGate(user)) return <OnayView />;
+  if (needsTermsGate(user, requiredTermsVersion)) return <OnayView />;
 
   return (
     <div className="min-h-screen flex flex-col">

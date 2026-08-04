@@ -14,6 +14,8 @@ test("sondaki eğik çizgi bölümü değiştirmez", () => {
 
 test("alt yollar kendi bölümlerine çözülür", () => {
   assert.equal(sectionFromPath("/yonetim/hesaplar"), "hesaplar");
+  assert.equal(sectionFromPath("/yonetim/belgeler"), "belgeler");
+  assert.equal(sectionFromPath("/yonetim/denetim"), "denetim");
   assert.equal(sectionFromPath("/yonetim/model"), "model");
   assert.equal(sectionFromPath("/yonetim/mcp"), "mcp");
   assert.equal(sectionFromPath("/yonetim/loglar"), "loglar");

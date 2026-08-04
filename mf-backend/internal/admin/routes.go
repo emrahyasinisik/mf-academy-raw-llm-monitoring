@@ -71,8 +71,19 @@ func (h *Handler) localRoutes(r chi.Router) {
 		ar.Get("/", h.ListAccounts)
 		ar.Post("/", h.CreateAccount)
 		ar.Get("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", h.GetAccount)
+		ar.Delete("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}", h.DeleteAccount)
 		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/suspend", h.SuspendAccount)
 		ar.Post("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}/unsuspend", h.UnsuspendAccount)
+	})
+
+	r.Get("/audit", h.ListAudit)
+
+	r.Route("/legal", func(lr chi.Router) {
+		lr.Get("/", h.ListLegal)
+		lr.Get("/{slug}", h.GetLegal)
+		lr.Put("/{slug}", h.SaveLegalDraft)
+		lr.Post("/{slug}/publish", h.PublishLegal)
+		lr.Delete("/{slug}/draft", h.DeleteLegalDraft)
 	})
 
 	r.Route("/mcp-servers", func(mr chi.Router) {

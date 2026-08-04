@@ -91,6 +91,13 @@ func (f *fakeAccountStore) SetAccountStatus(_ context.Context, id, status string
 	return nil
 }
 
+func (f *fakeAccountStore) DeleteAccount(_ context.Context, id string) error {
+	if id == "" {
+		return ErrNoRows
+	}
+	return nil
+}
+
 func accountsRouter(h *Handler) http.Handler {
 	r := chi.NewRouter()
 	h.localRoutes(r)

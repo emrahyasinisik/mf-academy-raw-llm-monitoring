@@ -70,6 +70,11 @@ type Settings struct {
 	// model while the panel still showed it as active.
 	ActiveGGUFAdapter string `json:"active_gguf_adapter"`
 
+	// RetentionDays is how long content is kept before the sweeper redacts it.
+	// 0 disables the sweep. Sourced from the DB after first boot seed — the
+	// RETENTION_DAYS env var only fills a NULL column once.
+	RetentionDays int `json:"retention_days"`
+
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy *string   `json:"updated_by"`
 }
@@ -79,11 +84,12 @@ type Settings struct {
 // client sending only a new system prompt would silently reset temperature to
 // 0, which is a real behaviour change and not one anybody asked for.
 type Patch struct {
-	DefaultModel *string  `json:"default_model"`
-	SystemPrompt *string  `json:"system_prompt"`
-	Temperature  *float64 `json:"temperature"`
-	TopP         *float64 `json:"top_p"`
-	MaxTokens    *int     `json:"max_tokens"`
+	DefaultModel   *string  `json:"default_model"`
+	SystemPrompt   *string  `json:"system_prompt"`
+	Temperature    *float64 `json:"temperature"`
+	TopP           *float64 `json:"top_p"`
+	MaxTokens      *int     `json:"max_tokens"`
+	RetentionDays  *int     `json:"retention_days"`
 }
 
 // ValidationError is a field the caller may fix, as opposed to a failure of
@@ -119,6 +125,9 @@ func (p Patch) Validate() error {
 		return &ValidationError{"max_tokens", fmt.Sprintf(
 			"must be between %d and %d", MinMaxTokens, MaxMaxTokens)}
 	}
+	if p.RetentionDays != nil && *p.RetentionDays < 0 {
+		return &ValidationError{"retention_days", "must be zero or a positive number of days"}
+	}
 	return nil
 }
 
@@ -141,6 +150,7 @@ const selectSQL = `
 	       s.default_model, s.active_adapter_id,
 	       coalesce(a.name, ''), coalesce(a.mlc_model_id, ''),
 	       s.runtime, s.active_gguf_adapter,
+	       coalesce(s.retention_days, 0),
 	       s.updated_at, s.updated_by
 	  FROM llm_settings s
 	  LEFT JOIN llm_adapters a ON a.id = s.active_adapter_id
@@ -150,7 +160,7 @@ func scan(row pgx.Row) (Settings, error) {
 	var s Settings
 	err := row.Scan(&s.SystemPrompt, &s.Temperature, &s.TopP, &s.MaxTokens,
 		&s.DefaultModel, &s.ActiveAdapterID, &s.ActiveAdapterName, &s.ActiveModelID,
-		&s.Runtime, &s.ActiveGGUFAdapter,
+		&s.Runtime, &s.ActiveGGUFAdapter, &s.RetentionDays,
 		&s.UpdatedAt, &s.UpdatedBy)
 	return s, err
 }
@@ -172,19 +182,42 @@ func (s *Store) Update(ctx context.Context, p Patch, userID string) (Settings, e
 	}
 	const q = `
 		UPDATE llm_settings SET
-		    system_prompt = COALESCE($1, system_prompt),
-		    temperature   = COALESCE($2, temperature),
-		    top_p         = COALESCE($3, top_p),
-		    max_tokens    = COALESCE($4, max_tokens),
-		    default_model = COALESCE($5, default_model),
-		    updated_at    = now(),
-		    updated_by    = $6
+		    system_prompt   = COALESCE($1, system_prompt),
+		    temperature     = COALESCE($2, temperature),
+		    top_p           = COALESCE($3, top_p),
+		    max_tokens      = COALESCE($4, max_tokens),
+		    default_model   = COALESCE($5, default_model),
+		    retention_days  = COALESCE($6, retention_days),
+		    updated_at      = now(),
+		    updated_by      = $7
 		 WHERE id = 1`
 	if _, err := s.db.Exec(ctx, q, p.SystemPrompt, p.Temperature, p.TopP, p.MaxTokens,
-		p.DefaultModel, userID); err != nil {
+		p.DefaultModel, p.RetentionDays, userID); err != nil {
 		return Settings{}, err
 	}
 	return s.Get(ctx)
+}
+
+// EnsureRetentionDays seeds retention_days from env once when the column is
+// still NULL. After that the panel (and this column) are the source of truth.
+func (s *Store) EnsureRetentionDays(ctx context.Context, fromEnv int) (int, error) {
+	if fromEnv < 0 {
+		fromEnv = 0
+	}
+	var days *int
+	err := s.db.QueryRow(ctx, `SELECT retention_days FROM llm_settings WHERE id = 1`).Scan(&days)
+	if err != nil {
+		return 0, err
+	}
+	if days != nil {
+		return *days, nil
+	}
+	if _, err := s.db.Exec(ctx, `
+		UPDATE llm_settings SET retention_days = $1, updated_at = now()
+		 WHERE id = 1 AND retention_days IS NULL`, fromEnv); err != nil {
+		return 0, err
+	}
+	return fromEnv, nil
 }
 
 // SetActiveAdapter points generation at a built adapter, or at the base model

@@ -66,9 +66,9 @@ func createUserWithIndividualOrg(
 	err = tx.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash, name, org_id, org_role, must_change_password, terms_accepted_at, terms_version)
 		 VALUES ($1, $2, $3, $4, 'owner', false, now(), $5)
-		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at`,
+		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at, terms_version`,
 		email, passwordHash, name, orgID, termsVersion,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion)
 	if err != nil {
 		return User{}, err
 	}
@@ -78,17 +78,37 @@ func createUserWithIndividualOrg(
 	return u, nil
 }
 
-// AcceptTerms records acceptance for a user who registered before the terms
-// existed.
+// AcceptTerms records acceptance of the given terms version.
 //
-// The WHERE clause keeps the first acceptance: re-accepting must not move the
-// date, because the date is the record. A second call changes nothing and is
-// not an error — the caller asked for a state that already holds.
+// Re-consent must move the version even when terms_accepted_at is already set —
+// otherwise a requires_reconsent publish can never clear the gate. The first
+// acceptance still stamps the date; later ones keep the original date and only
+// refresh the version, so "when did they first accept" stays answerable.
 func (s *Store) AcceptTerms(ctx context.Context, userID, version string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE users SET terms_accepted_at = now(), terms_version = $2, updated_at = now()
-		  WHERE id = $1 AND terms_accepted_at IS NULL`, userID, version)
+		`UPDATE users SET
+		     terms_accepted_at = COALESCE(terms_accepted_at, now()),
+		     terms_version = $2,
+		     updated_at = now()
+		 WHERE id = $1`, userID, version)
 	return err
+}
+
+// RequiredTermsVersion returns the latest published kosullar version. The
+// consent gate compares the user's terms_version to this value on every check —
+// no process-lifetime cache, because Render can run more than one instance and
+// a publish on one cannot invalidate the other's memory.
+func (s *Store) RequiredTermsVersion(ctx context.Context) (string, error) {
+	var version string
+	err := s.db.QueryRow(ctx, `
+		SELECT version FROM legal_documents
+		 WHERE slug = 'kosullar' AND is_draft = false
+		 ORDER BY published_at DESC
+		 LIMIT 1`).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return version, err
 }
 
 // GetUserByEmailWithHash returns the user plus password hash for login checks.
@@ -97,12 +117,12 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 	var hash string
 	err := s.db.QueryRow(ctx,
 		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
-		        u.created_at, u.updated_at, u.terms_accepted_at, u.password_hash,
+		        u.created_at, u.updated_at, u.terms_accepted_at, u.terms_version, u.password_hash,
 		        COALESCE(o.status, 'active') AS org_status
 		 FROM users u
 		 LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &hash, &u.OrgStatus)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion, &hash, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrNoRows
 	}
@@ -114,12 +134,12 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
 		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
-		        u.created_at, u.updated_at, u.terms_accepted_at,
+		        u.created_at, u.updated_at, u.terms_accepted_at, u.terms_version,
 		        COALESCE(o.status, 'active') AS org_status
 		   FROM users u
 		   LEFT JOIN organizations o ON o.id = u.org_id
 		  WHERE u.id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.OrgStatus)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
@@ -141,8 +161,8 @@ func (s *Store) UpdateName(ctx context.Context, id, name string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
 		`UPDATE users SET name = $2, updated_at = now() WHERE id = $1
-		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at`, id, name,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt)
+		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at, terms_version`, id, name,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
