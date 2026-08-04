@@ -12,22 +12,23 @@
 // still recorded — but from the chair it looked exactly like leaving the tab
 // had killed the job. The persona conversation was lost the same way.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/store/auth";
 import { needsTermsGate } from "@/lib/terms";
+import { legacyHashToPath } from "@/lib/adminNav";
 import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
 import { OnayView } from "./views/OnayView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
-import { AdminView } from "./views/AdminView";
 import { MetricsView } from "./views/MetricsView";
 import { GizlilikView } from "./views/GizlilikView";
 import { KosullarView } from "./views/KosullarView";
 import { StatusRail } from "./ui/StatusRail";
 
 export type MasterView =
-  | "analiz" | "codegen" | "persona" | "metrics" | "admin" | "gizlilik" | "kosullar";
+  | "analiz" | "codegen" | "persona" | "metrics" | "gizlilik" | "kosullar";
 
 // Analiz leads because it is the product: a case goes in, a rubric-scored and
 // auditable report comes out. The order used to be the generator's, and the
@@ -36,9 +37,13 @@ export type MasterView =
 // question nav order should be answering.
 //
 // The persona stays: it is a working surface, and it fails legibly (it reports
-// the inference host, it does not crash) when the machine is off. Admin is
-// listed for everyone: the view itself explains the role requirement,
-// friendlier than a nav item that vanishes.
+// the inference host, it does not crash) when the machine is off.
+//
+// Yönetim artık burada değil: kendi rotasında, kendi kabuğunda (/yonetim).
+// Nav'dan çıkması bir gizleme değil, bir ayrım — ürün ekranları bir vakayı
+// değerlendirmek için, panel sistemi işletmek için, ve ikisi aynı başlık
+// çubuğunu paylaşınca hangisinde olduğun kayboluyordu. Panele giden bağlantı
+// header'da, yalnızca yönetici rolüne görünür.
 // Metrics sits beside Yönetim and follows the same rule: listed for everyone,
 // with the view explaining the role it needs. It is a separate master view
 // rather than a fifth admin tab because it is the one screen here that reads
@@ -49,7 +54,6 @@ const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] =
   { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "persona", label: "Persona", Icon: IconSpark },
   { id: "metrics", label: "Metrikler", Icon: IconChart },
-  { id: "admin", label: "Yönetim", Icon: IconSliders },
 ];
 
 // Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
@@ -128,6 +132,7 @@ function initialRoute(): { view: MasterView; sub: string } {
 
 export function AppShell() {
   const { user, loading, logout } = useAuth();
+  const router = useRouter();
 
   // Where we are, and everywhere we have been — one piece of state, because
   // they change together and only ever from one place.
@@ -150,7 +155,21 @@ export function AppShell() {
     const first = initialRoute();
     return { ...first, opened: new Set([first.view]) };
   });
-  const { view, sub, opened } = route;
+  const { view, opened } = route;
+
+  // #admin ölmedi, taşındı. Bağlantısı paylaşılmış olan kimse 404 görmesin —
+  // bu reponun kuralı: nav'dan inen rota adreslenebilir kalır. Yönlendirme
+  // hem ilk yüklemede hem sonraki hash değişimlerinde çalışıyor, çünkü ikisi
+  // de aynı bağlantıya tıklamanın sonucu olabiliyor.
+  useEffect(() => {
+    const jump = () => {
+      const target = legacyHashToPath(window.location.hash);
+      if (target) router.replace(target);
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => window.removeEventListener("hashchange", jump);
+  }, [router]);
 
   // The hash is the single source of truth: navigation handlers only write to
   // it, and this listener is what actually moves the app — which is also what
@@ -176,14 +195,6 @@ export function AppShell() {
   const go = (v: MasterView) => {
     window.location.assign(`#${v}`);
   };
-
-  // Subviews are addressable too, so a deep link lands on the right tab.
-  const goSub = useCallback(
-    (s: string) => {
-      window.location.assign(`#${view}/${s}`);
-    },
-    [view],
-  );
 
   if (loading) return <Booting />;
 
@@ -212,6 +223,15 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            {user.role === "admin" && (
+              <a
+                href="/yonetim"
+                className="btn btn-ghost btn-sm"
+                title="Yönetim paneli"
+              >
+                Yönetim
+              </a>
+            )}
             <span
               className="text-xs mono hidden md:block max-w-[180px] truncate"
               style={{ color: "var(--text-faint)" }}
@@ -276,7 +296,6 @@ export function AppShell() {
               and every one of their numbers ages. Kept mounted, a chart opened
               this morning would still be on screen tonight, silently. */}
           {view === "metrics" && <MetricsView />}
-          {view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}
           {view === "gizlilik" && <GizlilikView />}
           {view === "kosullar" && <KosullarView />}
         </div>
@@ -507,11 +526,3 @@ function IconChart() {
   );
 }
 
-function IconSliders() {
-  return (
-    <svg {...SVG} aria-hidden>
-      <path d="M3 13V9.5M3 6.5V3M8 13v-5M8 5V3M13 13v-2M13 8V3" />
-      <path d="M1.5 8h3M6.5 6.5h3M11.5 9.5h3" />
-    </svg>
-  );
-}
