@@ -61,6 +61,7 @@ test("parola değişimi yeni token çiftini saklar", async () => {
         created_at: "2026-08-04T00:00:00Z",
         updated_at: "2026-08-04T00:00:00Z",
         terms_accepted_at: "2026-08-04T00:00:00Z",
+        terms_version: "2026-08-01",
       },
     }), {
       status: 200,

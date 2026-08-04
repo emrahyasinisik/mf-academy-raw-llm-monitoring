@@ -9,6 +9,35 @@ export interface User {
   created_at: string;
   updated_at: string;
   terms_accepted_at: string | null;
+  terms_version: string;
+}
+
+export interface LegalDocument {
+  id: string;
+  slug: string;
+  title: string;
+  version: string;
+  body: string;
+  requires_reconsent: boolean;
+  is_draft: boolean;
+  published_at?: string;
+  published_by?: string;
+  created_at: string;
+}
+
+export interface LegalListItem {
+  slug: string;
+  title: string;
+  version: string;
+  has_draft: boolean;
+  published_at?: string;
+  requires_reconsent: boolean;
+}
+
+export interface LegalSlugDetail {
+  slug: string;
+  draft: LegalDocument | null;
+  history: LegalDocument[];
 }
 
 export interface TokenPair {
