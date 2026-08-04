@@ -1,4 +1,5 @@
-// Stub — içerik sonraki görevlerde gelir. Başlık OrgShell'de.
+import { ActivityPanel } from "@/components/sirket/ActivityPanel";
+
 export default function SirketAktivite() {
-  return null;
+  return <ActivityPanel />;
 }
