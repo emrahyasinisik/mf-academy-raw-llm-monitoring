@@ -57,6 +57,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout, remoteTimeout tim
 // localRoutes are the endpoints that go no further than the database.
 func (h *Handler) localRoutes(r chi.Router) {
 	r.Get("/overview", h.Overview)
+	r.Get("/stats", h.Stats)
 	r.Get("/logs", h.Logs)
 
 	r.Get("/settings", h.Settings)
