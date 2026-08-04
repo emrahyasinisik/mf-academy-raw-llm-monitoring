@@ -30,6 +30,8 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		schemaValid     = map[int64]int{}
 		orgTypes        = []CategoryCount{}
 		runsByTarget    = map[string]map[int64]int{}
+		funnel          Funnel
+		cohorts         = []CohortRow{}
 	)
 
 	err := s.db.QueryRow(ctx, `
@@ -165,6 +167,67 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 	}
 	rows.Close()
 
+	var registered, consented, analyzed int64
+	err = s.db.QueryRow(ctx, `
+		SELECT count(*),
+		       count(*) FILTER (WHERE u.terms_accepted_at IS NOT NULL),
+		       count(*) FILTER (WHERE EXISTS (
+		           SELECT 1 FROM assessments a WHERE a.user_id = u.id))
+		  FROM users u WHERE u.created_at >= $1 AND u.created_at < $2
+	`, from, to).Scan(&registered, &consented, &analyzed)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read activation funnel: %w", err)
+	}
+	funnel = Funnel{
+		Registered: int(registered),
+		Consented:  int(consented),
+		Analyzed:   int(analyzed),
+	}
+
+	rows, err = s.db.Query(ctx, `
+		SELECT date_trunc('week', u.created_at AT TIME ZONE 'UTC') AS w,
+		       count(*),
+		       count(*) FILTER (WHERE EXISTS (
+		           SELECT 1 FROM assessments a WHERE a.user_id = u.id
+		             AND a.created_at >= u.created_at + interval '7 days'
+		             AND a.created_at <  u.created_at + interval '14 days')),
+		       count(*) FILTER (WHERE EXISTS (
+		           SELECT 1 FROM assessments a WHERE a.user_id = u.id
+		             AND a.created_at >= u.created_at + interval '21 days'
+		             AND a.created_at <  u.created_at + interval '28 days'))
+		  FROM users u WHERE u.created_at >= $1 AND u.created_at < $2
+		 GROUP BY 1 ORDER BY 1
+	`, from, to)
+	if err != nil {
+		return StatsResponse{}, fmt.Errorf("read retention cohorts: %w", err)
+	}
+	now := time.Now().UTC()
+	for rows.Next() {
+		var (
+			weekStart time.Time
+			size      int64
+			week2     int64
+			week4     int64
+		)
+		if err := rows.Scan(&weekStart, &size, &week2, &week4); err != nil {
+			rows.Close()
+			return StatsResponse{}, fmt.Errorf("scan retention cohorts: %w", err)
+		}
+		t := utcDayUnix(weekStart)
+		cohorts = append(cohorts, CohortRow{
+			WeekStart:   t,
+			Size:        int(size),
+			Week2:       int(week2),
+			Week4:       int(week4),
+			MatureWeeks: matureWeeks(t, now),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return StatsResponse{}, fmt.Errorf("read retention cohorts: %w", err)
+	}
+	rows.Close()
+
 	return StatsResponse{
 		Boxes: StatsBoxes{
 			TotalUsers: StatBox{
@@ -192,6 +255,8 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		Days:         assembleDays(spine, int(usersAtFrom), newUsers, assessments, schemaValid),
 		OrgTypes:     orgTypes,
 		RunsByTarget: assembleTargets(spine, runsByTarget),
+		Funnel:       funnel,
+		Cohorts:      cohorts,
 	}, nil
 }
 
@@ -243,6 +308,16 @@ func assembleTargets(spine []int64, byTarget map[string]map[int64]int) []TargetS
 		series = append(series, TargetSeries{Target: target, Points: points})
 	}
 	return series
+}
+
+// Fully elapsed weeks decide which cohort retention cells can be read. A
+// three-day-old cohort has no fourth-week retention yet, not 0% retention.
+func matureWeeks(weekStart int64, now time.Time) int {
+	elapsed := now.Unix() - weekStart
+	if elapsed <= 0 {
+		return 0
+	}
+	return int(elapsed / (7 * 24 * 3600))
 }
 
 func round2(v float64) float64 {

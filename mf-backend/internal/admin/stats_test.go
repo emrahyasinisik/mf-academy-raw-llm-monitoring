@@ -67,6 +67,22 @@ func TestDaySpineCoversEveryDayOfWindow(t *testing.T) {
 	}
 }
 
+func TestMatureWeeksCountsOnlyElapsedWeeks(t *testing.T) {
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	week := func(d int) int64 { return now.AddDate(0, 0, -d).Truncate(24 * time.Hour).Unix() }
+
+	if got := matureWeeks(week(3), now); got != 0 {
+		t.Fatalf("3 days old = %d weeks, want 0", got)
+	}
+	if got := matureWeeks(week(15), now); got != 2 {
+		t.Fatalf("15 days old = %d weeks, want 2", got)
+	}
+	// Gelecekteki bir hafta başı negatif dönmemeli.
+	if got := matureWeeks(now.AddDate(0, 0, 7).Unix(), now); got != 0 {
+		t.Fatalf("future cohort = %d, want 0", got)
+	}
+}
+
 func TestAssembleDaysZeroFillsAndAccumulates(t *testing.T) {
 	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
 	from := to.AddDate(0, 0, -3)
