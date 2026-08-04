@@ -16,18 +16,36 @@ type StatBox struct {
 	ChangePct *float64 `json:"change_pct"` // Previous == 0 iken nil: taban yoksa yüzde uydurmuyoruz
 }
 
+// ActiveAdapterBox carries the name and nothing else.
+//
+// It used to carry the window's schema-validity rate too, and that was a
+// mislabel rather than a rounding error: the rate is an average over every
+// assessment in the window with no join to the adapter that produced it, while
+// the box is headed with one adapter's name. Over ninety days that spans
+// several builds and the base model, so a reader invited to roll an adapter
+// back was reading a figure that mostly measured other adapters. The honest
+// split is below; attributing the rate per adapter needs a filter on
+// adapter_id and a window scoped to the activation, which is more than this
+// endpoint should decide.
 type ActiveAdapterBox struct {
-	Name         string   `json:"name"`          // "" = aktif adapter yok
-	ValidRate    float64  `json:"valid_rate"`    // 0..1, pencere içi şema uyumu
+	Name string `json:"name"` // "" = aktif adapter yok
+}
+
+// SchemaValidityBox is the whole window's schema compliance, every adapter and
+// the base model together. Named for what it measures, not for whoever happens
+// to be active while it is read.
+type SchemaValidityBox struct {
+	Rate         float64  `json:"rate"`          // 0..1, pencere içi şema uyumu
 	PreviousRate float64  `json:"previous_rate"` // 0..1, önceki pencere
 	ChangePoints *float64 `json:"change_points"` // yüzde PUANI farkı; iki pencereden biri boşsa nil
 }
 
 type StatsBoxes struct {
-	TotalUsers     StatBox          `json:"total_users"`      // Value = şimdiki toplam, Previous = pencere başındaki toplam
-	TotalReports   StatBox          `json:"total_reports"`    // aynı mantık, assessments
-	ReportsLast24h StatBox          `json:"reports_last_24h"` // Value = son 24s, Previous = ondan önceki 24s
-	ActiveAdapter  ActiveAdapterBox `json:"active_adapter"`
+	TotalUsers     StatBox           `json:"total_users"`      // Value = şimdiki toplam, Previous = pencere başındaki toplam
+	TotalReports   StatBox           `json:"total_reports"`    // aynı mantık, assessments
+	ReportsLast24h StatBox           `json:"reports_last_24h"` // Value = son 24s, Previous = ondan önceki 24s
+	ActiveAdapter  ActiveAdapterBox  `json:"active_adapter"`
+	SchemaValidity SchemaValidityBox `json:"schema_validity"`
 }
 
 type DayPoint struct {

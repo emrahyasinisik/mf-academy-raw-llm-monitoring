@@ -262,7 +262,7 @@ function ConsistencyCardView({ card }: { card: NonNullable<AdminStats["consisten
 
 function ConsistencyFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--border)", background: "var(--bg-soft)" }}>
+    <div className="rounded-2xl border p-3" style={{ borderColor: "var(--line)", background: "var(--panel-2)" }}>
       <p className="text-xs" style={{ color: "var(--text-faint)" }}>
         {label}
       </p>
@@ -312,19 +312,24 @@ function BreakdownCards({
 function StatsBoxes({ data }: { data: AdminStats }) {
   const { boxes } = data;
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {/* İlk iki kutunun karşılaştırması "önceki pencere" DEĞİL: değer bugünkü
+          kümülatif toplam, taban ise pencere başındaki toplam. Yani bu yüzde
+          pencere İÇİNDEKİ büyüme. Yanındaki "son 24 saat" kutusu ise gerçekten
+          iki ardışık dönemi kıyaslıyor; ikisine aynı cümleyi yazmak iki farklı
+          hesabı tek bir şeymiş gibi gösteriyordu. */}
       <Stat
         index={0}
         label="Toplam üye"
         value={formatCount(boxes.total_users.value)}
-        hint={`${changeLabel(boxes.total_users.change_pct)} önceki pencereye göre`}
+        hint={`${changeLabel(boxes.total_users.change_pct)} pencere başına göre`}
         tone={changeTone(boxes.total_users.change_pct)}
       />
       <Stat
         index={1}
         label="Toplam rapor"
         value={formatCount(boxes.total_reports.value)}
-        hint={`${changeLabel(boxes.total_reports.change_pct)} önceki pencereye göre`}
+        hint={`${changeLabel(boxes.total_reports.change_pct)} pencere başına göre`}
         tone={changeTone(boxes.total_reports.change_pct)}
       />
       <Stat
@@ -334,14 +339,18 @@ function StatsBoxes({ data }: { data: AdminStats }) {
         hint={`${changeLabel(boxes.reports_last_24h.change_pct)} önceki 24 saate göre`}
         tone={changeTone(boxes.reports_last_24h.change_pct)}
       />
+      {/* Ad ve oran ayrı kutularda: oran penceredeki her analizin ortalaması,
+          hangi yapının ürettiğine bakmıyor. Adapter adının altında yazınca 90
+          günlük pencerede birkaç yapının ortalaması tek bir yapının karnesi
+          gibi okunuyor, ve panel okuyucuyu bu sayıya bakarak geri almaya
+          çağırıyor. */}
+      <Stat index={3} label="Aktif adapter" value={boxes.active_adapter.name || "—"} />
       <Stat
-        index={3}
-        label="Aktif adapter"
-        value={boxes.active_adapter.name || "—"}
-        hint={`şema uyumu ${formatPercent(boxes.active_adapter.valid_rate)}, ${formatPointChange(
-          boxes.active_adapter.change_points,
-        )}`}
-        tone={changeTone(boxes.active_adapter.change_points)}
+        index={4}
+        label="Şema uyumu (pencere)"
+        value={formatPercent(boxes.schema_validity.rate)}
+        hint={`${formatPointChange(boxes.schema_validity.change_points)}, önceki pencereye göre`}
+        tone={changeTone(boxes.schema_validity.change_points)}
       />
     </div>
   );
@@ -350,8 +359,8 @@ function StatsBoxes({ data }: { data: AdminStats }) {
 function StatsSkeleton() {
   return (
     <div className="space-y-4" aria-label="Yükleniyor">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="card p-4 space-y-2.5">
             <div className="skeleton h-3 w-24" />
             <div className="skeleton h-8 w-20" />

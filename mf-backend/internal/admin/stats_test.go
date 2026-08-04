@@ -75,12 +75,34 @@ func TestMatureWeeksCountsOnlyElapsedWeeks(t *testing.T) {
 	if got := matureWeeks(week(3), now); got != 0 {
 		t.Fatalf("3 days old = %d weeks, want 0", got)
 	}
-	if got := matureWeeks(week(15), now); got != 2 {
-		t.Fatalf("15 days old = %d weeks, want 2", got)
+	if got := matureWeeks(week(15), now); got != 1 {
+		t.Fatalf("15 days old = %d weeks, want 1", got)
 	}
 	// Gelecekteki bir hafta başı negatif dönmemeli.
 	if got := matureWeeks(now.AddDate(0, 0, 7).Unix(), now); got != 0 {
 		t.Fatalf("future cohort = %d, want 0", got)
+	}
+}
+
+// Kohort satırı haftaya göre gruplanıyor ama tutunma her üyenin KENDİ kaydından
+// ölçülüyor: pazar günü kaydolan biri 4. hafta penceresini ancak hafta başı +
+// 34. günde kapatıyor. Hücre 28. günde açılırsa o üye dönmemiş sayılır.
+func TestMatureWeeksWaitsForTheWeeksLastSignup(t *testing.T) {
+	weekStart := time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC) // pazartesi
+	at := func(days int) time.Time { return weekStart.AddDate(0, 0, days) }
+
+	if got := matureWeeks(weekStart.Unix(), at(33)); got >= 4 {
+		t.Fatalf("33rd day = %d mature weeks, want < 4: the Sunday signup still has a day", got)
+	}
+	if got := matureWeeks(weekStart.Unix(), at(35)); got != 4 {
+		t.Fatalf("35th day = %d mature weeks, want 4", got)
+	}
+	// 2. hafta penceresi (kendi kaydından 7-14 gün) en geç hafta başı + 21'de kapanır.
+	if got := matureWeeks(weekStart.Unix(), at(20)); got >= 2 {
+		t.Fatalf("20th day = %d mature weeks, want < 2", got)
+	}
+	if got := matureWeeks(weekStart.Unix(), at(21)); got != 2 {
+		t.Fatalf("21st day = %d mature weeks, want 2", got)
 	}
 }
 

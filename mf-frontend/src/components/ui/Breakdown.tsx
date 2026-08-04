@@ -148,9 +148,14 @@ function EmptyState() {
 
 function formatCohortRate(value: number | null) {
   if (value === null) {
+    // aria-label rolsüz bir <span>'de tanımlı değil ve ekran okuyucular arasında
+    // davranışı değişiyor: hücre yalnızca "tire" diye okunabiliyordu. Metin
+    // görünmez bir span'e yazılıyor, tire de erişilebilirlik ağacından
+    // çıkarılıyor — böylece hücre neyi söylemek istiyorsa onu söylüyor.
     return (
-      <span title="Kohort henüz bu yaşta değil" aria-label="Kohort henüz bu yaşta değil">
-        —
+      <span title="Kohort henüz bu yaşta değil">
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Kohort henüz bu yaşta değil</span>
       </span>
     );
   }

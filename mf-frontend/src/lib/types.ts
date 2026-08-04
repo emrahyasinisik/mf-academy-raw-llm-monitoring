@@ -361,22 +361,18 @@ export interface StatBox {
 
 /**
  * Yalnızca ad. Şema uyumu buradan çıkarıldı: oran penceredeki TÜM analizlerin
- * ortalaması ve üreten adapter'a bağlanmıyor. Adapter adının altında
+ * ortalaması, hangi adapter'ın ürettiğine bakmıyor. Adapter adının altında
  * gösterilince 90 günlük pencerede birkaç yapının ve temel modelin ortalaması
- * tek bir yapının karnesi gibi okunuyordu — ve panel okuyucuyu o sayıya bakarak
- * geri almaya çağırıyor.
+ * tek bir yapının başarısı gibi okunuyordu.
  */
 export interface ActiveAdapterBox {
-  /** "" = aktif adapter yok, temel model yanıtlıyor. */
   name: string;
 }
 
 /** Pencerenin şema uyumu — her adapter ve temel model birlikte. */
 export interface SchemaValidityBox {
-  /** 0..1, pencere içi şema uyumu. */
   rate: number;
   previous_rate: number;
-  /** Yüzde PUANI farkı; iki pencereden biri boşsa null. */
   change_points: number | null;
 }
 

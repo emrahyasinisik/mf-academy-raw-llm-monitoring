@@ -27,7 +27,7 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 		windowValidRate float64
 		priorReports    int64
 		priorValidRate  float64
-		activeChange  *float64
+		validityChange  *float64
 		newUsers        = map[int64]int{}
 		assessments     = map[int64]int{}
 		schemaValid     = map[int64]int{}
@@ -66,7 +66,7 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 	}
 	if windowReports > 0 && priorReports > 0 {
 		v := round2((windowValidRate - priorValidRate) * 100)
-		activeChange = &v
+		validityChange = &v
 	}
 
 	rows, err := s.db.Query(ctx, `
@@ -254,11 +254,11 @@ func (s *Store) Stats(ctx context.Context, from, to time.Time) (StatsResponse, e
 				Previous:  float64(reportsPrev24h),
 				ChangePct: changePct(float64(reportsLast24h), float64(reportsPrev24h)),
 			},
-			ActiveAdapter: ActiveAdapterBox{
-				Name:         activeAdapter,
-				ValidRate:    windowValidRate,
+			ActiveAdapter: ActiveAdapterBox{Name: activeAdapter},
+			SchemaValidity: SchemaValidityBox{
+				Rate:         windowValidRate,
 				PreviousRate: priorValidRate,
-				ChangePoints: activeChange,
+				ChangePoints: validityChange,
 			},
 		},
 		Days:         assembleDays(spine, int(usersAtFrom), newUsers, assessments, schemaValid),
@@ -482,12 +482,22 @@ func assembleTargets(spine []int64, byTarget map[string]map[int64]int) []TargetS
 
 // Fully elapsed weeks decide which cohort retention cells can be read. A
 // three-day-old cohort has no fourth-week retention yet, not 0% retention.
+//
+// Counted from the END of the cohort week, not its start, and the difference is
+// up to six days of published churn that has not happened. The row is grouped by
+// date_trunc('week', created_at) but retention is measured from each member's
+// own created_at — the fourth-week window is created_at + 21..28 days. Somebody
+// who signed up on the Sunday of a Monday-starting week only closes that window
+// on weekStart + 34 days, so unlocking the cell at weekStart + 28 counted them
+// as a non-returner while they still had six days to return. Adding the week's
+// own width makes the cell wait for the last possible member.
 func matureWeeks(weekStart int64, now time.Time) int {
-	elapsed := now.Unix() - weekStart
+	const week = int64(7 * 24 * 3600)
+	elapsed := now.Unix() - (weekStart + week)
 	if elapsed <= 0 {
 		return 0
 	}
-	return int(elapsed / (7 * 24 * 3600))
+	return int(elapsed / week)
 }
 
 func round2(v float64) float64 {
