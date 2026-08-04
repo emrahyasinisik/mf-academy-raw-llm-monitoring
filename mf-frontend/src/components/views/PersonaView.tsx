@@ -3,28 +3,46 @@
 // The investment persona: one screen, one conversation at a time, and a rail of
 // the ones before it. The user names a market, brand, product or technology; the
 // persona researches it live and works toward an investability verdict, asking a
-// clarifying question when it must. There is no separate "analysis" and no
-// separate "knowledge base" here on purpose — research and decision are the same
-// agent, and this screen is its whole surface.
+// clarifying question when it must. After a verdict, the same screen can produce
+// a rubric report into a side panel — research, decision and report share one
+// workspace rather than three destinations.
 //
 // The transcript is both local state and server state, and the split matters: a
 // turn is produced from what this component holds, and stored as a side effect.
 // So the screen never waits on history to answer, and a failed write costs the
 // record rather than the reply.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { api, ApiError } from "@/lib/api";
 import type {
+  AppLimits,
+  Assessment,
   ConversationSummary,
   DecisionSource,
   DecisionTurn,
   ResearchStep,
 } from "@/lib/types";
+import { assemblePersonaCase, parseIntake } from "@/lib/personaCase";
+import { isRedacted } from "@/lib/report";
+import {
+  clampReportPanelWidth,
+  loadReportPanelWidth,
+  saveReportPanelWidth,
+} from "@/lib/reportPanelWidth";
+import { caseBudgetChars } from "@/lib/rubric";
 import { parseVerdict, stripVerdictLines } from "@/lib/verdict";
 import { useMachine } from "@/store/machine";
 import { RichText } from "@/components/ui/RichText";
 import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
 import { CriterionContinuum } from "@/components/ui/CriterionContinuum";
+import { IntakeFields } from "@/components/ui/IntakeFields";
+import { ReportPanel } from "@/components/ui/ReportPanel";
 
 // A message as this screen keeps it: the wire turn plus, for the persona's
 // replies, what it researched to get there. The history sent to the server is
@@ -53,6 +71,9 @@ const OPENERS = [
   "Katı hal batarya üreticileri",
 ];
 
+/** When host config is unreachable — case assembly still needs a window. */
+const WINDOW_TOKENS_FALLBACK = 8192;
+
 function toneFor(label: string): string {
   const key = label.toLowerCase();
   for (const k of Object.keys(VERDICT_TONE)) {
@@ -70,6 +91,18 @@ export function PersonaView() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const [topic, setTopic] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(420);
+  const [report, setReport] = useState<Assessment | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [linkedAssessmentId, setLinkedAssessmentId] = useState<string | null>(
+    null,
+  );
+  const [windowTokens, setWindowTokens] = useState(WINDOW_TOKENS_FALLBACK);
 
   // ---- history ----
   // The id of the thread on screen. Null for a conversation that has not had a
@@ -113,6 +146,26 @@ export function PersonaView() {
     void loadHistory();
   }, [loadHistory]);
 
+  useEffect(() => {
+    const sync = () => setPanelWidth(loadReportPanelWidth(window.innerWidth));
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
+  // Same source AnalizView uses — host window shrinks the case budget.
+  useEffect(() => {
+    api
+      .config()
+      .then((c) => {
+        const limits = (c as { limits?: Partial<AppLimits> }).limits;
+        if (limits?.max_prompt_tokens) setWindowTokens(limits.max_prompt_tokens);
+      })
+      .catch(() => {
+        /* Fallback already set. */
+      });
+  }, []);
+
   // Keep the newest message in view as the conversation grows.
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -121,11 +174,134 @@ export function PersonaView() {
     });
   }, [messages, running]);
 
+  const clearReportLink = useCallback(async (id: string) => {
+    try {
+      await api.patchConversation(id, { assessment_id: null });
+    } catch {
+      /* Link clear is best-effort; panel already shows the missing report. */
+    }
+    setLinkedAssessmentId(null);
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, assessment_id: null } : t)),
+    );
+  }, []);
+
+  const hydrateReport = useCallback(
+    async (assessmentId: string, conversationId: string) => {
+      setPanelOpen(true);
+      setReportLoading(true);
+      setReportError("");
+      setReport(null);
+      try {
+        const a = await api.analysisGet(assessmentId);
+        if (isRedacted(a)) {
+          // Show the redacted shell, then drop the stale link so reopen stays honest.
+          setReport(a);
+          await clearReportLink(conversationId);
+        } else {
+          setReport(a);
+        }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) {
+          setReportError("Bu rapor artık yok.");
+          await clearReportLink(conversationId);
+        } else {
+          setReportError(
+            e instanceof ApiError ? e.message : "Rapor yüklenemedi.",
+          );
+        }
+      } finally {
+        setReportLoading(false);
+      }
+    },
+    [clearReportLink],
+  );
+
+  const produceReport = useCallback(async () => {
+    if (!threadId || reportLoading) return;
+    setPanelOpen(true);
+    setReportLoading(true);
+    setReportError("");
+    const done = begin("Rapor üretiliyor");
+    try {
+      const prompt = await api.analysisPrompt("startup-investability");
+      const budget = caseBudgetChars(windowTokens, prompt.system_prompt.length);
+      const lastAssistant = [...messages]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      const body = assemblePersonaCase({
+        topic:
+          topic ||
+          threads.find((t) => t.id === threadId)?.title ||
+          "Vaka",
+        purpose,
+        userReplies: messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content),
+        lastAssistantBody: lastAssistant
+          ? stripVerdictLines(lastAssistant.content)
+          : "",
+        sources: (
+          lastAssistant && lastAssistant.role === "assistant"
+            ? lastAssistant.sources
+            : []
+        ).map((s) => ({
+          title: s.title || s.url,
+          url: s.url,
+        })),
+        budgetChars: budget,
+      });
+      const a = await api.analysisRun({
+        domain: "startup-investability",
+        subject_title: body.subject_title,
+        subject: body.subject,
+      });
+      setReport(a);
+      setLinkedAssessmentId(a.id);
+      try {
+        await api.patchConversation(threadId, { assessment_id: a.id });
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === threadId ? { ...t, assessment_id: a.id } : t,
+          ),
+        );
+      } catch {
+        setReportError("Rapor hazır; konuşmaya bağlanamadı.");
+      }
+    } catch (e) {
+      setReportError(
+        e instanceof ApiError ? e.message : "Rapor üretilemedi.",
+      );
+    } finally {
+      setReportLoading(false);
+      done();
+    }
+  }, [
+    threadId,
+    reportLoading,
+    begin,
+    windowTokens,
+    messages,
+    topic,
+    purpose,
+    threads,
+  ]);
+
   const ask = useCallback(
     async (text: string) => {
-      if (text.length < 2 || running) return;
+      if (text.length < 2 || running || reportLoading) return;
 
-      const nextUser: ChatMessage = { role: "user", content: text };
+      let content = text;
+      if (messages.length === 0) {
+        if (!topic.trim() || !purpose.trim()) {
+          setError("Konu ve amaç zorunlu.");
+          return;
+        }
+        content =
+          `Konu: ${topic.trim()}\nAmaç: ${purpose.trim()}\n\n${text}`.trim();
+      }
+
+      const nextUser: ChatMessage = { role: "user", content };
       const history = [...messages, nextUser];
       setMessages(history);
       setInput("");
@@ -176,7 +352,16 @@ export function PersonaView() {
         setRunning(false);
       }
     },
-    [messages, running, begin, threadId, loadHistory],
+    [
+      messages,
+      running,
+      reportLoading,
+      topic,
+      purpose,
+      begin,
+      threadId,
+      loadHistory,
+    ],
   );
 
   // Open a stored thread. Refused mid-turn: the reply in flight belongs to the
@@ -184,8 +369,11 @@ export function PersonaView() {
   // research under the wrong subject.
   const openThread = useCallback(
     async (id: string) => {
-      if (running || id === threadId) return;
+      if (running || reportLoading || id === threadId) return;
       setError("");
+      setReport(null);
+      setReportError("");
+      setPanelOpen(false);
       try {
         const c = await api.conversation(id);
         setMessages(
@@ -202,22 +390,45 @@ export function PersonaView() {
           ),
         );
         setThreadId(c.id);
+
+        const firstUser = c.messages.find((m) => m.role === "user");
+        if (firstUser) {
+          const intake = parseIntake(firstUser.content);
+          setTopic(intake.topic);
+          setPurpose(intake.purpose);
+        } else {
+          setTopic("");
+          setPurpose("");
+        }
+
+        const aid = c.assessment_id ?? null;
+        setLinkedAssessmentId(aid);
+        if (aid) {
+          void hydrateReport(aid, c.id);
+        }
       } catch (e) {
         setError(
           e instanceof ApiError ? e.message : "Konuşma açılamadı.",
         );
       }
     },
-    [running, threadId],
+    [running, reportLoading, threadId, hydrateReport],
   );
 
   const newThread = useCallback(() => {
-    if (running) return;
+    if (running || reportLoading) return;
     setMessages([]);
     setThreadId(null);
     setError("");
     setInput("");
-  }, [running]);
+    setTopic("");
+    setPurpose("");
+    setPanelOpen(false);
+    setReport(null);
+    setReportLoading(false);
+    setReportError("");
+    setLinkedAssessmentId(null);
+  }, [running, reportLoading]);
 
   const renameThread = useCallback(async (id: string, title: string) => {
     // Optimistic: a rename is the user's own text going into a field they can
@@ -245,6 +456,14 @@ export function PersonaView() {
     },
     [threadId, newThread, loadHistory],
   );
+
+  const pickOpener = useCallback((text: string) => {
+    // Openers fill topic + composer; purpose stays the operator's job so the
+    // first turn is not sent without an explicit aim.
+    setTopic(text);
+    setInput(text);
+    setError("");
+  }, []);
 
   const send = useCallback(() => ask(input.trim()), [ask, input]);
 
@@ -276,6 +495,20 @@ export function PersonaView() {
     detail: `${Math.ceil(t.turns / 2)} tur`,
   }));
 
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return i;
+    }
+    return -1;
+  })();
+
+  const intakeReady = topic.trim().length > 0 && purpose.trim().length > 0;
+  const sendDisabled =
+    running ||
+    reportLoading ||
+    input.trim().length < 2 ||
+    (messages.length === 0 && !intakeReady);
+
   return (
     <div className="h-full flex min-h-0">
       <HistoryPanel
@@ -296,79 +529,139 @@ export function PersonaView() {
         emptyText="Henüz değerlendirme yok. İlk konusunu yazdığında burada birikmeye başlar."
       />
 
-      <div className="h-full flex-1 min-w-0 flex flex-col max-w-3xl mx-auto w-full px-4 sm:px-5">
-      {messages.length === 0 ? (
-        <Intro onPick={ask} disabled={running} />
-      ) : (
-        <div
-          ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto scrollbar-thin py-6 space-y-6"
-          aria-live="polite"
-        >
-          {messages.map((m, i) =>
-            m.role === "user" ? (
-              <UserBubble key={i} text={m.content} />
-            ) : (
-              <PersonaBubble key={i} msg={m} />
-            ),
-          )}
-          {running && <Thinking />}
-        </div>
-      )}
-
-      {error && (
-        <div className="notice notice-bad mb-3 view-in">{error}</div>
-      )}
-
-      {/* ---- composer ----
-          The field, the send control and the reset control are one surface
-          rather than three loose boxes: they act on the same thing. */}
-      <div className="pb-5 pt-2">
-        <div
-          className="card p-2 flex items-end gap-2"
-          style={{ background: "var(--panel-2)" }}
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKey}
-            rows={2}
-            disabled={running}
-            aria-label="Değerlendirilecek konu"
-            placeholder="Bir pazar, marka, ürün veya teknoloji yaz…"
-            className="flex-1 resize-none bg-transparent border-0 px-2 py-1.5 text-sm outline-none min-w-0"
-            style={{ color: "var(--text)" }}
+      <div
+        className={`h-full flex-1 min-w-0 flex flex-col w-full px-4 sm:px-5 ${
+          panelOpen ? "" : "max-w-3xl mx-auto"
+        }`}
+      >
+        {messages.length === 0 ? (
+          <Intro
+            onPick={pickOpener}
+            disabled={running || reportLoading}
+            intake={
+              <IntakeFields
+                topic={topic}
+                purpose={purpose}
+                onTopic={setTopic}
+                onPurpose={setPurpose}
+                disabled={running || reportLoading}
+              />
+            }
           />
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* No longer "Sıfırla": the conversation is kept now, so clearing
-                the screen starts a second one rather than discarding the first.
-                The old label promised a destruction that no longer happens. */}
-            {messages.length > 0 && (
-              <button
-                className="btn btn-quiet btn-sm lg:hidden"
-                onClick={newThread}
-                disabled={running}
-                title="Bu değerlendirmeyi bırak ve yenisine başla"
-              >
-                Yeni
-              </button>
+        ) : (
+          <div
+            ref={scrollRef}
+            className={`flex-1 min-h-0 overflow-y-auto scrollbar-thin py-6 space-y-6 ${
+              panelOpen ? "max-w-3xl" : ""
+            }`}
+            aria-live="polite"
+          >
+            {(topic || purpose) && (
+              <div className="flex flex-wrap gap-2">
+                {topic && (
+                  <span className="pill" title="Konu">
+                    Konu · {topic}
+                  </span>
+                )}
+                {purpose && (
+                  <span className="pill" title="Amaç">
+                    Amaç · {purpose}
+                  </span>
+                )}
+              </div>
             )}
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={send}
-              disabled={running || input.trim().length < 2}
-            >
-              {running ? "Araştırıyor…" : "Gönder"}
-            </button>
+            {messages.map((m, i) =>
+              m.role === "user" ? (
+                <UserBubble key={i} text={m.content} />
+              ) : (
+                <PersonaBubble
+                  key={i}
+                  msg={m}
+                  showReportCta={i === lastAssistantIndex}
+                  linkedAssessmentId={linkedAssessmentId}
+                  reportLoaded={report !== null}
+                  reportLoading={reportLoading}
+                  onProduceReport={() => void produceReport()}
+                  onShowReport={() => setPanelOpen(true)}
+                />
+              ),
+            )}
+            {running && <Thinking />}
           </div>
+        )}
+
+        {error && (
+          <div className="notice notice-bad mb-3 view-in">{error}</div>
+        )}
+
+        {/* ---- composer ----
+            The field, the send control and the reset control are one surface
+            rather than three loose boxes: they act on the same thing. */}
+        <div className="pb-5 pt-2">
+          <div
+            className="card p-2 flex items-end gap-2"
+            style={{ background: "var(--panel-2)" }}
+          >
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKey}
+              rows={2}
+              disabled={running || reportLoading}
+              aria-label="Değerlendirilecek konu"
+              placeholder="Bir pazar, marka, ürün veya teknoloji yaz…"
+              className="flex-1 resize-none bg-transparent border-0 px-2 py-1.5 text-sm outline-none min-w-0"
+              style={{ color: "var(--text)" }}
+            />
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* No longer "Sıfırla": the conversation is kept now, so clearing
+                  the screen starts a second one rather than discarding the first.
+                  The old label promised a destruction that no longer happens. */}
+              {messages.length > 0 && (
+                <button
+                  className="btn btn-quiet btn-sm lg:hidden"
+                  onClick={newThread}
+                  disabled={running || reportLoading}
+                  title="Bu değerlendirmeyi bırak ve yenisine başla"
+                >
+                  Yeni
+                </button>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={send}
+                disabled={sendDisabled}
+              >
+                {running
+                  ? "Araştırıyor…"
+                  : reportLoading
+                    ? "Rapor…"
+                    : "Gönder"}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs mt-2 px-1" style={{ color: "var(--text-faint)" }}>
+            Persona her turda canlı web ve DeepKwiki üzerinden araştırır; okumasını
+            kaynaklara bağlar. <span className="mono">Enter</span> gönderir,{" "}
+            <span className="mono">Shift+Enter</span> satır atlar.
+          </p>
         </div>
-        <p className="text-xs mt-2 px-1" style={{ color: "var(--text-faint)" }}>
-          Persona her turda canlı web ve DeepKwiki üzerinden araştırır; okumasını
-          kaynaklara bağlar. <span className="mono">Enter</span> gönderir,{" "}
-          <span className="mono">Shift+Enter</span> satır atlar.
-        </p>
       </div>
-      </div>
+
+      <ReportPanel
+        open={panelOpen}
+        width={panelWidth}
+        onWidthChange={(px) => {
+          const c = clampReportPanelWidth(px, window.innerWidth);
+          setPanelWidth(c);
+          saveReportPanelWidth(c);
+        }}
+        onClose={() => setPanelOpen(false)}
+        assessment={report}
+        loading={reportLoading}
+        error={reportError}
+        onRetry={() => void produceReport()}
+      />
     </div>
   );
 }
@@ -376,13 +669,15 @@ export function PersonaView() {
 function Intro({
   onPick,
   disabled,
+  intake,
 }: {
   onPick: (text: string) => void;
   disabled: boolean;
+  intake: ReactNode;
 }) {
   return (
     <div className="flex-1 grid place-items-center text-center px-2">
-      <div className="max-w-md view-in">
+      <div className="max-w-md view-in w-full">
         <div
           className="mx-auto w-11 h-11 rounded-[var(--r-md)] grid place-items-center mb-4"
           style={{
@@ -417,6 +712,8 @@ function Intro({
         </p>
 
         <CriterionContinuum count={10} mode="wave" className="justify-center mb-6 opacity-70" />
+
+        <div className="text-left mb-5">{intake}</div>
 
         <div className="flex flex-wrap justify-center gap-2">
           {OPENERS.map((o, i) => (
@@ -459,6 +756,12 @@ function UserBubble({ text }: { text: string }) {
 
 function PersonaBubble({
   msg,
+  showReportCta,
+  linkedAssessmentId,
+  reportLoaded,
+  reportLoading,
+  onProduceReport,
+  onShowReport,
 }: {
   msg: {
     content: string;
@@ -466,11 +769,19 @@ function PersonaBubble({
     research: ResearchStep[];
     model: string;
   };
+  showReportCta?: boolean;
+  linkedAssessmentId?: string | null;
+  reportLoaded?: boolean;
+  reportLoading?: boolean;
+  onProduceReport?: () => void;
+  onShowReport?: () => void;
 }) {
   // The source count is what decides whether the SKOR line is a measurement;
   // see lib/verdict.ts. The server applies the same rule to what it stores.
   const verdict = parseVerdict(msg.content, msg.sources.length);
   const tone = verdict ? toneFor(verdict.label) : null;
+  const canShow =
+    Boolean(linkedAssessmentId) && Boolean(reportLoaded) && !reportLoading;
 
   return (
     <div className="space-y-2.5 item-in">
@@ -502,6 +813,28 @@ function PersonaBubble({
 
       {msg.research.length > 0 && <ResearchTrail steps={msg.research} />}
       {msg.sources.length > 0 && <SourceList sources={msg.sources} />}
+
+      {showReportCta && verdict && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={onProduceReport}
+            disabled={reportLoading}
+          >
+            {reportLoading ? "Rapor üretiliyor…" : "Rapor üret"}
+          </button>
+          {canShow && (
+            <button
+              type="button"
+              className="btn btn-quiet btn-sm"
+              onClick={onShowReport}
+            >
+              Raporu göster
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

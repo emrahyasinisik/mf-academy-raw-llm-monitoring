@@ -123,6 +123,16 @@ async function request<T>(
   return (await res.json()) as T;
 }
 
+function patchConversation(
+  id: string,
+  body: { title?: string; assessment_id?: string | null },
+): Promise<void> {
+  return request<void>(`/decision/conversations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 async function tryRefresh(): Promise<boolean> {
   const refresh = getRefresh();
   if (!refresh) return false;
@@ -332,11 +342,9 @@ export const api = {
   },
   conversation: (id: string) =>
     request<Conversation>(`/decision/conversations/${id}`),
+  patchConversation,
   renameConversation: (id: string, title: string) =>
-    request<void>(`/decision/conversations/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ title }),
-    }),
+    patchConversation(id, { title }),
   deleteConversation: (id: string) =>
     request<void>(`/decision/conversations/${id}`, { method: "DELETE" }),
 

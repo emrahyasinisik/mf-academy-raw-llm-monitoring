@@ -850,6 +850,8 @@ export interface DecisionResult {
 export interface ConversationSummary {
   id: string;
   title: string;
+  /** Linked rubric report, if the thread produced one. */
+  assessment_id?: string | null;
   /** The decision this thread reached, or null while it is still researching. */
   verdict: string | null;
   verdict_score: number | null;
@@ -872,6 +874,8 @@ export interface ConversationMessage {
 export interface Conversation {
   id: string;
   title: string;
+  /** Linked rubric report, if the thread produced one. */
+  assessment_id?: string | null;
   verdict: string | null;
   verdict_score: number | null;
   messages: ConversationMessage[];

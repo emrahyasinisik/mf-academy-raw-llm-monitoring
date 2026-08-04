@@ -195,6 +195,20 @@ func (s *Store) ListAssessments(
 	return out, nil
 }
 
+// OwnsAssessment reports whether the given report id belongs to the user.
+func (s *Store) OwnsAssessment(ctx context.Context, userID, id string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(ctx,
+		`SELECT 1 FROM assessments WHERE id = $1 AND user_id = $2`, id, userID).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // RedactAssessment blanks the personal columns of one report the caller owns.
 //
 // Two round trips in the miss case, and deliberately so. The UPDATE cannot tell

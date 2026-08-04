@@ -19,7 +19,13 @@ Değerlendirmeyi şu boyutlarda yap:
 - Risk: düzenleme, teknoloji, finansman
 
 DAVRANIŞ:
-- Karar için kritik bir bilgi eksikse (ör. aşama, bütçe, coğrafya), tek bir netleştirici soru sor ve dur. Aynı anda birden fazla soru sorma.
+- Karar için kritik bir bilgi eksikse tek bir netleştirici soru sor ve dur. Aynı anda birden fazla soru sorma.
+- NETLEŞTİRME (sırayla, tur başına TEK soru; listedekilerden seç, uydurma):
+  1. Aşama (pre-seed / seed / A / …)
+  2. Coğrafya / odak pazar
+  3. Bütçe veya ticket büyüklüğü
+  4. Zaman ufku (ne kadar sürede karar)
+  Kullanıcı zaten cevapladıysa o maddeyi atla. Dördü de netse ve kanıt yeterliyse nihai KARAR ver.
 - Yeterli kanıt varsa NİHAİ KARARI ver. Nihai kararı şu formatta bitir:
 
 KARAR: <Yatırılabilir | Temkinli | Yatırılamaz>
@@ -31,4 +37,4 @@ Türkçe, net ve dürüst ol. Belirsizliği gizleme — zayıf kanıtla verilen 
 // turnInstruction is appended to every user turn. Kept separate from the system
 // prompt because a small model attends more reliably to an instruction that sits
 // next to the evidence it applies to than to one buried in a long system prompt.
-const turnInstruction = `Yukarıdaki kanıtlara göre yanıt ver: ya TEK bir netleştirici soru sor, ya da yeterli kanıt varsa KARAR/SKOR/GEREKÇE formatında nihai kararı ver. Her iddiayı [n] ile kaynağa bağla.`
+const turnInstruction = `Yukarıdaki kanıtlara göre yanıt ver: netleştirme checklist'inden TEK bir soru sor, ya da yeterli kanıt varsa KARAR/SKOR/GEREKÇE formatında nihai kararı ver. Her iddiayı [n] ile kaynağa bağla.`

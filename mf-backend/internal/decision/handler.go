@@ -34,14 +34,26 @@ const (
 // database would hold the goroutine after the client has long since gone.
 const writeTimeout = 5 * time.Second
 
-// Handler is the HTTP surface for the investment persona.
-type Handler struct {
-	agent *Agent
-	store *Store
+// conversationStore is the persistence the HTTP handlers need. Declared
+// consumer-side so Patch can be httptest'd without PostgreSQL.
+type conversationStore interface {
+	Record(ctx context.Context, userID, conversationID, latest string, res Result) (string, error)
+	List(ctx context.Context, userID string, limit int, before time.Time) (ListResult, error)
+	Get(ctx context.Context, userID, id string) (Conversation, error)
+	Rename(ctx context.Context, userID, id, title string) error
+	SetAssessmentID(ctx context.Context, userID, id string, assessmentID *string) error
+	Delete(ctx context.Context, userID, id string) error
 }
 
-func NewHandler(agent *Agent, store *Store) *Handler {
-	return &Handler{agent: agent, store: store}
+// Handler is the HTTP surface for the investment persona.
+type Handler struct {
+	agent       *Agent
+	store       conversationStore
+	assessments AssessmentOwner
+}
+
+func NewHandler(agent *Agent, store *Store, assessments AssessmentOwner) *Handler {
+	return &Handler{agent: agent, store: store, assessments: assessments}
 }
 
 // ChatRequest is the whole conversation, newest message last.
@@ -186,38 +198,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	common.JSON(w, http.StatusOK, c)
 }
 
-// RenameRequest is the body of a retitle.
-type RenameRequest struct {
-	Title string `json:"title"`
-}
-
-// Rename retitles a thread. PATCH /decision/conversations/{id}
-func (h *Handler) Rename(w http.ResponseWriter, r *http.Request) {
-	claims, _ := common.ClaimsFromContext(r.Context())
-
-	var req RenameRequest
-	if err := common.Decode(r, &req); err != nil {
-		common.Error(w, common.ErrBadRequest("invalid JSON body"))
-		return
-	}
-	if strings.TrimSpace(req.Title) == "" {
-		common.Error(w, common.ErrBadRequest("title is required"))
-		return
-	}
-
-	err := h.store.Rename(r.Context(), claims.UserID, chi.URLParam(r, "id"), req.Title)
-	if errors.Is(err, ErrNoRows) {
-		common.Error(w, common.ErrNotFound("no such conversation"))
-		return
-	}
-	if err != nil {
-		slog.Error("decision history rename failed", "error", err)
-		common.Error(w, common.ErrInternal("could not rename the conversation"))
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // Delete removes a thread and its messages. DELETE /decision/conversations/{id}
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	claims, _ := common.ClaimsFromContext(r.Context())
@@ -305,7 +285,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, defaultTimeout, genTimeout
 			sr.Get("/prompt", h.Prompt)
 			sr.Get("/conversations", h.List)
 			sr.Get("/conversations/{id}", h.Get)
-			sr.Patch("/conversations/{id}", h.Rename)
+			sr.Patch("/conversations/{id}", h.Patch)
 			sr.Delete("/conversations/{id}", h.Delete)
 		})
 	})
