@@ -177,11 +177,14 @@ export const api = {
     request<{ sessions: unknown[]; count: number }>("/auth/sessions"),
   acceptTerms: () =>
     request<void>("/auth/accept-terms", { method: "POST" }),
-  changePassword: (current_password: string, new_password: string) =>
-    request<TokenPair>("/auth/change-password", {
+  async changePassword(current_password: string, new_password: string) {
+    const data = await request<TokenPair>("/auth/change-password", {
       method: "POST",
       body: JSON.stringify({ current_password, new_password }),
-    }),
+    });
+    setTokens(data.access_token, data.refresh_token);
+    return data;
+  },
 
   // ---- llm ----
   // server_inference reports whether this deployment has an inference host

@@ -22,6 +22,7 @@ interface AuthState {
   register: (email: string, password: string, name: string, acceptedTerms: boolean) => Promise<void>;
   logout: () => Promise<void>;
   acceptTerms: () => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -80,9 +81,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(await api.me());
   }, []);
 
+  const changePassword = useCallback(async (current: string, next: string) => {
+    const data = await api.changePassword(current, next);
+    setUser(data.user);
+  }, []);
+
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, register, logout, acceptTerms }}
+      value={{
+        user,
+        loading,
+        login,
+        register,
+        logout,
+        acceptTerms,
+        changePassword,
+      }}
     >
       {children}
     </AuthContext.Provider>
