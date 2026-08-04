@@ -5,6 +5,7 @@ export interface User {
   email: string;
   name: string;
   role: string;
+  must_change_password: boolean;
   created_at: string;
   updated_at: string;
   terms_accepted_at: string | null;
@@ -396,6 +397,64 @@ export interface AdminLogEntry {
   score: number | null;
   grade: string;
   created_at: string;
+}
+
+export type AccountType = "individual" | "company";
+export type AccountStatus = "active" | "suspended";
+
+export interface AccountSummary {
+  id: string;
+  name: string;
+  type: AccountType;
+  tax_id: string;
+  seat_limit: number;
+  status: AccountStatus;
+  member_count: number;
+  assessment_count: number;
+  last_activity_at: string | null;
+  created_at: string;
+}
+
+export interface AccountMember {
+  id: string;
+  email: string;
+  name: string;
+  org_role: string;
+  created_at: string;
+}
+
+export interface AccountSession {
+  id: string;
+  user_agent: string;
+  ip: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface AccountDetail extends AccountSummary {
+  members: AccountMember[];
+  sessions: AccountSession[];
+}
+
+export interface AccountListResult {
+  accounts: AccountSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface CreateAccountRequest {
+  type: AccountType;
+  name: string;
+  email: string;
+  tax_id?: string;
+  seat_limit?: number;
+}
+
+export interface CreateAccountResponse {
+  account: AccountSummary;
+  temporary_password: string;
+  owner: AccountMember;
 }
 
 // ---- DeepKwiki ----

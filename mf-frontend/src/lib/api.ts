@@ -31,6 +31,12 @@ import type {
   DecisionResult,
   Conversation,
   ConversationList,
+  AccountListResult,
+  AccountDetail,
+  CreateAccountRequest,
+  CreateAccountResponse,
+  AccountStatus,
+  AccountType,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -171,6 +177,11 @@ export const api = {
     request<{ sessions: unknown[]; count: number }>("/auth/sessions"),
   acceptTerms: () =>
     request<void>("/auth/accept-terms", { method: "POST" }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<TokenPair>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
 
   // ---- llm ----
   // server_inference reports whether this deployment has an inference host
@@ -376,5 +387,39 @@ export const api = {
       request<{ status: string }>(`/admin/mcp-servers/${id}`, {
         method: "DELETE",
       }),
+    accounts: {
+      list: (opts: {
+        q?: string;
+        type?: AccountType;
+        status?: AccountStatus;
+        page?: number;
+        limit?: number;
+      } = {}) => {
+        const params = new URLSearchParams();
+        if (opts.q) params.set("q", opts.q);
+        if (opts.type) params.set("type", opts.type);
+        if (opts.status) params.set("status", opts.status);
+        if (opts.page) params.set("page", String(opts.page));
+        if (opts.limit) params.set("limit", String(opts.limit));
+        const qs = params.toString();
+        return request<AccountListResult>(
+          `/admin/accounts${qs ? `?${qs}` : ""}`,
+        );
+      },
+      create: (payload: CreateAccountRequest) =>
+        request<CreateAccountResponse>("/admin/accounts", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      get: (id: string) => request<AccountDetail>(`/admin/accounts/${id}`),
+      suspend: (id: string) =>
+        request<{ status: AccountStatus }>(`/admin/accounts/${id}/suspend`, {
+          method: "POST",
+        }),
+      unsuspend: (id: string) =>
+        request<{ status: AccountStatus }>(`/admin/accounts/${id}/unsuspend`, {
+          method: "POST",
+        }),
+    },
   },
 };
