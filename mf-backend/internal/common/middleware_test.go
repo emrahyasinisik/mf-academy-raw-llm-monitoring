@@ -92,3 +92,34 @@ func TestRequirePasswordFresh(t *testing.T) {
 		t.Fatal("next handler did not run for fresh password")
 	}
 }
+
+func TestRequireOrgAdmin(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	h := RequireOrgAdmin(next)
+
+	cases := []struct {
+		name   string
+		claims AuthClaims
+		code   int
+	}{
+		{"company owner", AuthClaims{UserID: "u", OrgID: "o1", OrgRole: "owner", OrgType: "company"}, 204},
+		{"company admin", AuthClaims{UserID: "u", OrgID: "o1", OrgRole: "admin", OrgType: "company"}, 204},
+		{"member", AuthClaims{UserID: "u", OrgID: "o1", OrgRole: "member", OrgType: "company"}, 403},
+		{"individual owner", AuthClaims{UserID: "u", OrgID: "o1", OrgRole: "owner", OrgType: "individual"}, 403},
+		{"no org", AuthClaims{UserID: "u"}, 403},
+		{"platform admin alone", AuthClaims{UserID: "u", Role: RoleAdmin}, 403},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/org/me", nil)
+			r = r.WithContext(ContextWithClaims(r.Context(), tc.claims))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.code {
+				t.Fatalf("got %d want %d", w.Code, tc.code)
+			}
+		})
+	}
+}

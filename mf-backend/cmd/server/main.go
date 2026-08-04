@@ -23,6 +23,7 @@ import (
 	"github.com/emrah/mf-backend/internal/llm"
 	"github.com/emrah/mf-backend/internal/mcp"
 	"github.com/emrah/mf-backend/internal/obs"
+	"github.com/emrah/mf-backend/internal/org"
 	"github.com/emrah/mf-backend/internal/retention"
 	"github.com/emrah/mf-backend/internal/settings"
 	"github.com/emrah/mf-backend/internal/wiki"
@@ -152,6 +153,8 @@ func main() {
 	// metrics store instead of as a request that ran out of time.
 	metricsQuerier := obs.NewClient(cfg.MetricsQueryURL(), cfg.LLMAPIKey, 6*time.Second)
 	adminHandler := admin.NewHandler(adminStore, settingsStore, adminStore, adminStore, adminStore, adminStore, adapterRuntime, metricsQuerier, cfg.BcryptCost)
+	orgStore := org.NewStore(pool)
+	orgHandler := org.NewHandler(orgStore, adminStore, cfg.BcryptCost)
 	analysisStore := analysis.NewStore(pool)
 	analysisHandler := analysis.NewHandler(analysisStore, llmProvider, settingsStore)
 
@@ -292,6 +295,10 @@ func main() {
 	// given, so an unreachable box is described by the client's own error
 	// rather than by a deadline landing on the request.
 	r.Mount("/admin", adminHandler.Routes(tokens.Verify, cfg.RequestTimeout, 12*time.Second))
+
+	// Company panel. Own timeout like /admin: database only, and the gate is on
+	// the subtree so a new /org route cannot be added without the org-admin check.
+	r.Mount("/org", orgHandler.Routes(tokens.Verify, cfg.RequestTimeout))
 
 	// Mounted outside that group so its own routes can choose their bounds: the
 	// short default for everything, the long one for generation.

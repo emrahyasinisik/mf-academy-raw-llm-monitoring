@@ -10,6 +10,9 @@ type User struct {
 	Name               string    `json:"name"`
 	Role               string    `json:"role"`
 	MustChangePassword bool      `json:"must_change_password"`
+	OrgID              *string   `json:"org_id"`
+	OrgRole            string    `json:"org_role"`
+	OrgType            string    `json:"org_type"`
 	OrgStatus          string    `json:"-"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`

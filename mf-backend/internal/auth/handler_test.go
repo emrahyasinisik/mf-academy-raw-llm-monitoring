@@ -513,6 +513,15 @@ func TestCreateUserCreatesIndividualOrgInTransaction(t *testing.T) {
 	if user.ID != "user-1" || user.Email != "new@user.io" {
 		t.Fatalf("returned user = %#v", user)
 	}
+	if user.OrgID == nil || *user.OrgID != "org-1" {
+		t.Fatalf("returned OrgID = %#v, want org-1", user.OrgID)
+	}
+	if user.OrgRole != "owner" {
+		t.Fatalf("returned OrgRole = %q, want owner", user.OrgRole)
+	}
+	if user.OrgType != "individual" {
+		t.Fatalf("returned OrgType = %q, want individual", user.OrgType)
+	}
 }
 
 // AcceptTerms is the catch-up path for accounts that predate the terms. It
@@ -585,3 +594,109 @@ func (r scanRow) Scan(dest ...any) error {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestMeIncludesOrgClaims(t *testing.T) {
+	orgID := "org-1"
+	store := &fakeStore{
+		user: User{
+			ID: "u1", Email: "owner@corp.io", Name: "Owner",
+			OrgID: &orgID, OrgRole: "owner", OrgType: "company",
+		},
+	}
+	h := newTestHandler(store)
+
+	r := httptest.NewRequest("GET", "/auth/me", nil)
+	r = r.WithContext(common.ContextWithClaims(r.Context(), common.AuthClaims{UserID: "u1"}))
+	w := httptest.NewRecorder()
+	h.Me(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var out User
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("response did not decode as User: %v", err)
+	}
+	if out.OrgID == nil || *out.OrgID != "org-1" {
+		t.Fatalf("org_id = %#v, want org-1", out.OrgID)
+	}
+	if out.OrgRole != "owner" {
+		t.Fatalf("org_role = %q, want owner", out.OrgRole)
+	}
+	if out.OrgType != "company" {
+		t.Fatalf("org_type = %q, want company", out.OrgType)
+	}
+}
+
+func TestGenerateAccessEmbedsOrgFields(t *testing.T) {
+	orgID := "org-42"
+	tokens := NewTokenService(strings.Repeat("s", 48), time.Minute, time.Hour)
+	access, _, err := tokens.GenerateAccess(User{
+		ID: "u1", Email: "a@b.io", Role: "user",
+		OrgID: &orgID, OrgRole: "admin", OrgType: "company",
+	})
+	if err != nil {
+		t.Fatalf("GenerateAccess: %v", err)
+	}
+	claims, err := tokens.Verify(access)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if claims.OrgID != "org-42" {
+		t.Fatalf("OrgID = %q, want org-42", claims.OrgID)
+	}
+	if claims.OrgRole != "admin" {
+		t.Fatalf("OrgRole = %q, want admin", claims.OrgRole)
+	}
+	if claims.OrgType != "company" {
+		t.Fatalf("OrgType = %q, want company", claims.OrgType)
+	}
+}
+
+func TestRefreshReadsFreshOrgRole(t *testing.T) {
+	tokens := NewTokenService(strings.Repeat("s", 48), time.Minute, time.Hour)
+	refresh, hash, _, err := tokens.GenerateRefresh()
+	if err != nil {
+		t.Fatalf("GenerateRefresh: %v", err)
+	}
+	orgID := "org-1"
+	store := &fakeStore{
+		user: User{
+			ID: "u1", Email: "a@b.io",
+			OrgID: &orgID, OrgRole: "member", OrgType: "company",
+		},
+		lookup: SessionLookup{SessionID: "s1", UserID: "u1"},
+	}
+	h := NewHandler(store, tokens, testHashCost)
+	if HashToken(refresh) != hash {
+		t.Fatal("refresh hash seed mismatch")
+	}
+
+	// Role changed in the store after the session was created — refresh must
+	// reload the row so the new access token carries the fresh org_role.
+	store.user.OrgRole = "admin"
+
+	r := httptest.NewRequest("POST", "/auth/refresh", strings.NewReader(`{"refresh_token":"`+refresh+`"}`))
+	w := httptest.NewRecorder()
+	h.Refresh(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var out TokenPair
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("response did not decode as a token pair: %v", err)
+	}
+	if out.User.OrgRole != "admin" {
+		t.Fatalf("response user org_role = %q, want admin", out.User.OrgRole)
+	}
+	claims, err := h.tokens.Verify(out.AccessToken)
+	if err != nil {
+		t.Fatalf("Verify refreshed access token: %v", err)
+	}
+	if claims.OrgRole != "admin" {
+		t.Fatalf("refreshed OrgRole = %q, want admin", claims.OrgRole)
+	}
+	if claims.OrgID != "org-1" || claims.OrgType != "company" {
+		t.Fatalf("refreshed org claims = {%q,%q}, want org-1/company", claims.OrgID, claims.OrgType)
+	}
+}

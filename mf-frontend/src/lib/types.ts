@@ -6,6 +6,9 @@ export interface User {
   name: string;
   role: string;
   must_change_password: boolean;
+  org_id: string | null;
+  org_role: string;
+  org_type: string;
   created_at: string;
   updated_at: string;
   terms_accepted_at: string | null;
@@ -607,6 +610,110 @@ export interface CreateAccountResponse {
   account: AccountSummary;
   temporary_password: string;
   owner: AccountMember;
+}
+
+// ---- Company panel (/org) ----
+//
+// Scoped by the JWT's org_id on the server — the client never sends an org id.
+// Assignable roles stop at admin|member; owner is minted only by platform admin.
+
+export type OrgAssignableRole = "admin" | "member";
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  type: string;
+  seat_limit: number;
+  status: string;
+  member_count: number;
+}
+
+export interface OrgMeResponse {
+  org: OrgSummary;
+  role: string;
+}
+
+export interface OrgMember {
+  id: string;
+  email: string;
+  name: string;
+  org_role: string;
+  created_at: string;
+  last_activity_at?: string | null;
+}
+
+export interface OrgMemberListResult {
+  members: OrgMember[];
+}
+
+export interface CreateOrgMemberRequest {
+  name: string;
+  email: string;
+  org_role: OrgAssignableRole;
+}
+
+export interface CreateOrgMemberResponse {
+  member: OrgMember;
+  temporary_password: string;
+}
+
+/** Org panel usage boxes — Postgres only, scoped to the actor's company. */
+export interface OrgMemberSeatBox {
+  count: number;
+  seat_limit: number;
+}
+
+export interface OrgSchemaBox {
+  rate: number;
+}
+
+export interface OrgStatsBoxes {
+  members: OrgMemberSeatBox;
+  reports_last_24h: StatBox;
+  reports_window: StatBox;
+  schema_validity: OrgSchemaBox;
+}
+
+export interface OrgDayPoint {
+  t: number;
+  v: number;
+}
+
+export interface OrgMemberAct {
+  user_id: string;
+  name: string;
+  count: number;
+  last_at?: string | null;
+}
+
+export interface OrgStats {
+  window: StatsWindow;
+  from: string;
+  to: string;
+  boxes: OrgStatsBoxes;
+  assessments_per_day: OrgDayPoint[];
+  schema_valid_per_day: OrgDayPoint[];
+  runs_by_target: StatsTargetSeries[];
+  member_activity: OrgMemberAct[];
+}
+
+export type OrgActivityKind =
+  | "member.joined"
+  | "analysis.completed"
+  | "analysis.schema_invalid"
+  | "session.login";
+
+/** Metadata-only feed item — no case text, prompts, or findings. */
+export interface OrgActivityItem {
+  id: string;
+  kind: OrgActivityKind | string;
+  at: string;
+  actor_name?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface OrgActivityResponse {
+  items: OrgActivityItem[];
 }
 
 // ---- DeepKwiki ----

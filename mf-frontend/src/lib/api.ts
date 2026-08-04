@@ -43,6 +43,14 @@ import type {
   LegalListItem,
   LegalSlugDetail,
   AuditListResult,
+  OrgMeResponse,
+  OrgMember,
+  OrgMemberListResult,
+  CreateOrgMemberRequest,
+  CreateOrgMemberResponse,
+  OrgAssignableRole,
+  OrgStats,
+  OrgActivityResponse,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -461,5 +469,37 @@ export const api = {
   /** Public published legal text — no session required. */
   legal: {
     get: (slug: string) => request<LegalDocument>(`/legal/${slug}`),
+  },
+
+  // ---- company panel (org admin / owner; 403 otherwise) ----
+  //
+  // Tenant scope is the JWT's org_id. Paths never carry an org id, so a stolen
+  // session cannot be pointed at a neighbour by editing the URL.
+  org: {
+    me: () => request<OrgMeResponse>("/org/me"),
+    stats: (window: StatsWindow) =>
+      request<OrgStats>(`/org/stats?window=${encodeURIComponent(window)}`),
+    activity: (opts?: { limit?: number; before?: string }) => {
+      const params = new URLSearchParams();
+      if (opts?.limit != null) params.set("limit", String(opts.limit));
+      if (opts?.before) params.set("before", opts.before);
+      const q = params.toString();
+      return request<OrgActivityResponse>(`/org/activity${q ? `?${q}` : ""}`);
+    },
+    members: {
+      list: () => request<OrgMemberListResult>("/org/members"),
+      create: (payload: CreateOrgMemberRequest) =>
+        request<CreateOrgMemberResponse>("/org/members", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      setRole: (id: string, org_role: OrgAssignableRole) =>
+        request<OrgMember>(`/org/members/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ org_role }),
+        }),
+      remove: (id: string) =>
+        request<void>(`/org/members/${id}`, { method: "DELETE" }),
+    },
   },
 };

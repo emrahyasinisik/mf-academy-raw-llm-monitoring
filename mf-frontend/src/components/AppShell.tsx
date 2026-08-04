@@ -18,6 +18,7 @@ import { api } from "@/lib/api";
 import { needsTermsGate } from "@/lib/terms";
 import { needsPasswordGate } from "@/lib/passwordGate";
 import { legacyHashToPath } from "@/lib/adminNav";
+import { canAccessOrgPanel } from "@/lib/orgAccess";
 import { AnalizView } from "./views/AnalizView";
 import { AuthView } from "./views/AuthView";
 import { OnayView } from "./views/OnayView";
@@ -247,6 +248,15 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            {canAccessOrgPanel(user) && (
+              <a
+                href="/sirket"
+                className="btn btn-ghost btn-sm"
+                title="Şirket paneli"
+              >
+                Şirket
+              </a>
+            )}
             {user.role === "admin" && (
               <a
                 href="/yonetim"

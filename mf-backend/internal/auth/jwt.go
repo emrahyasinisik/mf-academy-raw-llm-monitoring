@@ -29,16 +29,26 @@ type accessClaims struct {
 	Email    string `json:"email"`
 	Role     string `json:"role"`
 	PwdReset bool   `json:"pwd_reset,omitempty"`
+	OrgID    string `json:"org_id,omitempty"`
+	OrgRole  string `json:"org_role,omitempty"`
+	OrgType  string `json:"org_type,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // GenerateAccess creates a signed, short-lived JWT identifying the user.
 func (s *TokenService) GenerateAccess(u User) (string, time.Time, error) {
 	expires := time.Now().Add(s.accessTTL)
+	orgID := ""
+	if u.OrgID != nil {
+		orgID = *u.OrgID
+	}
 	claims := accessClaims{
 		Email:    u.Email,
 		Role:     u.Role,
 		PwdReset: u.MustChangePassword,
+		OrgID:    orgID,
+		OrgRole:  u.OrgRole,
+		OrgType:  u.OrgType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   u.ID,
 			ExpiresAt: jwt.NewNumericDate(expires),
@@ -70,6 +80,9 @@ func (s *TokenService) Verify(raw string) (common.AuthClaims, error) {
 		Email:         claims.Email,
 		Role:          claims.Role,
 		PasswordReset: claims.PwdReset,
+		OrgID:         claims.OrgID,
+		OrgRole:       claims.OrgRole,
+		OrgType:       claims.OrgType,
 	}, nil
 }
 
