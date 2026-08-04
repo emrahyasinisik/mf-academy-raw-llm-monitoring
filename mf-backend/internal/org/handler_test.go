@@ -24,6 +24,12 @@ type fakeOrgStore struct {
 	storedHash        string
 	createdMustChange bool
 	createCalled      bool
+
+	getMemberCalled   bool
+	setRoleCalled     bool
+	deleteCalled      bool
+	lastSetRole       string
+	lastMutatedUserID string
 }
 
 func (f *fakeOrgStore) GetOrgSummary(_ context.Context, orgID string) (OrgSummary, error) {
@@ -70,6 +76,53 @@ func (f *fakeOrgStore) CreateMember(_ context.Context, orgID, name, email, orgRo
 		f.orgs[orgID] = s
 	}
 	return m, nil
+}
+
+func (f *fakeOrgStore) GetMember(_ context.Context, userID string) (Member, string, error) {
+	f.getMemberCalled = true
+	f.lastID = userID
+	for orgID, list := range f.members {
+		for _, m := range list {
+			if m.ID == userID {
+				return m, orgID, nil
+			}
+		}
+	}
+	return Member{}, "", ErrNoRows
+}
+
+func (f *fakeOrgStore) SetMemberRole(_ context.Context, userID, orgRole string) (Member, error) {
+	f.setRoleCalled = true
+	f.lastMutatedUserID = userID
+	f.lastSetRole = orgRole
+	for orgID, list := range f.members {
+		for i, m := range list {
+			if m.ID == userID {
+				m.OrgRole = orgRole
+				f.members[orgID][i] = m
+				return m, nil
+			}
+		}
+	}
+	return Member{}, ErrNoRows
+}
+
+func (f *fakeOrgStore) DeleteMember(_ context.Context, userID string) error {
+	f.deleteCalled = true
+	f.lastMutatedUserID = userID
+	for orgID, list := range f.members {
+		for i, m := range list {
+			if m.ID == userID {
+				f.members[orgID] = append(list[:i], list[i+1:]...)
+				if s, ok := f.orgs[orgID]; ok {
+					s.MemberCount--
+					f.orgs[orgID] = s
+				}
+				return nil
+			}
+		}
+	}
+	return ErrNoRows
 }
 
 func claimsVerifier(c common.AuthClaims) common.TokenVerifier {
@@ -294,5 +347,125 @@ func TestListMembersScopedToActorOrg(t *testing.T) {
 	}
 	if store.lastID != "org-a" {
 		t.Fatalf("store queried %q, want org-a", store.lastID)
+	}
+}
+
+func seededMemberStore() *fakeOrgStore {
+	return &fakeOrgStore{
+		orgs: map[string]OrgSummary{
+			"org-a": {ID: "org-a", Name: "Acme", Type: "company", SeatLimit: 5, Status: "active", MemberCount: 3},
+			"org-b": {ID: "org-b", Name: "Beta", Type: "company", SeatLimit: 5, Status: "active", MemberCount: 1},
+		},
+		members: map[string][]Member{
+			"org-a": {
+				{ID: "owner-a", Email: "owner@acme.test", Name: "Owner", OrgRole: "owner", CreatedAt: time.Unix(1, 0).UTC()},
+				{ID: "admin-a", Email: "admin@acme.test", Name: "Admin", OrgRole: "admin", CreatedAt: time.Unix(2, 0).UTC()},
+				{ID: "member-a", Email: "dev@acme.test", Name: "Dev", OrgRole: "member", CreatedAt: time.Unix(3, 0).UTC()},
+			},
+			"org-b": {
+				{ID: "admin-b", Email: "spy@beta.test", Name: "Spy", OrgRole: "admin", CreatedAt: time.Unix(4, 0).UTC()},
+			},
+		},
+	}
+}
+
+func TestPatchMemberCrossOrg404(t *testing.T) {
+	store := seededMemberStore()
+	rtr := orgAdminRouter(store)
+
+	body := bytes.NewBufferString(`{"org_role":"member"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/members/admin-b", body)
+	req.Header.Set("Authorization", "Bearer t")
+	w := httptest.NewRecorder()
+	rtr.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+	if !store.getMemberCalled {
+		t.Fatal("handler must re-read target row before mutate")
+	}
+	if store.setRoleCalled {
+		t.Fatal("SetMemberRole must not run for cross-org target")
+	}
+}
+
+func TestDeleteMemberCrossOrg404(t *testing.T) {
+	store := seededMemberStore()
+	rtr := orgAdminRouter(store)
+
+	req := httptest.NewRequest(http.MethodDelete, "/members/admin-b", nil)
+	req.Header.Set("Authorization", "Bearer t")
+	w := httptest.NewRecorder()
+	rtr.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+	if !store.getMemberCalled {
+		t.Fatal("handler must re-read target row before mutate")
+	}
+	if store.deleteCalled {
+		t.Fatal("DeleteMember must not run for cross-org target")
+	}
+}
+
+func TestCannotChangeOrDeleteOwner(t *testing.T) {
+	store := seededMemberStore()
+	rtr := orgAdminRouter(store)
+
+	body := bytes.NewBufferString(`{"org_role":"member"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/members/owner-a", body)
+	req.Header.Set("Authorization", "Bearer t")
+	w := httptest.NewRecorder()
+	rtr.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH owner status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if store.setRoleCalled {
+		t.Fatal("SetMemberRole must not run for owner")
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/members/owner-a", nil)
+	req.Header.Set("Authorization", "Bearer t")
+	w = httptest.NewRecorder()
+	rtr.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("DELETE owner status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if store.deleteCalled {
+		t.Fatal("DeleteMember must not run for owner")
+	}
+	if !store.getMemberCalled {
+		t.Fatal("handler must re-read target row before mutate")
+	}
+}
+
+func TestPatchAdminToMember(t *testing.T) {
+	store := seededMemberStore()
+	rtr := orgAdminRouter(store)
+
+	body := bytes.NewBufferString(`{"org_role":"member"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/members/admin-a", body)
+	req.Header.Set("Authorization", "Bearer t")
+	w := httptest.NewRecorder()
+	rtr.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var res Member
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res.ID != "admin-a" || res.OrgRole != "member" {
+		t.Fatalf("member = %+v, want admin-a / member", res)
+	}
+	if !store.getMemberCalled {
+		t.Fatal("handler must re-read target row before mutate")
+	}
+	if !store.setRoleCalled || store.lastSetRole != "member" || store.lastMutatedUserID != "admin-a" {
+		t.Fatalf("SetMemberRole not called correctly: called=%v role=%q id=%q",
+			store.setRoleCalled, store.lastSetRole, store.lastMutatedUserID)
 	}
 }

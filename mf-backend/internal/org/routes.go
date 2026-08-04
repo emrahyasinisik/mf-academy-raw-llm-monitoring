@@ -25,5 +25,7 @@ func (h *Handler) Routes(verify common.TokenVerifier, timeout time.Duration) htt
 	r.Get("/me", h.Me)
 	r.Get("/members", h.ListMembers)
 	r.Post("/members", h.CreateMember)
+	r.Patch("/members/{id}", h.SetMemberRole)
+	r.Delete("/members/{id}", h.DeleteMember)
 	return r
 }

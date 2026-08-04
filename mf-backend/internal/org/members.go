@@ -1,6 +1,7 @@
 package org
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/emrah/mf-backend/internal/common"
+	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -115,6 +117,99 @@ func (r *CreateMemberRequest) Normalize() error {
 	default:
 		return errors.New("org_role must be 'admin' or 'member'")
 	}
+}
+
+// SetMemberRole changes a seat to admin|member. Target must sit in
+// claims.OrgID (else 404); owner is immutable (400). Role is re-read from
+// the row so a stale JWT cannot demote or delete after a race.
+func (h *Handler) SetMemberRole(w http.ResponseWriter, r *http.Request) {
+	claims, ok := common.ClaimsFromContext(r.Context())
+	if !ok {
+		common.Error(w, common.ErrUnauthorized("authentication required"))
+		return
+	}
+
+	var req SetMemberRoleRequest
+	if err := common.Decode(r, &req); err != nil {
+		common.Error(w, err)
+		return
+	}
+	req.OrgRole = strings.TrimSpace(req.OrgRole)
+	switch req.OrgRole {
+	case "admin", "member":
+	default:
+		common.Error(w, common.ErrBadRequest("org_role must be 'admin' or 'member'"))
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if _, err := h.loadMutableMember(r.Context(), claims.OrgID, id); err != nil {
+		common.Error(w, err)
+		return
+	}
+
+	member, err := h.store.SetMemberRole(r.Context(), id, req.OrgRole)
+	if errors.Is(err, ErrNoRows) {
+		common.Error(w, common.ErrNotFound("member not found"))
+		return
+	}
+	if err != nil {
+		slog.Error("org set member role failed", "error", err, "org_id", claims.OrgID, "member_id", id)
+		common.Error(w, common.ErrInternal("could not update member role"))
+		return
+	}
+
+	slog.Info("org member role changed", "org_id", claims.OrgID, "member_id", id, "org_role", member.OrgRole)
+	common.JSON(w, http.StatusOK, member)
+}
+
+// DeleteMember hard-deletes a seat in claims.OrgID. Owner is refused with
+// 400; a UUID from another org is 404.
+func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
+	claims, ok := common.ClaimsFromContext(r.Context())
+	if !ok {
+		common.Error(w, common.ErrUnauthorized("authentication required"))
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if _, err := h.loadMutableMember(r.Context(), claims.OrgID, id); err != nil {
+		common.Error(w, err)
+		return
+	}
+
+	if err := h.store.DeleteMember(r.Context(), id); err != nil {
+		if errors.Is(err, ErrNoRows) {
+			common.Error(w, common.ErrNotFound("member not found"))
+			return
+		}
+		slog.Error("org delete member failed", "error", err, "org_id", claims.OrgID, "member_id", id)
+		common.Error(w, common.ErrInternal("could not delete member"))
+		return
+	}
+
+	slog.Info("org member deleted", "org_id", claims.OrgID, "member_id", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// loadMutableMember re-reads the target row and enforces tenant + owner rules.
+// Cross-org and missing ids both surface as 404 so probing reveals nothing.
+func (h *Handler) loadMutableMember(ctx context.Context, actorOrgID, userID string) (Member, error) {
+	m, orgID, err := h.store.GetMember(ctx, userID)
+	if errors.Is(err, ErrNoRows) {
+		return Member{}, common.ErrNotFound("member not found")
+	}
+	if err != nil {
+		slog.Error("org load member failed", "error", err, "org_id", actorOrgID, "member_id", userID)
+		return Member{}, common.ErrInternal("could not load member")
+	}
+	if orgID != actorOrgID {
+		return Member{}, common.ErrNotFound("member not found")
+	}
+	if m.OrgRole == "owner" {
+		return Member{}, common.ErrBadRequest("cannot modify organization owner")
+	}
+	return m, nil
 }
 
 // temporaryPassword mirrors admin's helper: crypto/rand → URL-safe base64.

@@ -16,6 +16,11 @@ type OrgStore interface {
 	GetOrgSummary(ctx context.Context, orgID string) (OrgSummary, error)
 	ListMembers(ctx context.Context, orgID string) ([]Member, error)
 	CreateMember(ctx context.Context, orgID, name, email, orgRole, passwordHash string) (Member, error)
+	// GetMember returns the user and their org_id so handlers can enforce
+	// claims.OrgID and re-read org_role before mutate (stale JWT / race).
+	GetMember(ctx context.Context, userID string) (Member, string, error)
+	SetMemberRole(ctx context.Context, userID, orgRole string) (Member, error)
+	DeleteMember(ctx context.Context, userID string) error
 }
 
 // Handler serves the company-panel endpoints under /org.

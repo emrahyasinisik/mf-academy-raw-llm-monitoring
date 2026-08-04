@@ -48,3 +48,9 @@ type CreateMemberResponse struct {
 	Member            Member `json:"member"`
 	TemporaryPassword string `json:"temporary_password"`
 }
+
+// SetMemberRoleRequest is PATCH /org/members/{id}. admin|member only —
+// owner cannot be written, and the target owner row is refused separately.
+type SetMemberRoleRequest struct {
+	OrgRole string `json:"org_role"`
+}
