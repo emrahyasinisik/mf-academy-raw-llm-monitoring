@@ -43,6 +43,7 @@ type ConversationSummary struct {
 	Title        string     `json:"title"`
 	Verdict      *string    `json:"verdict"`
 	VerdictScore *int       `json:"verdict_score"`
+	AssessmentID *string    `json:"assessment_id,omitempty"`
 	Turns        int        `json:"turns"`
 	LastTurnAt   time.Time  `json:"last_turn_at"`
 	CreatedAt    time.Time  `json:"created_at"`
@@ -64,6 +65,7 @@ type Conversation struct {
 	Title        string    `json:"title"`
 	Verdict      *string   `json:"verdict"`
 	VerdictScore *int      `json:"verdict_score"`
+	AssessmentID *string   `json:"assessment_id,omitempty"`
 	Messages     []Message `json:"messages"`
 	LastTurnAt   time.Time `json:"last_turn_at"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -194,7 +196,7 @@ func (s *Store) List(ctx context.Context, userID string, limit int, before time.
 	}
 
 	rows, err := s.db.Query(ctx,
-		`SELECT c.id, c.title, c.verdict, c.verdict_score,
+		`SELECT c.id, c.title, c.verdict, c.verdict_score, c.assessment_id,
 		        (SELECT count(*) FROM conversation_messages m WHERE m.conversation_id = c.id),
 		        c.last_turn_at, c.created_at
 		   FROM conversations c
@@ -211,7 +213,7 @@ func (s *Store) List(ctx context.Context, userID string, limit int, before time.
 	out := ListResult{Conversations: []ConversationSummary{}, Limit: limit}
 	for rows.Next() {
 		var c ConversationSummary
-		if err := rows.Scan(&c.ID, &c.Title, &c.Verdict, &c.VerdictScore,
+		if err := rows.Scan(&c.ID, &c.Title, &c.Verdict, &c.VerdictScore, &c.AssessmentID,
 			&c.Turns, &c.LastTurnAt, &c.CreatedAt); err != nil {
 			return ListResult{}, err
 		}
@@ -234,10 +236,10 @@ func (s *Store) List(ctx context.Context, userID string, limit int, before time.
 func (s *Store) Get(ctx context.Context, userID, id string) (Conversation, error) {
 	var c Conversation
 	err := s.db.QueryRow(ctx,
-		`SELECT id, title, verdict, verdict_score, last_turn_at, created_at
+		`SELECT id, title, verdict, verdict_score, assessment_id, last_turn_at, created_at
 		   FROM conversations WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	).Scan(&c.ID, &c.Title, &c.Verdict, &c.VerdictScore, &c.LastTurnAt, &c.CreatedAt)
+	).Scan(&c.ID, &c.Title, &c.Verdict, &c.VerdictScore, &c.AssessmentID, &c.LastTurnAt, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Conversation{}, ErrNoRows
 	}
@@ -273,6 +275,22 @@ func (s *Store) Get(ctx context.Context, userID, id string) (Conversation, error
 		c.Messages = append(c.Messages, m)
 	}
 	return c, rows.Err()
+}
+
+// SetAssessmentID links or clears the report attached to a thread the user owns.
+// assessmentID == nil clears the column.
+func (s *Store) SetAssessmentID(ctx context.Context, userID, conversationID string, assessmentID *string) error {
+	tag, err := s.db.Exec(ctx,
+		`UPDATE conversations SET assessment_id = $3
+		  WHERE id = $1 AND user_id = $2`,
+		conversationID, userID, assessmentID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoRows
+	}
+	return nil
 }
 
 // Rename retitles a thread.
