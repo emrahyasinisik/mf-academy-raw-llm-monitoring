@@ -5,10 +5,15 @@ import { api, ApiError } from "@/lib/api";
 import {
   changeLabel,
   changeTone,
+  cohortRate,
   daySeries,
+  funnelRates,
+  shareRows,
+  targetSeries,
   validitySeries,
 } from "@/lib/stats";
 import type { AdminStats, MetricSeries, StatsWindow } from "@/lib/types";
+import { CohortGrid, FunnelBars, ShareBar } from "@/components/ui/Breakdown";
 import { Segmented } from "@/components/ui/Segmented";
 import { TimeChart } from "@/components/ui/TimeChart";
 import { Stat } from "./Stat";
@@ -96,6 +101,13 @@ export function StatsPanel() {
         unit: "count",
       },
       {
+        id: "runs-by-target",
+        title: "Çalışma hacmi",
+        help: "Tarayıcı ve sunucu çalışmaları ayrı okunur; hedefler aynı davranışı ölçmez.",
+        series: targetSeries(data.runs_by_target),
+        unit: "count",
+      },
+      {
         id: "schema-validity",
         title: "Şema geçerliliği",
         help: "Adapter aktive edildikten sonra düşerse geri alma sinyali.",
@@ -103,6 +115,28 @@ export function StatsPanel() {
         unit: "percent",
       },
     ];
+  }, [data]);
+
+  const breakdown = useMemo(() => {
+    if (!data) return null;
+    const rates = funnelRates(data.funnel);
+    return {
+      share: shareRows(data.org_types),
+      funnel:
+        data.funnel.registered === 0
+          ? []
+          : [
+              { label: "Kayıt", count: data.funnel.registered, rate: 1 },
+              { label: "Koşulları kabul", count: data.funnel.consented, rate: rates.consented },
+              { label: "İlk analiz", count: data.funnel.analyzed, rate: rates.analyzed },
+            ],
+      cohorts: data.cohorts.map((row) => ({
+        label: formatWeek(row.week_start),
+        size: row.size,
+        week2: cohortRate(row.week_2, row.size, row.mature_weeks, 2),
+        week4: cohortRate(row.week_4, row.size, row.mature_weeks, 4),
+      })),
+    };
   }, [data]);
 
   const stale = data !== null && data.window !== statsWindow;
@@ -154,6 +188,7 @@ export function StatsPanel() {
             }}
           >
             <StatsBoxes data={data} />
+            {breakdown && <BreakdownCards breakdown={breakdown} />}
             <div className="grid gap-4 lg:grid-cols-2">
               {charts.map((chart, i) => (
                 <section
@@ -178,6 +213,44 @@ export function StatsPanel() {
         )
       )}
     </section>
+  );
+}
+
+function BreakdownCards({
+  breakdown,
+}: {
+  breakdown: {
+    share: Parameters<typeof ShareBar>[0]["rows"];
+    funnel: Parameters<typeof FunnelBars>[0]["stages"];
+    cohorts: Parameters<typeof CohortGrid>[0]["rows"];
+  };
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-3">
+      <section className="card item-in p-4" style={{ ["--i" as string]: 0 }}>
+        <h4 className="font-display font-semibold text-[0.95rem]">Hesap dağılımı</h4>
+        <p className="text-xs mt-1 mb-3 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+          Hesap türlerinin payı sayı ve oranla birlikte okunur.
+        </p>
+        <ShareBar rows={breakdown.share} />
+      </section>
+
+      <section className="card item-in p-4" style={{ ["--i" as string]: 1 }}>
+        <h4 className="font-display font-semibold text-[0.95rem]">Aktivasyon hunisi</h4>
+        <p className="text-xs mt-1 mb-3 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+          Üye sayısı büyürken bu düşüyorsa büyüme sahtedir.
+        </p>
+        <FunnelBars stages={breakdown.funnel} />
+      </section>
+
+      <section className="card item-in p-4" style={{ ["--i" as string]: 2 }}>
+        <h4 className="font-display font-semibold text-[0.95rem]">Kohort tutunması</h4>
+        <p className="text-xs mt-1 mb-3 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+          Her haftanın ikinci ve dördüncü hafta geri dönüşü ayrı satırda kalır.
+        </p>
+        <CohortGrid rows={breakdown.cohorts} />
+      </section>
+    </div>
   );
 }
 
@@ -246,6 +319,14 @@ function StatsSkeleton() {
 
 function formatCount(value: number): string {
   return value.toLocaleString("tr-TR");
+}
+
+function formatWeek(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "UTC",
+  });
 }
 
 function formatPercent(value: number): string {
