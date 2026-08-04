@@ -24,13 +24,12 @@ import { OnayView } from "./views/OnayView";
 import { ParolaView } from "./views/ParolaView";
 import { CodegenView } from "./views/CodegenView";
 import { PersonaView } from "./views/PersonaView";
-import { MetricsView } from "./views/MetricsView";
 import { GizlilikView } from "./views/GizlilikView";
 import { KosullarView } from "./views/KosullarView";
 import { StatusRail } from "./ui/StatusRail";
 
 export type MasterView =
-  | "analiz" | "codegen" | "persona" | "metrics" | "gizlilik" | "kosullar";
+  | "analiz" | "codegen" | "persona" | "gizlilik" | "kosullar";
 
 // Analiz leads because it is the product: a case goes in, a rubric-scored and
 // auditable report comes out. The order used to be the generator's, and the
@@ -46,15 +45,13 @@ export type MasterView =
 // değerlendirmek için, panel sistemi işletmek için, ve ikisi aynı başlık
 // çubuğunu paylaşınca hangisinde olduğun kayboluyordu. Panele giden bağlantı
 // header'da, yalnızca yönetici rolüne görünür.
-// Metrics stays in the product nav and remains listed for everyone, with the
-// view explaining the role it needs. It is separate from the /yonetim panel
-// because it reads from the metrics store rather than the database — when the
-// inference box is off, this goes quiet while the admin panel keeps working,
-// and a tab that empties for reasons the panel does not share belongs here.
+//
+// Metrikler de panele taşındı (/yonetim/metrikler): Prometheus telemetrisi
+// zaten admin-only API'den geliyordu; ürün nav'ında herkese görünür bir sekme
+// yanlış sinyal veriyordu. Eski `#metrics` hash'i panele yönlenir.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
   { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "persona", label: "Persona", Icon: IconSpark },
-  { id: "metrics", label: "Metrikler", Icon: IconChart },
 ];
 
 // Nav'da olmayan ama adreslenebilen rotalar. isMaster bugüne kadar NAV
@@ -318,11 +315,6 @@ export function AppShell() {
               <PersonaView />
             </Pane>
           )}
-          {/* The two read-only screens are still torn down and rebuilt, and that
-              is the right default: they start no work that can be interrupted,
-              and every one of their numbers ages. Kept mounted, a chart opened
-              this morning would still be on screen tonight, silently. */}
-          {view === "metrics" && <MetricsView />}
           {view === "gizlilik" && <GizlilikView />}
           {view === "kosullar" && <KosullarView />}
         </div>
@@ -540,15 +532,6 @@ function IconSpark() {
   return (
     <svg {...SVG} aria-hidden>
       <path d="M8 1.75 9.7 6.3 14.25 8 9.7 9.7 8 14.25 6.3 9.7 1.75 8 6.3 6.3z" />
-    </svg>
-  );
-}
-
-function IconChart() {
-  return (
-    <svg {...SVG} aria-hidden>
-      <path d="M2 13V3M2 13h12" />
-      <path d="m4.5 10.5 3-3.5 2.5 2 3.5-4.5" />
     </svg>
   );
 }

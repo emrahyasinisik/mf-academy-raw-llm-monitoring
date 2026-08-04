@@ -18,6 +18,7 @@ test("alt yollar kendi bölümlerine çözülür", () => {
   assert.equal(sectionFromPath("/yonetim/denetim"), "denetim");
   assert.equal(sectionFromPath("/yonetim/model"), "model");
   assert.equal(sectionFromPath("/yonetim/mcp"), "mcp");
+  assert.equal(sectionFromPath("/yonetim/metrikler"), "metrikler");
   assert.equal(sectionFromPath("/yonetim/loglar"), "loglar");
 });
 
@@ -36,6 +37,10 @@ test("her bölümün yolu kendi bölümüne geri çözülür", () => {
 
 // Eski hash rotaları ölmüyor: gömülü bağlantısı olan kimse 404 görmemeli.
 // Bu eşleme AppShell'deki yönlendirmenin tek doğruluk kaynağı.
+test("eski metrics hash'i panele eşlenir", () => {
+  assert.equal(legacyHashToPath("#metrics"), "/yonetim/metrikler");
+});
+
 test("eski admin hash'leri yeni yollara eşlenir", () => {
   assert.equal(legacyHashToPath("#admin"), "/yonetim");
   assert.equal(legacyHashToPath("#admin/overview"), "/yonetim");

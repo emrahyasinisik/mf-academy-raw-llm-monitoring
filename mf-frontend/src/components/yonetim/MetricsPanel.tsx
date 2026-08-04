@@ -1,25 +1,16 @@
 "use client";
 
-// The metrics tab. Four charts over the same window, drawn from Prometheus by
-// way of the backend.
+// Prometheus telemetrisi — panelde, çünkü yalnızca yönetici görmeli ve
+// ürün nav'ında herkese açık bir sekme yanlış sinyal veriyordu.
 //
-// Grafana is not embedded here and that is deliberate. An iframe cannot send the
-// inference gateway's API key, so framing it would mean either publishing
-// Grafana without that check or proxying every asset through the backend; and an
-// embedded dashboard shows every viewer the same queries, which stops being
-// acceptable the moment these numbers are scoped per user. Grafana stays the
-// operator's tool for questions nobody anticipated. These are the four worth
-// having without leaving the product.
-//
-// The queries themselves live on the server. Nothing here can ask for a series
-// the panel was not built to show.
+// Grafana gömülü değil: iframe API anahtarını taşıyamaz; Grafana operatörün
+// öngörülmeyen soruları için ayrı kalır. Sorgular sunucuda; burada yalnızca
+// gösterilir.
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { useAuth } from "@/store/auth";
 import { TimeChart } from "@/components/ui/TimeChart";
 import { Segmented } from "@/components/ui/Segmented";
-import { RoleGate } from "@/components/ui/RoleGate";
 import type { MetricsResponse, MetricsWindow } from "@/lib/types";
 
 const WINDOWS: { id: MetricsWindow; label: string }[] = [
@@ -28,8 +19,7 @@ const WINDOWS: { id: MetricsWindow; label: string }[] = [
   { id: "24h", label: "24 saat" },
 ];
 
-export function MetricsView() {
-  const { user } = useAuth();
+export function MetricsPanel() {
   const [range, setRange] = useState<MetricsWindow>("1h");
   const [table, setTable] = useState(false);
   const [data, setData] = useState<MetricsResponse | null>(null);
@@ -58,24 +48,15 @@ export function MetricsView() {
   // about the data, not a second piece of state that can disagree with it.
   const stale = data !== null && data.window !== range;
 
-  if (user?.role !== "admin") {
-    return (
-      <RoleGate title="Bu bölüm yönetici hesabı gerektiriyor">
-        Metrikler tüm kullanıcıların trafiğini birlikte gösterir, o yüzden rol
-        kontrolü sunucuda da var — bu ekranın gizlenmesi kolaylık, sınır değil.
-      </RoleGate>
-    );
-  }
-
   return (
-    <div className="max-w-6xl mx-auto p-4 sm:p-5 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="font-display text-xl font-semibold tracking-tight">
-            Metrikler
-          </h2>
+          <h1 className="text-lg">Metrikler</h1>
           <p className="text-sm mt-1" style={{ color: "var(--text-dim)" }}>
             Çıkarım sunucusunun kendi telemetrisi, seçili aralık boyunca.
+            Kutusu kapalıyken bu ekran boş kalır; Genel&apos;deki DB sayıları
+            çalışmaya devam eder.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -87,6 +68,7 @@ export function MetricsView() {
             size="sm"
           />
           <button
+            type="button"
             onClick={() => setTable((t) => !t)}
             className={`btn btn-sm ${table ? "btn-ghost" : "btn-quiet"}`}
             aria-pressed={table}
@@ -104,8 +86,7 @@ export function MetricsView() {
           </p>
           <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
             Metrikler Prometheus&apos;tan geliyor, backend&apos;in kendi
-            veritabanından değil. Çıkarım sunucusu kapalıyken bu ekran boş kalır ve
-            Yönetim → Genel&apos;deki sayılar çalışmaya devam eder.
+            veritabanından değil. Çıkarım sunucusu kapalıyken bu ekran boş kalır.
           </p>
         </div>
       )}
@@ -146,7 +127,6 @@ export function MetricsView() {
         </div>
       )}
 
-      {/* The shape of what is coming, so the layout does not jump when it does. */}
       {!data && !error && (
         <div className="grid gap-4 lg:grid-cols-2" aria-label="Yükleniyor">
           {[0, 1, 2, 3].map((i) => (
