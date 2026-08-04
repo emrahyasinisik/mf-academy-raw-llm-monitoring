@@ -190,7 +190,7 @@ func main() {
 		"timeout", cfg.SearchTimeout())
 	decisionAgent := decision.NewAgent(llmProvider, searcher, wikiStore, settingsStore, cfg.LLMMaxPromptTokens, cfg.LLMTimeout)
 	decisionStore := decision.NewStore(pool)
-	decisionHandler := decision.NewHandler(decisionAgent, decisionStore)
+	decisionHandler := decision.NewHandler(decisionAgent, decisionStore, analysisStore)
 
 	// The analysis engine's second caller. It runs the same code the HTTP path
 	// does rather than a parallel implementation: an MCP client and a browser
