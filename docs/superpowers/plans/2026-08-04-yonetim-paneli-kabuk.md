@@ -1,6 +1,6 @@
 # Yönetim Paneli — 1. Aşama (Kabuk) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Bugün ürün SPA'sının `#admin` hash rotasında duran yönetim yüzeyini, hiçbir özellik eklemeden veya çıkarmadan, kendi kabuğu ve kendi giriş ekranıyla `/yonetim` altına taşımak.
 
@@ -64,7 +64,7 @@
   - `function sectionFromPath(pathname: string): PanelSection`
   - `function legacyHashToPath(hash: string): string | null`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `mf-frontend/src/lib/adminNav.test.ts`:
 
@@ -125,12 +125,12 @@ test("panel dışı hash'ler eşlenmez", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd mf-frontend && npm test`
 Expected: FAIL — `Cannot find module './adminNav.ts'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `mf-frontend/src/lib/adminNav.ts`:
 
@@ -183,12 +183,12 @@ export function legacyHashToPath(hash: string): string | null {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd mf-frontend && npm test`
 Expected: PASS — `adminNav.test.ts` içindeki 8 testin tamamı, mevcut testler de dahil hiçbir başarısızlık yok.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd mf-frontend
@@ -227,7 +227,7 @@ EOF
   - `type PanelGateState = "booting" | "login" | "redirect" | "allow"`
   - `function panelGate(input: { loading: boolean; user: { role: string } | null }): PanelGateState`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `mf-frontend/src/lib/adminAccess.test.ts`:
 
@@ -260,12 +260,12 @@ test("yönetici panele girer", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd mf-frontend && npm test`
 Expected: FAIL — `Cannot find module './adminAccess.ts'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `mf-frontend/src/lib/adminAccess.ts`:
 
@@ -298,12 +298,12 @@ export function panelGate(input: {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd mf-frontend && npm test`
 Expected: PASS — dört testin tamamı.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd mf-frontend
@@ -350,7 +350,7 @@ EOF
   - `export function MCPPanel(): React.ReactElement`
   - `export function LogsPanel(): React.ReactElement`
 
-- [ ] **Step 1: `Stat.tsx` dosyasını oluştur**
+- [x] **Step 1: `Stat.tsx` dosyasını oluştur**
 
 `AdminView.tsx`'in **85–118. satırlarını** (`/** A single figure… */` yorumundan `Stat` fonksiyonunun kapanış süslü parantezine kadar) birebir kopyala. Dosyanın başına şunu ekle ve `function Stat` → `export function Stat` yap:
 
@@ -360,7 +360,7 @@ EOF
 
 Başka import gerekmiyor: `Stat` yalnızca JSX döndürüyor, hook kullanmıyor.
 
-- [ ] **Step 2: `OverviewPanel.tsx` dosyasını oluştur**
+- [x] **Step 2: `OverviewPanel.tsx` dosyasını oluştur**
 
 `AdminView.tsx`'in **120–235. satırlarını** birebir kopyala (`OverviewPanel`, `GRAFANA_URL` sabiti ve `GrafanaCard`, aralarındaki yorumlarla birlikte). Başa şu bloğu koy, `function OverviewPanel` → `export function OverviewPanel` yap (`GrafanaCard` dışa açılmıyor, aynı dosyada kalıyor):
 
@@ -373,7 +373,7 @@ import type { AdminOverview } from "@/lib/types";
 import { Stat } from "./Stat";
 ```
 
-- [ ] **Step 3: `ModelPanel.tsx` dosyasını oluştur**
+- [x] **Step 3: `ModelPanel.tsx` dosyasını oluştur**
 
 `AdminView.tsx`'in **237–493. satırlarını** birebir kopyala. Başa:
 
@@ -392,7 +392,7 @@ import type {
 
 `function ModelPanel` → `export function ModelPanel`.
 
-- [ ] **Step 4: `MCPPanel.tsx` dosyasını oluştur**
+- [x] **Step 4: `MCPPanel.tsx` dosyasını oluştur**
 
 `AdminView.tsx`'in **495–647. satırlarını** birebir kopyala. Başa:
 
@@ -406,7 +406,7 @@ import type { MCPServer } from "@/lib/types";
 
 `function MCPPanel` → `export function MCPPanel`.
 
-- [ ] **Step 5: `LogsPanel.tsx` dosyasını oluştur**
+- [x] **Step 5: `LogsPanel.tsx` dosyasını oluştur**
 
 `AdminView.tsx`'in **649–750. satırlarını** birebir kopyala. Başa:
 
@@ -420,7 +420,7 @@ import type { AdminLogEntry } from "@/lib/types";
 
 `function LogsPanel` → `export function LogsPanel`.
 
-- [ ] **Step 6: `AdminView.tsx`'i geçici olarak yeni dosyalara bağla**
+- [x] **Step 6: `AdminView.tsx`'i geçici olarak yeni dosyalara bağla**
 
 `AdminView.tsx`'te **85. satırdan itibaren dosyanın sonuna kadar her şeyi sil** (`/** A single figure… */` yorumu dahil; 1–84 arası, yani `Tab` tipi, `TABS` dizisi ve `AdminView` bileşeni kalır) ve import bloğunu şununla değiştir (dosya Task 7'de silinecek, ama bu görevin sonunda uygulama derlenip çalışır durumda olmalı):
 
@@ -436,7 +436,7 @@ import { LogsPanel } from "@/components/yonetim/LogsPanel";
 
 Kullanılmayan import kalmamalı: `useCallback`, `useEffect`, `useState`, `api`, `ApiError` ve `@/lib/types` importlarının tamamı gider.
 
-- [ ] **Step 7: Derleme, lint ve test**
+- [x] **Step 7: Derleme, lint ve test**
 
 ```bash
 cd mf-frontend
@@ -447,7 +447,7 @@ npm test
 
 Expected: üçü de temiz. `npm run build` başarılı, lint'te kullanılmayan değişken uyarısı yok, testler önceki iki görevdeki hâliyle geçiyor.
 
-- [ ] **Step 8: Uygulamayı gözle doğrula**
+- [x] **Step 8: Uygulamayı gözle doğrula**
 
 ```bash
 cd mf-frontend && npm run dev
@@ -455,7 +455,7 @@ cd mf-frontend && npm run dev
 
 `http://localhost:3000/#admin` adresine yönetici hesabıyla gir. Dört sekme de bugünkü gibi açılmalı: Genel'de sayı kartları, Model'de model seçimi ve adapter listesi, MCP'de sunucu listesi, Loglar'da tablo. Bu adım bir davranış değişikliği aramıyor — **hiçbir şeyin değişmemiş olması** doğrulanan şey.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add mf-frontend/src/components/yonetim/ mf-frontend/src/components/views/AdminView.tsx
@@ -486,7 +486,7 @@ EOF
 - Consumes: `PANEL_SECTIONS`, `sectionFromPath` (Task 1).
 - Produces: `export function PanelShell(props: { children: React.ReactNode }): React.ReactElement`
 
-- [ ] **Step 1: Kabuğu yaz**
+- [x] **Step 1: Kabuğu yaz**
 
 `mf-frontend/src/components/yonetim/PanelShell.tsx`:
 
@@ -642,7 +642,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
 }
 ```
 
-- [ ] **Step 2: Lint ve derleme**
+- [x] **Step 2: Lint ve derleme**
 
 ```bash
 cd mf-frontend
@@ -652,7 +652,7 @@ npm run build
 
 Expected: temiz. (Bu aşamada `PanelShell`'in çağıranı yok; derleme yalnızca dosyanın geçerliliğini doğruluyor.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mf-frontend/src/components/yonetim/PanelShell.tsx
@@ -683,7 +683,7 @@ EOF
 - Consumes: `useAuth` (`login`), `ApiError`.
 - Produces: `export function PanelLogin(): React.ReactElement`
 
-- [ ] **Step 1: Giriş ekranını yaz**
+- [x] **Step 1: Giriş ekranını yaz**
 
 `mf-frontend/src/components/yonetim/PanelLogin.tsx`:
 
@@ -789,7 +789,7 @@ export function PanelLogin() {
 }
 ```
 
-- [ ] **Step 2: Lint ve derleme**
+- [x] **Step 2: Lint ve derleme**
 
 ```bash
 cd mf-frontend
@@ -799,7 +799,7 @@ npm run build
 
 Expected: temiz.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mf-frontend/src/components/yonetim/PanelLogin.tsx
@@ -833,7 +833,7 @@ EOF
 - Consumes: `panelGate` (Task 2), `PanelShell` (Task 4), `PanelLogin` (Task 5), `OverviewPanel` / `ModelPanel` / `MCPPanel` / `LogsPanel` (Task 3).
 - Produces: `/yonetim`, `/yonetim/model`, `/yonetim/mcp`, `/yonetim/loglar` rotaları.
 
-- [ ] **Step 1: `PanelGate.tsx` yaz**
+- [x] **Step 1: `PanelGate.tsx` yaz**
 
 ```tsx
 "use client";
@@ -878,7 +878,7 @@ export function PanelGate({ children }: { children: React.ReactNode }) {
 }
 ```
 
-- [ ] **Step 2: `src/app/yonetim/layout.tsx` yaz**
+- [x] **Step 2: `src/app/yonetim/layout.tsx` yaz**
 
 ```tsx
 import type { Metadata } from "next";
@@ -899,7 +899,7 @@ export default function YonetimLayout({
 }
 ```
 
-- [ ] **Step 3: Dört sayfa dosyasını yaz**
+- [x] **Step 3: Dört sayfa dosyasını yaz**
 
 `src/app/yonetim/page.tsx`:
 
@@ -941,7 +941,7 @@ export default function YonetimLoglar() {
 }
 ```
 
-- [ ] **Step 4: Lint, test ve derleme**
+- [x] **Step 4: Lint, test ve derleme**
 
 ```bash
 cd mf-frontend
@@ -952,7 +952,7 @@ npm run build
 
 Expected: üçü de temiz. Build çıktısında `/yonetim`, `/yonetim/model`, `/yonetim/mcp`, `/yonetim/loglar` rotaları listelenmeli.
 
-- [ ] **Step 5: Uygulamayı gözle doğrula**
+- [x] **Step 5: Uygulamayı gözle doğrula**
 
 ```bash
 cd mf-frontend && npm run dev
@@ -965,7 +965,7 @@ Sırasıyla:
 4. `/yonetim/model` adresini doğrudan yenile → doğru bölüm açık gelir.
 5. Yönetici olmayan bir hesapla `/yonetim` → ürüne (`/`) döner.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mf-frontend/src/app/yonetim mf-frontend/src/components/yonetim/PanelGate.tsx
@@ -996,7 +996,7 @@ EOF
 - Consumes: `legacyHashToPath` (Task 1).
 - Produces: değişiklik yok — bu görev yalnızca eski yüzeyi kaldırıyor.
 
-- [ ] **Step 1: `AdminView` importunu ve `admin` master görünümünü kaldır**
+- [x] **Step 1: `AdminView` importunu ve `admin` master görünümünü kaldır**
 
 `AppShell.tsx` üzerinde:
 
@@ -1012,7 +1012,7 @@ export type MasterView =
 4. Görünüm listesinden `{view === "admin" && <AdminView sub={sub} onNavigate={goSub} />}` satırını sil.
 5. `IconSliders` fonksiyonunun tek çağıranı gitti. Sil — `IconCode`'dan farklı olarak bu ikonun geri gelecek bir rotası yok; panel artık kendi kabuğunda ve kendi işaretlemesini kullanıyor.
 
-- [ ] **Step 2: `NAV` üstündeki yorumu gerçeğe uydur**
+- [x] **Step 2: `NAV` üstündeki yorumu gerçeğe uydur**
 
 `NAV` dizisinin üstündeki blok yorumda Yönetim'in nav'da neden listelendiğini anlatan iki cümle var ve artık doğru değil. O iki cümleyi şununla değiştir:
 
@@ -1024,7 +1024,7 @@ export type MasterView =
 // header'da, yalnızca yönetici rolüne görünür.
 ```
 
-- [ ] **Step 3: `#admin` yönlendirmesini ekle**
+- [x] **Step 3: `#admin` yönlendirmesini ekle**
 
 `AppShell.tsx`'in import bloğuna:
 
@@ -1053,7 +1053,7 @@ import { legacyHashToPath } from "@/lib/adminNav";
   }, [router]);
 ```
 
-- [ ] **Step 4: Header'a panele giden bağlantıyı ekle**
+- [x] **Step 4: Header'a panele giden bağlantıyı ekle**
 
 `AppShell.tsx`'te header'daki e-posta `<span>`'inin **hemen öncesine**:
 
@@ -1071,7 +1071,7 @@ import { legacyHashToPath } from "@/lib/adminNav";
 
 `<a>` kullanılıyor, `<Link>` değil: panel ayrı bir kabuk ve tam sayfa yüklenmesi doğru olan — ürünün açık kalan görünümlerini (mount edilmiş `Pane`'leri) panelin arkasında tutmanın bir anlamı yok.
 
-- [ ] **Step 5: `AdminView.tsx`'i sil**
+- [x] **Step 5: `AdminView.tsx`'i sil**
 
 ```bash
 git rm mf-frontend/src/components/views/AdminView.tsx
@@ -1079,7 +1079,7 @@ git rm mf-frontend/src/components/views/AdminView.tsx
 
 Bu dosya `codegen` gibi "nav'dan indi ama duruyor" durumunda değil: içeriğinin tamamı Task 3'te `src/components/yonetim/` altına taşındı ve geriye kalan kabuk `/yonetim` tarafından değiştirildi. Duran bir kopya, iki panelin sessizce ayrışması demek olurdu.
 
-- [ ] **Step 6: Lint, test ve derleme**
+- [x] **Step 6: Lint, test ve derleme**
 
 ```bash
 cd mf-frontend
@@ -1090,7 +1090,7 @@ npm run build
 
 Expected: üçü de temiz. Lint'te kullanılmayan import veya fonksiyon uyarısı olmamalı (`IconSliders` silindi, `AdminView` importu silindi).
 
-- [ ] **Step 7: Uygulamayı gözle doğrula**
+- [x] **Step 7: Uygulamayı gözle doğrula**
 
 ```bash
 cd mf-frontend && npm run dev
@@ -1102,7 +1102,7 @@ cd mf-frontend && npm run dev
 4. Ürün header'ında yönetici için "Yönetim" bağlantısı görünür; yönetici olmayan hesapta görünmez.
 5. Ürün nav'ında dört değil üç sekme var: Analiz, Persona, Metrikler.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A mf-frontend/src
@@ -1135,7 +1135,7 @@ EOF
 - Consumes: Task 1–7'nin tamamı.
 - Produces: sevk edilebilir bir 1. aşama.
 
-- [ ] **Step 1: Tam doğrulama**
+- [x] **Step 1: Tam doğrulama**
 
 ```bash
 cd mf-frontend
@@ -1146,7 +1146,7 @@ npm run build
 
 Expected: üçü de sıfır hata. `npm test` çıktısında `adminNav.test.ts` ve `adminAccess.test.ts` testleri geçmiş görünmeli; mevcut `terms`, `report`, `rubric`, `verdict` testleri de.
 
-- [ ] **Step 2: Backend'e dokunulmadığını doğrula**
+- [x] **Step 2: Backend'e dokunulmadığını doğrula**
 
 ```bash
 cd /Users/emrah/dev/mf-capstone
@@ -1155,7 +1155,7 @@ git diff main --stat -- mf-backend
 
 Expected: **boş çıktı.** Bu aşama yalnızca frontend. Backend'de bir değişiklik varsa kapsam dışına çıkılmış demektir.
 
-- [ ] **Step 3: Kalan referansları tara**
+- [x] **Step 3: Kalan referansları tara**
 
 ```bash
 cd /Users/emrah/dev/mf-capstone
@@ -1164,7 +1164,7 @@ grep -rn "AdminView\|#admin" mf-frontend/src
 
 Expected: yalnızca `src/lib/adminNav.ts` (eşleme tablosu), `src/lib/adminNav.test.ts` (testleri) ve `src/components/AppShell.tsx` (yönlendirme yorumu) eşleşmeli. `AdminView` adının hiçbir import'ta kalmamış olması gerekiyor.
 
-- [ ] **Step 4: Deploy notu**
+- [x] **Step 4: Deploy notu**
 
 Bu aşama **yalnızca frontend** ve hiçbir yeni backend ucu okumuyor, dolayısıyla tek başına Vercel'e sevk edilebilir; backend'i beklemez.
 
@@ -1172,7 +1172,7 @@ Sevk edildikten sonra üretimde doğrulanacaklar: `/yonetim` açılıyor, `#admi
 
 **`render.yaml` `autoDeploy: true` diyor ama GitHub webhook'u pratikte ateşlemiyor.** Bu aşamada Render'a giden bir değişiklik yok; yine de bir sonraki aşamada backend değişecek ve deploy elle tetiklenip doğrulanacak. Doğrulanmadan hiçbir şey "çıktı" diye raporlanmayacak.
 
-- [ ] **Step 5: Planın kutucuklarını işaretle ve commit'le**
+- [x] **Step 5: Planın kutucuklarını işaretle ve commit'le**
 
 ```bash
 cd /Users/emrah/dev/mf-capstone
