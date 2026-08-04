@@ -1,4 +1,7 @@
-// Stub — içerik sonraki görevlerde gelir. Başlık OrgShell'de.
+"use client";
+
+import { TeamPanel } from "@/components/sirket/TeamPanel";
+
 export default function SirketEkip() {
-  return null;
+  return <TeamPanel />;
 }

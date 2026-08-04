@@ -612,6 +612,51 @@ export interface CreateAccountResponse {
   owner: AccountMember;
 }
 
+// ---- Company panel (/org) ----
+//
+// Scoped by the JWT's org_id on the server — the client never sends an org id.
+// Assignable roles stop at admin|member; owner is minted only by platform admin.
+
+export type OrgAssignableRole = "admin" | "member";
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  type: string;
+  seat_limit: number;
+  status: string;
+  member_count: number;
+}
+
+export interface OrgMeResponse {
+  org: OrgSummary;
+  role: string;
+}
+
+export interface OrgMember {
+  id: string;
+  email: string;
+  name: string;
+  org_role: string;
+  created_at: string;
+  last_activity_at?: string | null;
+}
+
+export interface OrgMemberListResult {
+  members: OrgMember[];
+}
+
+export interface CreateOrgMemberRequest {
+  name: string;
+  email: string;
+  org_role: OrgAssignableRole;
+}
+
+export interface CreateOrgMemberResponse {
+  member: OrgMember;
+  temporary_password: string;
+}
+
 // ---- DeepKwiki ----
 
 export interface WikiDocument {
