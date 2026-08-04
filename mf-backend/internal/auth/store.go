@@ -72,6 +72,10 @@ func createUserWithIndividualOrg(
 	if err != nil {
 		return User{}, err
 	}
+	u.OrgID = &orgID
+	u.OrgRole = "owner"
+	u.OrgType = "individual"
+	u.OrgStatus = "active"
 	if err := tx.Commit(ctx); err != nil {
 		return User{}, err
 	}
@@ -118,11 +122,12 @@ func (s *Store) GetUserByEmailWithHash(ctx context.Context, email string) (User,
 	err := s.db.QueryRow(ctx,
 		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
 		        u.created_at, u.updated_at, u.terms_accepted_at, u.terms_version, u.password_hash,
-		        COALESCE(o.status, 'active') AS org_status
+		        u.org_id, COALESCE(u.org_role, ''), COALESCE(o.type, ''), COALESCE(o.status, 'active')
 		 FROM users u
 		 LEFT JOIN organizations o ON o.id = u.org_id
 		 WHERE u.email = $1`, email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion, &hash, &u.OrgStatus)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion, &hash,
+		&u.OrgID, &u.OrgRole, &u.OrgType, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, "", ErrNoRows
 	}
@@ -135,11 +140,12 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	err := s.db.QueryRow(ctx,
 		`SELECT u.id, u.email, u.name, u.role, u.must_change_password,
 		        u.created_at, u.updated_at, u.terms_accepted_at, u.terms_version,
-		        COALESCE(o.status, 'active') AS org_status
+		        u.org_id, COALESCE(u.org_role, ''), COALESCE(o.type, ''), COALESCE(o.status, 'active')
 		   FROM users u
 		   LEFT JOIN organizations o ON o.id = u.org_id
 		  WHERE u.id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion, &u.OrgStatus)
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion,
+		&u.OrgID, &u.OrgRole, &u.OrgType, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
@@ -160,9 +166,18 @@ func (s *Store) GetPasswordHash(ctx context.Context, id string) (string, error) 
 func (s *Store) UpdateName(ctx context.Context, id, name string) (User, error) {
 	var u User
 	err := s.db.QueryRow(ctx,
-		`UPDATE users SET name = $2, updated_at = now() WHERE id = $1
-		 RETURNING id, email, name, role, must_change_password, created_at, updated_at, terms_accepted_at, terms_version`, id, name,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion)
+		`WITH updated AS (
+		   UPDATE users SET name = $2, updated_at = now() WHERE id = $1
+		   RETURNING id, email, name, role, must_change_password, created_at, updated_at,
+		             terms_accepted_at, terms_version, org_id, org_role
+		 )
+		 SELECT u.id, u.email, u.name, u.role, u.must_change_password, u.created_at, u.updated_at,
+		        u.terms_accepted_at, u.terms_version,
+		        u.org_id, COALESCE(u.org_role, ''), COALESCE(o.type, ''), COALESCE(o.status, 'active')
+		   FROM updated u
+		   LEFT JOIN organizations o ON o.id = u.org_id`, id, name,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.TermsAcceptedAt, &u.TermsVersion,
+		&u.OrgID, &u.OrgRole, &u.OrgType, &u.OrgStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNoRows
 	}
