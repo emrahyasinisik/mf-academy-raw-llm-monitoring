@@ -27,19 +27,72 @@ func parseIntake(content string) (topic, purpose, rest string) {
 	return topic, purpose, rest
 }
 
+func normalizeChat(s string) string {
+	n := strings.ToLower(strings.TrimSpace(s))
+	n = strings.Trim(n, "?.!…*")
+	return strings.Join(strings.Fields(n), " ")
+}
+
 // isSelfAsk is a question about the persona itself. Those must not go to live
 // search — "sen kimsin" otherwise retrieves a Turkish pop song on JioSaavn.
 func isSelfAsk(s string) bool {
-	n := strings.ToLower(strings.TrimSpace(s))
-	n = strings.Trim(n, "?.!…")
-	n = strings.Join(strings.Fields(n), " ")
-	switch n {
+	switch normalizeChat(s) {
 	case "sen kimsin", "kimsin", "sen nesin", "kendini tanıt", "kendini tanit",
 		"who are you", "what are you":
 		return true
 	default:
 		return false
 	}
+}
+
+// isPersonaAddress is a joke/hitap aimed at the assistant ("sen armutsun").
+// Searching it dredges song lyrics from a prior "kimsin" thread.
+func isPersonaAddress(s string) bool {
+	if isSelfAsk(s) {
+		return false
+	}
+	n := normalizeChat(s)
+	return strings.HasPrefix(n, "sen ") || strings.HasPrefix(n, "seni ")
+}
+
+// isTooVague is a message with no domain, no purpose keywords, and almost no
+// substance after chat noise is stripped.
+func isTooVague(s string) bool {
+	if firstDomain(s) != "" || researchHint(s) != "" {
+		return false
+	}
+	words := strings.Fields(stripAskNoise(s))
+	if len(words) > 0 && strings.EqualFold(words[0], "sen") {
+		words = words[1:]
+	}
+	return len(words) <= 2
+}
+
+// shouldClarify skips live search and asks the user to restate the ask.
+// Established research threads still search thin follow-ups ("başka markalar?").
+func shouldClarify(history []Turn, latest string) bool {
+	if isPersonaAddress(latest) {
+		return true
+	}
+	if !isTooVague(latest) {
+		return false
+	}
+	if len(history) < 2 {
+		return true
+	}
+	first := deriveSubject(history)
+	if isSelfAsk(first) || isPersonaAddress(first) {
+		return true
+	}
+	_, _, rest := parseIntake(first)
+	body := rest
+	if body == "" {
+		body = first
+	}
+	if firstDomain(body) != "" || researchHint(body) != "" {
+		return false
+	}
+	return len(strings.Fields(stripAskNoise(body))) < 4
 }
 
 // Generic Konu values operators type when the real entity lives in the question.

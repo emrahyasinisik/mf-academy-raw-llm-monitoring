@@ -227,13 +227,12 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	)
 	switch {
 	case isSelfAsk(latest.Content):
-		// Do not search: "sen kimsin" retrieves a pop song. The system prompt
-		// already tells the model who it is.
-		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı.\n"
+		// Do not search: "sen kimsin" retrieves a pop song.
+		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı. Kendini kısaca tanıt.\n"
+	case shouldClarify(history, latest.Content):
+		// "sen armutsun" and other non-asks: searching invents Hidra lyrics.
+		evidence = evidenceHeader + "\n- Canlı arama atlandı: mesaj net bir araştırma konusu değil. Şarkı/ürün analizi ve ÖNERİ yazma. Tek cümleyle ne hakkında bakmak istediğini ayrıntılı yazmasını iste.\n"
 	default:
-		// Intake often said Konu: marka while the brand lived in the question.
-		// researchQueries pulls the entity (or bare domain) so live search is
-		// about the right thing.
 		primary, fallback := researchQueries(history, latest.Content)
 		sources, evidence, steps = a.gather(ctx, primary, fallback, plan.evidence)
 	}

@@ -127,6 +127,30 @@ func TestIsSelfAsk(t *testing.T) {
 	}
 }
 
+func TestShouldClarifyPersonaJoke(t *testing.T) {
+	// The failure: "sen armutsun" after a kimsin thread searched Hidra lyrics.
+	hist := []Turn{
+		{Role: "user", Content: "sen kimsin"},
+		{Role: "assistant", Content: "Araştırma personasıyım."},
+		{Role: "user", Content: "sen armutsun"},
+	}
+	if !shouldClarify(hist, "sen armutsun") {
+		t.Fatal("persona jokes must clarify, not search")
+	}
+	if !isPersonaAddress("sen armutsun **") {
+		t.Fatal("punctuation must not hide a persona address")
+	}
+	// Thin follow-up in a real market thread still researches.
+	market := []Turn{
+		{Role: "user", Content: "Türkiye'de hızlı market teslimatı pazarı nasıl görünüyor?"},
+		{Role: "assistant", Content: "Trendyol ve Getir…"},
+		{Role: "user", Content: "başka markalar yok mu"},
+	}
+	if shouldClarify(market, "başka markalar yok mu") {
+		t.Fatal("market follow-ups must still research")
+	}
+}
+
 func TestResearchQueriesDomainPaste(t *testing.T) {
 	msg := "www.visevent.com"
 	primary, fallback := researchQueries([]Turn{{Role: "user", Content: msg}}, msg)
