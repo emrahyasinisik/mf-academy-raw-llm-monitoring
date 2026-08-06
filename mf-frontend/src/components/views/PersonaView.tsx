@@ -12,13 +12,7 @@
 // So the screen never waits on history to answer, and a failed write costs the
 // record rather than the reply.
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type {
   AppLimits,
@@ -28,7 +22,7 @@ import type {
   DecisionTurn,
   ResearchStep,
 } from "@/lib/types";
-import { assemblePersonaCase, parseIntake } from "@/lib/personaCase";
+import { assemblePersonaCase } from "@/lib/personaCase";
 import { isRedacted } from "@/lib/report";
 import {
   clampReportPanelWidth,
@@ -41,7 +35,6 @@ import { useMachine } from "@/store/machine";
 import { RichText } from "@/components/ui/RichText";
 import { HistoryPanel, type HistoryItem } from "@/components/ui/HistoryPanel";
 import { CriterionContinuum } from "@/components/ui/CriterionContinuum";
-import { IntakeFields } from "@/components/ui/IntakeFields";
 import { ReportPanel } from "@/components/ui/ReportPanel";
 
 // A message as this screen keeps it: the wire turn plus, for the persona's
@@ -63,12 +56,11 @@ const VERDICT_TONE: Record<string, string> = {
   yatırılamaz: "var(--bad)",
 };
 
-// Openers, so the empty screen is an invitation rather than a blank field. Each
-// is a shape the persona handles well: a named company, a market, a technology.
+// Openers land straight in the composer — there is no separate Konu/Amaç form.
 const OPENERS = [
-  "Acme AI — seed aşaması B2B SaaS",
-  "Türkiye'de hızlı market teslimatı pazarı",
-  "Katı hal batarya üreticileri",
+  "hepsiburada.com için hangi platformlarda reklam yapsak?",
+  "Acme AI seed aşaması B2B SaaS — yatırılabilir mi?",
+  "Türkiye'de hızlı market teslimatı pazarı nasıl görünüyor?",
 ];
 
 /** When host config is unreachable — case assembly still needs a window. */
@@ -92,8 +84,6 @@ export function PersonaView() {
   const [error, setError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [topic, setTopic] = useState("");
-  const [purpose, setPurpose] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(420);
   const [report, setReport] = useState<Assessment | null>(null);
@@ -230,11 +220,6 @@ export function PersonaView() {
         .reverse()
         .find((m) => m.role === "assistant");
       const body = assemblePersonaCase({
-        topic:
-          topic ||
-          threads.find((t) => t.id === threadId)?.title ||
-          "Vaka",
-        purpose,
         userReplies: messages
           .filter((m) => m.role === "user")
           .map((m) => m.content),
@@ -276,32 +261,13 @@ export function PersonaView() {
       setReportLoading(false);
       done();
     }
-  }, [
-    threadId,
-    reportLoading,
-    begin,
-    windowTokens,
-    messages,
-    topic,
-    purpose,
-    threads,
-  ]);
+  }, [threadId, reportLoading, begin, windowTokens, messages]);
 
   const ask = useCallback(
     async (text: string) => {
       if (text.length < 2 || running || reportLoading) return;
 
-      let content = text;
-      if (messages.length === 0) {
-        if (!topic.trim() || !purpose.trim()) {
-          setError("Konu ve amaç zorunlu.");
-          return;
-        }
-        content =
-          `Konu: ${topic.trim()}\nAmaç: ${purpose.trim()}\n\n${text}`.trim();
-      }
-
-      const nextUser: ChatMessage = { role: "user", content };
+      const nextUser: ChatMessage = { role: "user", content: text };
       const history = [...messages, nextUser];
       setMessages(history);
       setInput("");
@@ -352,16 +318,7 @@ export function PersonaView() {
         setRunning(false);
       }
     },
-    [
-      messages,
-      running,
-      reportLoading,
-      topic,
-      purpose,
-      begin,
-      threadId,
-      loadHistory,
-    ],
+    [messages, running, reportLoading, begin, threadId, loadHistory],
   );
 
   // Open a stored thread. Refused mid-turn: the reply in flight belongs to the
@@ -391,16 +348,6 @@ export function PersonaView() {
         );
         setThreadId(c.id);
 
-        const firstUser = c.messages.find((m) => m.role === "user");
-        if (firstUser) {
-          const intake = parseIntake(firstUser.content);
-          setTopic(intake.topic);
-          setPurpose(intake.purpose);
-        } else {
-          setTopic("");
-          setPurpose("");
-        }
-
         const aid = c.assessment_id ?? null;
         setLinkedAssessmentId(aid);
         if (aid) {
@@ -421,8 +368,6 @@ export function PersonaView() {
     setThreadId(null);
     setError("");
     setInput("");
-    setTopic("");
-    setPurpose("");
     setPanelOpen(false);
     setReport(null);
     setReportLoading(false);
@@ -458,9 +403,6 @@ export function PersonaView() {
   );
 
   const pickOpener = useCallback((text: string) => {
-    // Openers fill topic + composer; purpose stays the operator's job so the
-    // first turn is not sent without an explicit aim.
-    setTopic(text);
     setInput(text);
     setError("");
   }, []);
@@ -502,12 +444,8 @@ export function PersonaView() {
     return -1;
   })();
 
-  const intakeReady = topic.trim().length > 0 && purpose.trim().length > 0;
   const sendDisabled =
-    running ||
-    reportLoading ||
-    input.trim().length < 2 ||
-    (messages.length === 0 && !intakeReady);
+    running || reportLoading || input.trim().length < 2;
 
   return (
     <div className="h-full flex min-h-0">
@@ -535,19 +473,7 @@ export function PersonaView() {
         }`}
       >
         {messages.length === 0 ? (
-          <Intro
-            onPick={pickOpener}
-            disabled={running || reportLoading}
-            intake={
-              <IntakeFields
-                topic={topic}
-                purpose={purpose}
-                onTopic={setTopic}
-                onPurpose={setPurpose}
-                disabled={running || reportLoading}
-              />
-            }
-          />
+          <Intro onPick={pickOpener} disabled={running || reportLoading} />
         ) : (
           <div
             ref={scrollRef}
@@ -556,20 +482,6 @@ export function PersonaView() {
             }`}
             aria-live="polite"
           >
-            {(topic || purpose) && (
-              <div className="flex flex-wrap gap-2">
-                {topic && (
-                  <span className="pill" title="Konu">
-                    Konu · {topic}
-                  </span>
-                )}
-                {purpose && (
-                  <span className="pill" title="Amaç">
-                    Amaç · {purpose}
-                  </span>
-                )}
-              </div>
-            )}
             {messages.map((m, i) =>
               m.role === "user" ? (
                 <UserBubble key={i} text={m.content} />
@@ -608,8 +520,8 @@ export function PersonaView() {
               onKeyDown={onKey}
               rows={2}
               disabled={running || reportLoading}
-              aria-label="Değerlendirilecek konu"
-              placeholder="Bir pazar, marka, ürün veya teknoloji yaz…"
+              aria-label="Mesaj"
+              placeholder="Sorunu yaz — örn. hepsiburada.com için hangi platformlarda reklam yapsak?"
               className="flex-1 resize-none bg-transparent border-0 px-2 py-1.5 text-sm outline-none min-w-0"
               style={{ color: "var(--text)" }}
             />
@@ -669,11 +581,9 @@ export function PersonaView() {
 function Intro({
   onPick,
   disabled,
-  intake,
 }: {
   onPick: (text: string) => void;
   disabled: boolean;
-  intake: ReactNode;
 }) {
   return (
     <div className="flex-1 grid place-items-center text-center px-2">
@@ -700,20 +610,17 @@ function Intro({
           </svg>
         </div>
         <h2 className="font-display text-xl font-bold tracking-tight mb-2">
-          Yatırım Personası
+          Persona
         </h2>
         <p
           className="text-sm leading-relaxed mb-5"
           style={{ color: "var(--text-dim)" }}
         >
-          Değerlendirmek istediğin pazarı, markayı, ürünü veya teknolojiyi yaz.
-          Persona canlı araştırma yapar, gerekirse tek bir soru sorar ve
-          kaynaklarıyla birlikte bir ilk-geçiş okuması sunar — karar sende.
+          Sorunu alttaki balona yaz. Persona canlı araştırır ve kaynaklarıyla
+          birlikte bir ilk-geçiş okuması sunar — karar sende.
         </p>
 
         <CriterionContinuum count={10} mode="wave" className="justify-center mb-6 opacity-70" />
-
-        <div className="text-left mb-5">{intake}</div>
 
         <div className="flex flex-wrap justify-center gap-2">
           {OPENERS.map((o, i) => (

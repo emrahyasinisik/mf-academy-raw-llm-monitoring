@@ -18,33 +18,31 @@ test("parseIntake returns empty intake when headers absent", () => {
   assert.equal(rest, "Sadece soru");
 });
 
-test("puts topic in subject_title and keeps purpose section", () => {
+test("titles the case from the first user bubble", () => {
   const { subject_title, subject } = assemblePersonaCase({
-    topic: "Acme AI",
-    purpose: "seed değerlendirme",
-    userReplies: ["B2B SaaS"],
-    lastAssistantBody: "Pazar büyüyor.",
+    userReplies: ["hepsiburada.com için hangi platformlarda reklam yapsak?"],
+    lastAssistantBody: "Meta ve Google.",
     sources: [{ title: "Haber", url: "https://example.com" }],
     budgetChars: 10_000,
   });
-  assert.equal(subject_title, "Acme AI");
-  assert.match(subject, /## Konu\nAcme AI/);
-  assert.match(subject, /## Amaç\nseed değerlendirme/);
+  assert.equal(
+    subject_title,
+    "hepsiburada.com için hangi platformlarda reklam yapsak?",
+  );
+  assert.match(subject, /## Konu\nhepsiburada\.com/);
+  assert.doesNotMatch(subject, /## Amaç/);
   assert.match(subject, /## Kaynaklar/);
 });
 
-test("truncates middle chat before dropping konu/amaç/kaynaklar", () => {
+test("truncates middle chat before dropping konu/kaynaklar", () => {
   const long = "x".repeat(500);
   const { subject } = assemblePersonaCase({
-    topic: "T",
-    purpose: "P",
     userReplies: [long, long, long],
     lastAssistantBody: long,
     sources: [{ title: "S", url: "https://s.test" }],
     budgetChars: 400,
   });
   assert.ok(subject.length <= 400);
-  assert.match(subject, /## Konu\nT/);
-  assert.match(subject, /## Amaç\nP/);
+  assert.match(subject, /## Konu\n/);
   assert.match(subject, /## Kaynaklar/);
 });

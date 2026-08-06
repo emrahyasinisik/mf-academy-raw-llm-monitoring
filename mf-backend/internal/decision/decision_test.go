@@ -58,6 +58,40 @@ func TestBuildQuery(t *testing.T) {
 	}
 }
 
+func TestResearchQueriesPrefersDomainOverGenericKonu(t *testing.T) {
+	// Legacy primed turn: Konu=marka, brand only in the ask.
+	msg := "Konu: marka\nAmaç: pazarlama\n\nhepsiburada.com için hangi platformlarda reklama yapsak"
+	primary, fallback := researchQueries([]Turn{{Role: "user", Content: msg}}, msg)
+	if !strings.Contains(strings.ToLower(primary), "hepsiburada.com") {
+		t.Fatalf("primary query must anchor on the domain, got %q", primary)
+	}
+	if strings.Contains(strings.ToLower(primary), "konu:") {
+		t.Fatalf("intake labels must not be searched: %q", primary)
+	}
+	if fallback != "hepsiburada.com" {
+		t.Fatalf("fallback should be bare domain, got %q", fallback)
+	}
+	if !strings.Contains(strings.ToLower(primary), "pazarlama") &&
+		!strings.Contains(strings.ToLower(primary), "reklam") {
+		t.Fatalf("marketing purpose should shape the query, got %q", primary)
+	}
+}
+
+func TestResearchQueriesFromFreeTextBubble(t *testing.T) {
+	msg := "hepsiburada.com için hangi platformlarda reklama yapsak?"
+	primary, fallback := researchQueries([]Turn{{Role: "user", Content: msg}}, msg)
+	if !strings.Contains(strings.ToLower(primary), "hepsiburada.com") {
+		t.Fatalf("free-text bubble must still search the domain, got %q", primary)
+	}
+	if fallback != "hepsiburada.com" {
+		t.Fatalf("fallback should be bare domain, got %q", fallback)
+	}
+	if !strings.Contains(strings.ToLower(primary), "reklam") &&
+		!strings.Contains(strings.ToLower(primary), "pazarlama") {
+		t.Fatalf("marketing words in the bubble should shape the query, got %q", primary)
+	}
+}
+
 func TestDeriveSubject(t *testing.T) {
 	got := deriveSubject([]Turn{
 		{Role: "assistant", Content: "Merhaba"},
@@ -203,7 +237,7 @@ func TestGatherCitationsMatchTheSourceList(t *testing.T) {
 	agent := NewAgent(&fakeChatter{}, fatSearcher{}, fatWiki{}, fixedSettings{}, 1366, 120*time.Second)
 	plan := agent.plan([]Turn{{Role: "user", Content: "Acme AI"}})
 
-	sources, evidence, steps := agent.gather(context.Background(), "Acme AI", plan.evidence)
+	sources, evidence, steps := agent.gather(context.Background(), "Acme AI", "", plan.evidence)
 
 	if len(evidence) > plan.evidence {
 		t.Fatalf("evidence is %d chars, over its %d-char budget", len(evidence), plan.evidence)

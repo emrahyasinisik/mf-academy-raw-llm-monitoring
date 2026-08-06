@@ -58,7 +58,7 @@ func gatherWith(t *testing.T, s Searcher, w WikiRetriever) ([]ResearchStep, stri
 	t.Helper()
 	agent := NewAgent(&fakeChatter{}, s, w, fixedSettings{}, 1366, 120*time.Second)
 	plan := agent.plan([]Turn{{Role: "user", Content: "Acme AI"}})
-	_, evidence, steps := agent.gather(context.Background(), "Acme AI", plan.evidence)
+	_, evidence, steps := agent.gather(context.Background(), "Acme AI", "", plan.evidence)
 	return steps, evidence
 }
 

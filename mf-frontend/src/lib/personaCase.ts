@@ -1,11 +1,12 @@
-// Assembles the analysis/run `subject` from persona intake + chat transcript.
+// Assembles the analysis/run `subject` from the persona chat transcript.
 //
-// Konu, Amaç and Kaynaklar are never dropped — only the middle chat summary
-// shrinks when the rubric's character budget is exceeded. The backend scores
-// against this text; truncating the fixed headers would hide what the operator
-// asked for.
+// The UI no longer collects Konu/Amaç as separate fields — the first user
+// bubble *is* the case. Older threads may still carry primed "Konu:" / "Amaç:"
+// lines; parseIntake strips those so report assembly stays readable.
+// Kaynaklar is never dropped — only the middle chat summary shrinks when the
+// rubric's character budget is exceeded.
 
-/** Restores intake from a first user turn that primed Konu/Amaç lines. */
+/** Restores optional intake headers from an older primed first turn. */
 export function parseIntake(content: string): {
   topic: string;
   purpose: string;
@@ -24,15 +25,12 @@ export function parseIntake(content: string): {
     purpose = lines[i].slice("Amaç:".length).trim();
     i += 1;
   }
-  // Primed turns put a blank line between headers and the free-text ask.
   if (lines[i] === "") i += 1;
 
   return { topic, purpose, rest: lines.slice(i).join("\n") };
 }
 
 export type PersonaCaseInput = {
-  topic: string;
-  purpose: string;
   userReplies: string[];
   /** stripVerdictLines already applied by caller */
   lastAssistantBody: string;
@@ -53,17 +51,30 @@ function buildChatBody(userReplies: string[], assistant: string): string {
   return parts.join("\n\n");
 }
 
+/** Title for the assessment: old Konu line, else the first line of the ask. */
+function caseTitle(userReplies: string[]): string {
+  const first = userReplies[0] ?? "";
+  const { topic, rest } = parseIntake(first);
+  if (topic) return topic;
+  const line = (rest || first).split("\n")[0]?.trim() ?? "";
+  if (!line) return "Vaka";
+  return line.length > 80 ? line.slice(0, 79) + "…" : line;
+}
+
+function normalizeReplies(userReplies: string[]): string[] {
+  return userReplies.map((r, i) => {
+    if (i !== 0) return r;
+    const { rest } = parseIntake(r);
+    return rest || r;
+  });
+}
+
 function assembleSubject(
-  topic: string,
-  purpose: string,
+  title: string,
   chatBody: string,
   sources: { title: string; url: string }[],
 ): string {
-  const sections = [
-    `## Konu\n${topic}`,
-    `## Amaç\n${purpose}`,
-    `## Sohbet özeti\n${chatBody}`,
-  ];
+  const sections = [`## Konu\n${title}`, `## Sohbet özeti\n${chatBody}`];
   const kaynaklar = formatSources(sources);
   if (kaynaklar) sections.push(`## Kaynaklar\n${kaynaklar}`);
   return sections.join("\n\n");
@@ -72,11 +83,10 @@ function assembleSubject(
 function truncateChatBody(
   chatBody: string,
   budgetChars: number,
-  topic: string,
-  purpose: string,
+  title: string,
   sources: { title: string; url: string }[],
 ): string {
-  const shell = assembleSubject(topic, purpose, "", sources);
+  const shell = assembleSubject(title, "", sources);
   const maxChat = budgetChars - shell.length;
   if (maxChat <= 0) return "";
   if (maxChat === 1) return "…";
@@ -88,14 +98,13 @@ export function assemblePersonaCase(input: PersonaCaseInput): {
   subject_title: string;
   subject: string;
 } {
-  const { topic, purpose, userReplies, lastAssistantBody, sources, budgetChars } =
-    input;
-
-  const replies = [...userReplies];
+  const { lastAssistantBody, sources, budgetChars } = input;
+  const title = caseTitle(input.userReplies);
+  const replies = normalizeReplies(input.userReplies);
   let assistant = lastAssistantBody;
 
   const build = () =>
-    assembleSubject(topic, purpose, buildChatBody(replies, assistant), sources);
+    assembleSubject(title, buildChatBody(replies, assistant), sources);
 
   let subject = build();
 
@@ -113,12 +122,11 @@ export function assemblePersonaCase(input: PersonaCaseInput): {
     const chatBody = truncateChatBody(
       buildChatBody(replies, assistant),
       budgetChars,
-      topic,
-      purpose,
+      title,
       sources,
     );
-    subject = assembleSubject(topic, purpose, chatBody, sources);
+    subject = assembleSubject(title, chatBody, sources);
   }
 
-  return { subject_title: topic, subject };
+  return { subject_title: title, subject };
 }

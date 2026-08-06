@@ -218,8 +218,10 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 		return Result{}, fmt.Errorf("empty message")
 	}
 
-	subject := deriveSubject(history)
-	query := buildQuery(subject, latest.Content)
+	// Intake often says Konu: marka while the brand lives in the question
+	// (hepsiburada.com). researchQueries pulls the entity out so live search
+	// is about the brand, not the word "marka".
+	primary, fallback := researchQueries(history, latest.Content)
 
 	// The budget is decided before the evidence is gathered, not after. gather
 	// numbers each source as it writes it, so a source dropped afterwards would
@@ -227,7 +229,7 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	// pointing at nothing, in the one feature whose whole claim is that every
 	// claim is checkable.
 	plan := a.plan(history)
-	sources, evidence, steps := a.gather(ctx, query, plan.evidence)
+	sources, evidence, steps := a.gather(ctx, primary, fallback, plan.evidence)
 
 	model := a.resolveModel(ctx)
 	messages := a.compose(history, evidence, plan)
@@ -262,7 +264,7 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 // worth more than the space it costs. Both returns stay in lockstep: a source
 // that did not fit the prompt is not in the list either, so the numbering the
 // model cites and the numbering the UI shows are the same numbering.
-func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source, string, []ResearchStep) {
+func (a *Agent) gather(ctx context.Context, query, fallback string, budget int) ([]Source, string, []ResearchStep) {
 	var (
 		sources []Source
 		b       strings.Builder
@@ -286,11 +288,33 @@ func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source,
 		// is read a broken tool as a quiet market, so the line says so outright.
 		webStep.Error = err.Error()
 		slog.Warn("persona web research failed", "provider", a.search.Name(), "err", err)
+	case len(web) == 0:
+		// recorded below after optional fallback
+	}
+	steps = append(steps, webStep)
+
+	// Entity-only retry: "Konu: marka … hepsiburada.com" primary can miss when
+	// the long ask confuses a thin scraper; the bare domain usually does not.
+	if (err != nil || len(web) == 0) && fallback != "" && fallback != query {
+		web2, err2 := a.search.Search(ctx, fallback, maxWebResults)
+		fbStep := ResearchStep{Tool: "web_research", Query: fallback, Results: len(web2), Provider: a.search.Name()}
+		if err2 != nil {
+			fbStep.Error = err2.Error()
+			slog.Warn("persona web research fallback failed", "provider", a.search.Name(), "err", err2)
+		}
+		steps = append(steps, fbStep)
+		if err2 == nil && len(web2) > 0 {
+			web, err = web2, nil
+			query = fallback // wiki follows the query that found pages
+		}
+	}
+
+	switch {
+	case err != nil:
 		b.WriteString("- Canlı web araması ÇALIŞMADI (araç hatası). Bu, konu hakkında bilgi olmadığı anlamına gelmez.\n")
 	case len(web) == 0:
 		b.WriteString("- Canlı web araması sonuç döndürmedi.\n")
 	}
-	steps = append(steps, webStep)
 	for _, r := range web {
 		if r.URL == "" {
 			continue
@@ -332,10 +356,9 @@ func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source,
 	}
 
 	if n == 0 {
-		// Do not nudge the model toward investability here: Amaç may be
-		// marketing (or anything else), and "gerekli yatırılabilirlik alanları
-		// eksik" is exactly the failure mode that ignored the user's purpose.
-		b.WriteString("- Hiçbir kaynak bulunamadı; Amaç'a uygun TEK bir netleştirici soru sor veya sonucunun belirsiz / düşük güven olduğunu söyle. Uydurma.\n")
+		// Tool failure ≠ unknown brand. Tell the model to say the search failed,
+		// not that Hepsiburada has no public footprint.
+		b.WriteString("- Kaynak yok (arama boş veya araç hatası). Markanın var olmadığını varsayma. Pazarlama sorusuysa varsayımlarını yazıp geçici ÖNERİ ver veya TEK net soru sor; uydurma kanıt yazma.\n")
 	}
 	if dropped > 0 {
 		// Logged rather than written into the prompt: the model cannot act on
