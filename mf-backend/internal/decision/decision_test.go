@@ -111,6 +111,44 @@ func TestResearchQueriesIdentityAskStripsChatNoise(t *testing.T) {
 	}
 }
 
+func TestIsSelfAsk(t *testing.T) {
+	if !isSelfAsk("sen kimsin") || !isSelfAsk("Sen kimsin?") {
+		t.Fatal("persona meta-asks must be detected")
+	}
+	if isSelfAsk("visevent app'i biliyormusun?") {
+		t.Fatal("brand identity asks are not self-asks")
+	}
+	primary, fallback := researchQueries(
+		[]Turn{{Role: "user", Content: "sen kimsin"}},
+		"sen kimsin",
+	)
+	if primary != "" || fallback != "" {
+		t.Fatalf("self-ask must not build a web query, got %q / %q", primary, fallback)
+	}
+}
+
+func TestResearchQueriesDomainPaste(t *testing.T) {
+	msg := "www.visevent.com"
+	primary, fallback := researchQueries([]Turn{{Role: "user", Content: msg}}, msg)
+	if primary != "visevent.com" {
+		t.Fatalf("domain paste primary = %q, want visevent.com", primary)
+	}
+	if fallback != "site:visevent.com" {
+		t.Fatalf("domain paste fallback = %q, want site:visevent.com", fallback)
+	}
+}
+
+func TestPreferHostMatch(t *testing.T) {
+	in := []SearchResult{
+		{URL: "https://arxiv.org/abs/2108.05015", Title: "paper"},
+		{URL: "https://www.visevent.com/", Title: "home"},
+	}
+	out := preferHostMatch(in, "visevent.com")
+	if hostOf(out[0].URL) != "visevent.com" {
+		t.Fatalf("matching host should sort first, got %q", out[0].URL)
+	}
+}
+
 func TestDeriveSubject(t *testing.T) {
 	got := deriveSubject([]Turn{
 		{Role: "assistant", Content: "Merhaba"},

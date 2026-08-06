@@ -218,18 +218,25 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 		return Result{}, fmt.Errorf("empty message")
 	}
 
-	// Intake often says Konu: marka while the brand lives in the question
-	// (hepsiburada.com). researchQueries pulls the entity out so live search
-	// is about the brand, not the word "marka".
-	primary, fallback := researchQueries(history, latest.Content)
-
-	// The budget is decided before the evidence is gathered, not after. gather
-	// numbers each source as it writes it, so a source dropped afterwards would
-	// leave the reply citing [4] while the UI lists three sources — a citation
-	// pointing at nothing, in the one feature whose whole claim is that every
-	// claim is checkable.
 	plan := a.plan(history)
-	sources, evidence, steps := a.gather(ctx, primary, fallback, plan.evidence)
+
+	var (
+		sources  []Source
+		evidence string
+		steps    []ResearchStep
+	)
+	switch {
+	case isSelfAsk(latest.Content):
+		// Do not search: "sen kimsin" retrieves a pop song. The system prompt
+		// already tells the model who it is.
+		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı.\n"
+	default:
+		// Intake often said Konu: marka while the brand lived in the question.
+		// researchQueries pulls the entity (or bare domain) so live search is
+		// about the right thing.
+		primary, fallback := researchQueries(history, latest.Content)
+		sources, evidence, steps = a.gather(ctx, primary, fallback, plan.evidence)
+	}
 
 	model := a.resolveModel(ctx)
 	messages := a.compose(history, evidence, plan)
@@ -279,6 +286,11 @@ func (a *Agent) gather(ctx context.Context, query, fallback string, budget int) 
 	// cost of its own citation line.
 	room := func(fixed int) int { return budget - b.Len() - fixed }
 
+	prefer := firstDomain(query)
+	if prefer == "" {
+		prefer = firstDomain(fallback)
+	}
+
 	web, err := a.search.Search(ctx, query, maxWebResults)
 	webStep := ResearchStep{Tool: "web_research", Query: query, Results: len(web), Provider: a.search.Name()}
 	switch {
@@ -293,9 +305,11 @@ func (a *Agent) gather(ctx context.Context, query, fallback string, budget int) 
 	}
 	steps = append(steps, webStep)
 
-	// Entity-only retry: "Konu: marka … hepsiburada.com" primary can miss when
-	// the long ask confuses a thin scraper; the bare domain usually does not.
-	if (err != nil || len(web) == 0) && fallback != "" && fallback != query {
+	// Entity / site: retry — long asks miss; academic namesakes crowd out a
+	// pasted homepage until site:host is tried.
+	needRetry := fallback != "" && fallback != query &&
+		(err != nil || len(web) == 0 || (prefer != "" && !anyHostMatch(web, prefer)))
+	if needRetry {
 		web2, err2 := a.search.Search(ctx, fallback, maxWebResults)
 		fbStep := ResearchStep{Tool: "web_research", Query: fallback, Results: len(web2), Provider: a.search.Name()}
 		if err2 != nil {
@@ -304,16 +318,27 @@ func (a *Agent) gather(ctx context.Context, query, fallback string, budget int) 
 		}
 		steps = append(steps, fbStep)
 		if err2 == nil && len(web2) > 0 {
-			web, err = web2, nil
-			query = fallback // wiki follows the query that found pages
+			if len(web) == 0 || err != nil || anyHostMatch(web2, prefer) {
+				web, err = web2, nil
+				query = fallback
+			} else {
+				// Keep both: preferHostMatch will surface matching URLs first.
+				web = append(web2, web...)
+				err = nil
+			}
 		}
 	}
+
+	web = preferHostMatch(web, prefer)
 
 	switch {
 	case err != nil:
 		b.WriteString("- Canlı web araması ÇALIŞMADI (araç hatası). Bu, konu hakkında bilgi olmadığı anlamına gelmez.\n")
 	case len(web) == 0:
 		b.WriteString("- Canlı web araması sonuç döndürmedi.\n")
+	}
+	if prefer != "" {
+		fmt.Fprintf(&b, "- Kullanıcının konusu/domaini: %s — aynı isimli alakasız kaynaklara (ör. akademik homonym) öncelik verme.\n", prefer)
 	}
 	for _, r := range web {
 		if r.URL == "" {

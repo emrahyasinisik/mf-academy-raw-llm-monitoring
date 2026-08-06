@@ -1,6 +1,7 @@
 package decision
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 	"unicode"
@@ -26,9 +27,22 @@ func parseIntake(content string) (topic, purpose, rest string) {
 	return topic, purpose, rest
 }
 
-// Generic Konu values operators type when the real entity lives in the question
-// ("Konu: marka" + "hepsiburada.com için…"). Searching those words wastes the
-// live query on noise.
+// isSelfAsk is a question about the persona itself. Those must not go to live
+// search — "sen kimsin" otherwise retrieves a Turkish pop song on JioSaavn.
+func isSelfAsk(s string) bool {
+	n := strings.ToLower(strings.TrimSpace(s))
+	n = strings.Trim(n, "?.!…")
+	n = strings.Join(strings.Fields(n), " ")
+	switch n {
+	case "sen kimsin", "kimsin", "sen nesin", "kendini tanıt", "kendini tanit",
+		"who are you", "what are you":
+		return true
+	default:
+		return false
+	}
+}
+
+// Generic Konu values operators type when the real entity lives in the question.
 var genericTopics = map[string]struct{}{
 	"marka": {}, "ürün": {}, "urun": {}, "şirket": {}, "sirket": {},
 	"brand": {}, "product": {}, "company": {}, "pazar": {}, "market": {},
@@ -43,7 +57,45 @@ func isGenericTopic(topic string) bool {
 var domainRE = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b`)
 
 func firstDomain(s string) string {
-	return domainRE.FindString(s)
+	return normalizeHost(domainRE.FindString(s))
+}
+
+// normalizeHost strips scheme/www and lowercases so www.VisEvent.com and
+// visevent.com collapse to one prefer-host key.
+func normalizeHost(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "://") {
+		if u, err := url.Parse(s); err == nil && u.Host != "" {
+			s = u.Host
+		}
+	}
+	s = strings.TrimPrefix(strings.ToLower(s), "www.")
+	return strings.Trim(s, "/")
+}
+
+// domainOnlyReport is true when the message is essentially just a URL/host —
+// the operator pasted the site as the subject.
+func domainOnlyReport(s string) (host string, ok bool) {
+	raw := strings.TrimSpace(s)
+	raw = strings.TrimPrefix(raw, "http://")
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.Trim(raw, "/")
+	fields := strings.Fields(raw)
+	if len(fields) != 1 {
+		return "", false
+	}
+	host = normalizeHost(fields[0])
+	if host == "" || !strings.Contains(host, ".") {
+		return "", false
+	}
+	// Reject paths: "visevent.com/foo"
+	if strings.Contains(strings.TrimPrefix(fields[0], "www."), "/") {
+		return "", false
+	}
+	return host, true
 }
 
 // researchEntity picks what the web search should be about: a domain in the
@@ -83,21 +135,47 @@ func researchHint(text string) string {
 	case strings.Contains(p, "yatır") || strings.Contains(p, "seed") ||
 		strings.Contains(p, "invest"):
 		return "şirket yatırım pazar"
+	case strings.Contains(p, "pazar") || strings.Contains(p, "rakipler") ||
+		strings.Contains(p, "teslimat"):
+		return "pazar rakipler Türkiye"
 	default:
 		return ""
 	}
+}
+
+func isIdentityAsk(text string) bool {
+	p := strings.ToLower(text)
+	return strings.Contains(p, "biliyor") || strings.Contains(p, "nedir")
+}
+
+func isThinFollowUp(s string) bool {
+	return len(strings.Fields(strings.TrimSpace(s))) <= 5
 }
 
 // researchQueries returns the primary live-search string and an optional
 // entity-only fallback. The first user bubble anchors the entity; later turns
 // keep that anchor so a one-word reply still researches the right brand.
 func researchQueries(history []Turn, latest string) (primary, fallback string) {
+	if isSelfAsk(latest) {
+		return "", ""
+	}
+
 	first := deriveSubject(history)
 	topic, purpose, rest := parseIntake(first)
 	body := rest
 	if body == "" {
 		body = first
 	}
+
+	// Bare paste: www.visevent.com — search the host, then site:host so an
+	// academic namesake does not crowd out the real homepage.
+	if host, ok := domainOnlyReport(latest); ok {
+		return host, "site:" + host
+	}
+	if host, ok := domainOnlyReport(body); ok && latest == first {
+		return host, "site:" + host
+	}
+
 	entity := researchEntity(topic, body)
 	if entity == "" {
 		entity = firstWords(latest, 12)
@@ -105,6 +183,9 @@ func researchQueries(history []Turn, latest string) (primary, fallback string) {
 	entity = stripAskNoise(entity)
 	if entity == "" {
 		entity = firstWords(stripAskNoise(body), 8)
+	}
+	if d := firstDomain(entity); d != "" {
+		entity = d
 	}
 
 	hint := researchHint(purpose)
@@ -114,24 +195,71 @@ func researchQueries(history []Turn, latest string) (primary, fallback string) {
 	if hint == "" {
 		hint = researchHint(latest)
 	}
-	// "X'i biliyor musun?" is an identity ask — don't staple marketing keywords.
-	identityAsk := hint == "" && (strings.Contains(strings.ToLower(body), "biliyor") ||
-		strings.Contains(strings.ToLower(latest), "biliyor") ||
-		strings.Contains(strings.ToLower(body), "nedir"))
+	identityAsk := hint == "" && (isIdentityAsk(body) || isIdentityAsk(latest))
 
-	if latest != first && strings.TrimSpace(latest) != "" {
-		primary = strings.TrimSpace(entity + " " + firstWords(stripAskNoise(latest), 10))
-	} else if identityAsk {
+	switch {
+	case latest != first && strings.TrimSpace(latest) != "":
+		cleaned := stripAskNoise(latest)
+		if isThinFollowUp(cleaned) {
+			// "başka markalar yok mu" must keep the thread's market, not search
+			// only those three words.
+			primary = strings.TrimSpace(entity + " " + hint + " rakipler alternatif " + cleaned)
+		} else {
+			primary = strings.TrimSpace(entity + " " + firstWords(cleaned, 10))
+		}
+	case identityAsk:
 		primary = entity
-	} else {
+	default:
 		primary = strings.TrimSpace(entity + " " + hint)
 	}
-	primary = truncate(primary, 200)
+	primary = truncate(strings.Join(strings.Fields(primary), " "), 200)
 	fallback = truncate(entity, 120)
 	if fallback == "" || fallback == primary {
 		return primary, ""
 	}
 	return primary, fallback
+}
+
+// preferHostMatch moves results whose URL host equals prefer to the front so
+// visevent.com beats arxiv.org when the operator named the site.
+func preferHostMatch(results []SearchResult, prefer string) []SearchResult {
+	prefer = normalizeHost(prefer)
+	if prefer == "" || len(results) < 2 {
+		return results
+	}
+	var match, other []SearchResult
+	for _, r := range results {
+		if hostOf(r.URL) == prefer {
+			match = append(match, r)
+		} else {
+			other = append(other, r)
+		}
+	}
+	if len(match) == 0 {
+		return results
+	}
+	return append(match, other...)
+}
+
+func anyHostMatch(results []SearchResult, prefer string) bool {
+	prefer = normalizeHost(prefer)
+	if prefer == "" {
+		return false
+	}
+	for _, r := range results {
+		if hostOf(r.URL) == prefer {
+			return true
+		}
+	}
+	return false
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return normalizeHost(raw)
+	}
+	return normalizeHost(u.Host)
 }
 
 func firstWords(s string, n int) string {
@@ -144,20 +272,19 @@ func firstWords(s string, n int) string {
 	return strings.Join(fields[:n], " ")
 }
 
-// Words that pad a chat ask but poison a search query ("visevent app'i
-// biliyor musun?" must search VisEvent, not the polite wrapper).
+// Words that pad a chat ask but poison a search query.
 var askNoise = map[string]struct{}{
 	"biliyor": {}, "biliyormusun": {}, "biliyormusun?": {},
 	"musun": {}, "musun?": {}, "misin": {}, "misin?": {},
 	"nedir": {}, "nedir?": {}, "hakkında": {}, "hakkinda": {},
 	"ne": {}, "nasıl": {}, "nasil": {}, "için": {}, "icin": {},
 	"bir": {}, "bu": {}, "şu": {}, "su": {}, "var": {}, "mı": {}, "mi": {},
+	"yok": {}, "mu": {}, "mü": {}, "mu?": {}, "mü?": {},
 	"app'i": {}, "appi": {}, "uygulaması": {}, "uygulamasi": {},
-	"uygulama": {}, "app": {}, // keep brand; "app" alone is noise next to a name
+	"uygulama": {}, "app": {},
+	"görünüyor": {}, "gorunuyor": {}, "bakalım": {}, "bakalim": {},
 }
 
-// stripAskNoise keeps proper nouns / domains and drops chat fillers. "app" is
-// dropped only when another token remains — otherwise "event app" would vanish.
 func stripAskNoise(s string) string {
 	fields := strings.Fields(s)
 	kept := make([]string, 0, len(fields))

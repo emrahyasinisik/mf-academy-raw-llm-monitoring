@@ -76,11 +76,24 @@ func (t *tavilySearcher) Search(ctx context.Context, query string, limit int) ([
 	}
 	// search_depth basic is one credit per call; advanced is two and returns
 	// more of each page than a 1366-token evidence budget can carry anyway.
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"query":        query,
 		"max_results":  limit,
 		"search_depth": "basic",
-	})
+	}
+	// Bare domain / site:host — pin results to that host so an academic
+	// namesake (VisEvent the dataset) does not drown www.visevent.com.
+	q := strings.TrimSpace(query)
+	if strings.HasPrefix(strings.ToLower(q), "site:") {
+		host := normalizeHost(q[len("site:"):])
+		if host != "" {
+			payload["query"] = host
+			payload["include_domains"] = []string{host}
+		}
+	} else if host, ok := domainOnlyReport(q); ok {
+		payload["include_domains"] = []string{host}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
