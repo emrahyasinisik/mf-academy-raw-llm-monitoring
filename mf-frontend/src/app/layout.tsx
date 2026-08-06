@@ -38,9 +38,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MasterFabric — Rubrik Analiz Konsolu",
+  title: "MasterFabric — Yatırım Personası",
   description:
-    "Vakayı girin, tanımlı rubriğe göre kriter kriter puanlanmış ve kanıtı gösterilen bir rapor alın. İlk geçiş taramasında tutarlılık — karar sizin.",
+    "Pazar, marka, ürün veya teknolojiyi yazın; persona canlı araştırma yapar ve kaynaklarıyla birlikte bir ilk-geçiş okuması sunar. Karar sizde kalır.",
 };
 
 export const viewport: Viewport = {

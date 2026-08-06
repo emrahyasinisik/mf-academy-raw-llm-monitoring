@@ -32,14 +32,11 @@ import { StatusRail } from "./ui/StatusRail";
 export type MasterView =
   | "analiz" | "codegen" | "persona" | "gizlilik" | "kosullar";
 
-// Analiz leads because it is the product: a case goes in, a rubric-scored and
-// auditable report comes out. The order used to be the generator's, and the
-// reasoning was "it is what the box serves" — a sort by whatever weights were
-// loaded. That put the product second, and which model is loaded is not a
-// question nav order should be answering.
-//
-// The persona stays: it is a working surface, and it fails legibly (it reports
-// the inference host, it does not crash) when the machine is off.
+// Persona is the product surface now: live research → first-pass reading,
+// decision stays with the operator. Rubric Analiz used to lead the nav; it
+// moved off-nav (6 Ağu 2026) the same way codegen did — not deleted, still
+// addressable at #analiz, because persona's report panel still calls the
+// analysis API and a deep link must not 404.
 //
 // Yönetim artık burada değil: kendi rotasında, kendi kabuğunda (/yonetim).
 // Nav'dan çıkması bir gizleme değil, bir ayrım — ürün ekranları bir vakayı
@@ -51,7 +48,6 @@ export type MasterView =
 // zaten admin-only API'den geliyordu; ürün nav'ında herkese görünür bir sekme
 // yanlış sinyal veriyordu. Eski `#metrics` hash'i panele yönlenir.
 const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] = [
-  { id: "analiz", label: "Analiz", Icon: IconRubric },
   { id: "persona", label: "Persona", Icon: IconSpark },
 ];
 
@@ -62,15 +58,16 @@ const NAV: { id: MasterView; label: string; Icon: () => React.ReactElement }[] =
 // `codegen` buraya 2 Ağu 2026'da indi, silinerek değil. Flutter ekran üreteci
 // çalışıyor ve bozulmadı; kaldırılma sebebi ürün odağı. Kod üretiminde rakip
 // büyük modeller, ve 6 GB kartta 4B modelle o kavga kaybediliyor — CLAUDE.md
-// "best model" iddiasını zaten yasaklıyor. Yatırım tarafının eksenleri (rubrik
-// şeffaflığı, veri egemenliği, tutarlılık) ise rakibin model boyutuyla
-// erimiyor. Ölçüm de bunu destekliyordu: adapter'ın kazancı ev stilinde
-// (clean 81 → 95.2%), kanıt okuma iddiası doğrulanmamıştı.
+// "best model" iddiasını zaten yasaklıyor.
 //
-// Rota adreslenebilir kaldı — #codegen hâlâ açılıyor — çünkü geri getirmenin
-// maliyeti bu dizide bir satır olsun istiyoruz, ve gömülü bağlantısı olan
-// kimse 404 görmesin.
-const OFF_NAV: MasterView[] = ["gizlilik", "kosullar", "codegen"];
+// `analiz` aynı gerekçeyle 6 Ağu 2026'da indi: ürün odağı persona. Rubrik
+// formu ve analysis istemcisi duruyor — persona rapor paneli onlara bağlı,
+// ve #analiz hâlâ açılıyor.
+//
+// Rota adreslenebilir kaldı — #codegen / #analiz hâlâ açılıyor — çünkü geri
+// getirmenin maliyeti bu dizide bir satır olsun istiyoruz, ve gömülü
+// bağlantısı olan kimse 404 görmesin.
+const OFF_NAV: MasterView[] = ["gizlilik", "kosullar", "codegen", "analiz"];
 
 const isMaster = (v: string): v is MasterView =>
   NAV.some((n) => n.id === v) || (OFF_NAV as string[]).includes(v);
@@ -125,7 +122,7 @@ function parseHash(): MasterView | null {
 // the server and the client agree on the first paint.
 function initialRoute(): MasterView {
   const parsed = typeof window === "undefined" ? null : parseHash();
-  return parsed ?? "analiz";
+  return parsed ?? "persona";
 }
 
 export function AppShell() {
@@ -517,6 +514,10 @@ const SVG = {
   strokeLinejoin: "round" as const,
 };
 
+// Analiz nav'dan çıktığı için çağıranı kalmadı. Silinmedi: rota OFF_NAV'da
+// adreslenebilir duruyor ve geri gelmesi NAV dizisine bir satır olsun istiyoruz
+// — ikonu da silmek o satırı yeniden çizmek demek olurdu.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function IconRubric() {
   return (
     <svg {...SVG} aria-hidden>

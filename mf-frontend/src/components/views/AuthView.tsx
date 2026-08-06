@@ -24,13 +24,13 @@ const COPY: Record<SubView, { tab: string; heading: string; blurb: string; cta: 
     login: {
       tab: "Giriş",
       heading: "Tekrar hoş geldin",
-      blurb: "Hesabınla oturum aç, vakayı değerlendir.",
+      blurb: "Hesabınla oturum aç, persona ile ilk geçişi başlat.",
       cta: "Giriş yap",
     },
     register: {
       tab: "Kayıt",
       heading: "Hesap oluştur",
-      blurb: "Hesap aç; ilk vakayı rubriğe göre değerlendir.",
+      blurb: "Hesap aç; canlı araştırmayla ilk-geçiş okumasına başla.",
       cta: "Hesabı oluştur",
     },
   };
@@ -150,7 +150,7 @@ export function AuthView() {
             className="eyebrow reveal-up mb-4"
             style={{ ["--i" as string]: 1 }}
           >
-            Rubrik analiz konsolu
+            Yatırım personası
           </p>
           <h1
             className="font-display text-[3.1rem] xl:text-[3.5rem] font-bold leading-[1.02] tracking-tight reveal-up"
@@ -158,14 +158,15 @@ export function AuthView() {
           >
             İlk geçişte
             <br />
-            <span style={{ color: "var(--brand)" }}>aynı ölçüt.</span>
+            <span style={{ color: "var(--brand)" }}>kaynaklı okuma.</span>
           </h1>
           <p
             className="mt-6 text-[1.02rem] leading-7 max-w-md reveal-up"
             style={{ color: "var(--text-dim)", ["--i" as string]: 3 }}
           >
-            Vakayı verirsiniz; model rubriği doldurur — her kritere puan ve
-            kanıt. Ağırlıklı toplam açık aritmetiktir. Karar sizde kalır.
+            Konuyu verirsiniz; persona canlı araştırma yapar, gerekirse sorar
+            ve kaynaklarıyla birlikte bir ilk-geçiş okuması sunar. Karar sizde
+            kalır.
           </p>
 
           <div
@@ -177,7 +178,7 @@ export function AuthView() {
               className="mono text-[0.65rem] mt-3 tracking-wider uppercase"
               style={{ color: "var(--text-faint)" }}
             >
-              kriter · kanıt · tutarlılık
+              araştırma · kaynak · karar sende
             </p>
           </div>
         </div>
@@ -186,7 +187,7 @@ export function AuthView() {
           className="relative reveal-up flex flex-col gap-2.5 mono text-[0.7rem] tracking-wider uppercase"
           style={{ ["--i" as string]: 5, color: "var(--text-faint)" }}
         >
-          {["Rubrik şeffaflığı", "Kanıt denetlenebilir", "Veri sizde kalır"].map(
+          {["Canlı araştırma", "Kaynak gösterilir", "Veri sizde kalır"].map(
             (t) => (
               <li key={t} className="flex items-center gap-2.5">
                 <span
