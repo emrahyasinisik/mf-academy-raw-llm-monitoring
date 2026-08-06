@@ -92,7 +92,8 @@ func shouldClarify(history []Turn, latest string) bool {
 		return true
 	}
 	first := deriveSubject(history)
-	if isSelfAsk(first) || isPersonaAddress(first) {
+	// "selam" → "olur" must not invent a song thread.
+	if isSelfAsk(first) || isPersonaAddress(first) || isGreeting(first) {
 		return true
 	}
 	_, _, rest := parseIntake(first)

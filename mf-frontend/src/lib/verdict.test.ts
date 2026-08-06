@@ -27,12 +27,20 @@ test("case-insensitive, as the server's reader is", () => {
   });
 });
 
-// The product rule: absence of information is not a low score. A turn that
-// researched nothing still gets "SKOR: 0" out of a small model, and showing it
-// as a measured 0/100 is the badge lying about what the thread knows.
-test("drops the score when the turn gathered no sources", () => {
-  const v = parseVerdict("KARAR: Yatırılamaz\nSKOR: 0\nGEREKÇE: Kanıt eksik.", 0);
-  assert.deepEqual(v, { label: "Yatırılamaz", score: null });
+// No sources → no badge (and no report CTA). Greeting turns inventing
+// "Karar: şarkı…" must not look like an investability verdict.
+test("drops the verdict when the turn gathered no sources", () => {
+  assert.equal(
+    parseVerdict("KARAR: Yatırılamaz\nSKOR: 0\nGEREKÇE: Kanıt eksik.", 0),
+    null,
+  );
+});
+
+test("ignores free-form karar labels", () => {
+  assert.equal(
+    parseVerdict("KARAR: Şarkıya dair içerik önerilebilir\nSKOR: 10", 2),
+    null,
+  );
 });
 
 test("keeps a 0 that real sources backed", () => {

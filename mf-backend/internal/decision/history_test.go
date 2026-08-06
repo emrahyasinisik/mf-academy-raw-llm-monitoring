@@ -87,11 +87,11 @@ func TestVerdictScoreIsNotRecordedWithoutEvidence(t *testing.T) {
 
 	got := parseVerdict(reply, 0)
 
-	if got.Score != -1 {
-		t.Errorf("Score = %d on zero sources, want -1 (no number recorded)", got.Score)
+	if got.Found {
+		t.Errorf("zero sources must not record a verdict, got %+v", got)
 	}
-	if !got.Found || got.Label != "Yatırılamaz" {
-		t.Errorf("the label the model committed to must survive, got %+v", got)
+	if got.Score != -1 {
+		t.Errorf("Score = %d on zero sources, want -1", got.Score)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestVerdictScoreIsKeptWhenEvidenceBackedIt(t *testing.T) {
 // A model that ignores the format can put a paragraph after "KARAR:", and that
 // string is stored and then rendered in a badge.
 func TestParseVerdictBoundsTheLabel(t *testing.T) {
-	got := parseVerdict("KARAR: "+strings.Repeat("uzun ", 200), 1)
+	got := parseVerdict("KARAR: Temkinli "+strings.Repeat("x", 200), 1)
 	if !got.Found {
 		t.Fatal("expected a verdict")
 	}

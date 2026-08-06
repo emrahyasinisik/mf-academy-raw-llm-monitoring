@@ -33,12 +33,19 @@ const SCORE_RE = /SKOR:\s*(\d{1,3})/i;
  * So with no sources the score is dropped and only the label is shown; the empty
  * research trail beside it says why.
  */
+/** Investability labels the report CTA cares about — not free-form "Karar: …". */
+const INVEST_LABEL =
+  /yatırılabilir|temkinli|yatırılamaz/i;
+
 export function parseVerdict(text: string, sourceCount: number): Verdict | null {
   const m = text.match(VERDICT_RE);
   if (!m) return null;
 
   const label = m[1].trim();
-  if (sourceCount <= 0) return { label, score: null };
+  // No evidence → no badge. Greeting turns used to invent "Karar: şarkı…" and
+  // the report button appeared on an empty thread.
+  if (sourceCount <= 0) return null;
+  if (!INVEST_LABEL.test(label)) return null;
 
   const s = text.match(SCORE_RE);
   return { label, score: s ? Math.min(100, parseInt(s[1], 10)) : null };

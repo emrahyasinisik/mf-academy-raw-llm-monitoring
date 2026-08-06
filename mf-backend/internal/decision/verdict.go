@@ -19,6 +19,8 @@ import (
 var (
 	verdictRe = regexp.MustCompile(`(?i)KARAR:\s*([^\n]+)`)
 	scoreRe   = regexp.MustCompile(`(?i)SKOR:\s*(\d{1,3})`)
+	// Same gate as the frontend: free-form "Karar: şarkı…" is not a verdict.
+	investLabelRe = regexp.MustCompile(`(?i)yatırılabilir|temkinli|yatırılamaz`)
 )
 
 // Verdict is a decision the persona committed to. Absent — the zero value with
@@ -33,23 +35,24 @@ type Verdict struct {
 }
 
 // parseVerdict reads the machine-readable lines out of a reply. sources is how
-// many pieces of evidence the turn actually gathered, and it decides whether the
-// number on the SKOR line means anything.
+// many pieces of evidence the turn actually gathered.
 //
-// A turn that researched nothing can still emit "SKOR: 0" — a 2B model asked for
-// a KARAR/SKOR block produces one whatever the evidence says, and the empty-
-// research instruction is a request, not a constraint. Recording that 0 would
-// put a measured-looking number on a thread that read nothing, which is the
-// same mistake the analysis path is built to avoid: absence of information is
-// not a low score. So with no sources the score stays -1 and the column stays
-// NULL. The label survives, because the model did commit to a word and the
-// reader can see for themselves that nothing backs it.
+// No sources → no verdict. A greeting turn that invents "KARAR: …" must not
+// land a badge (or unlock report) on an empty thread. The label must also be
+// one of the three investability words — free-form karar prose is ignored.
 func parseVerdict(reply string, sources int) Verdict {
+	if sources <= 0 {
+		return Verdict{Score: -1}
+	}
 	m := verdictRe.FindStringSubmatch(reply)
 	if m == nil {
 		return Verdict{Score: -1}
 	}
-	v := Verdict{Found: true, Label: strings.TrimSpace(m[1]), Score: -1}
+	label := strings.TrimSpace(m[1])
+	if !investLabelRe.MatchString(label) {
+		return Verdict{Score: -1}
+	}
+	v := Verdict{Found: true, Label: label, Score: -1}
 
 	// Guard the label length rather than trusting the line. A model that ignores
 	// the format can emit a paragraph after "KARAR:", and this string goes into
@@ -58,7 +61,7 @@ func parseVerdict(reply string, sources int) Verdict {
 		v.Label = strings.TrimSpace(v.Label[:64])
 	}
 
-	if s := scoreRe.FindStringSubmatch(reply); s != nil && sources > 0 {
+	if s := scoreRe.FindStringSubmatch(reply); s != nil {
 		if n, err := strconv.Atoi(s[1]); err == nil && n >= 0 && n <= 100 {
 			v.Score = n
 		}

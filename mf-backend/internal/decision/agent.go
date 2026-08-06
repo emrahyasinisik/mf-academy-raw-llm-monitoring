@@ -218,28 +218,22 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 		return Result{}, fmt.Errorf("empty message")
 	}
 
-	plan := a.plan(history)
+	model := a.resolveModel(ctx)
 
-	var (
-		sources  []Source
-		evidence string
-		steps    []ResearchStep
-	)
+	// Non-research turns: fixed copy, no model. Skipping search alone was not
+	// enough — the small model still wrote song essays and fake KARAR lines.
 	switch {
-	case isSelfAsk(latest.Content):
-		// Do not search: "sen kimsin" retrieves a pop song.
-		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı. Kendini kısaca, samimi Türkçe ile tanıt.\n"
 	case isGreeting(latest.Content):
-		evidence = evidenceHeader + "\n- Selamlaşma; canlı arama atlandı. Kısa ve sıcak cevap ver (ör. \"Selam — neye bakmamı istersin?\"). İngilizce sözcük kullanma. ÖNERİ/KARAR yok.\n"
+		return Result{Reply: greetingReply, Model: model}, nil
+	case isSelfAsk(latest.Content):
+		return Result{Reply: selfAskReply, Model: model}, nil
 	case shouldClarify(history, latest.Content):
-		// "sen armutsun" and other non-asks: searching invents Hidra lyrics.
-		evidence = evidenceHeader + "\n- Canlı arama atlandı: mesaj net değil. Şarkı analizi ve ÖNERİ yazma. Samimi tek cümle: neye bakmamı istersin, marka/site/pazar yazman yeterli. \"Ayrıntılı yaz please\" gibi üslup YASAK.\n"
-	default:
-		primary, fallback := researchQueries(history, latest.Content)
-		sources, evidence, steps = a.gather(ctx, primary, fallback, plan.evidence)
+		return Result{Reply: clarifyReply, Model: model}, nil
 	}
 
-	model := a.resolveModel(ctx)
+	plan := a.plan(history)
+	primary, fallback := researchQueries(history, latest.Content)
+	sources, evidence, steps := a.gather(ctx, primary, fallback, plan.evidence)
 	messages := a.compose(history, evidence, plan)
 
 	// Reserve the full generation budget even when search already consumed part

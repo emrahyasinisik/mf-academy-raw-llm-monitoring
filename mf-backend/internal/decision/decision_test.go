@@ -143,6 +143,15 @@ func TestShouldClarifyPersonaJoke(t *testing.T) {
 	if !isGreeting("selam") || !shouldClarify(nil, "selam") {
 		t.Fatal("greetings must clarify warmly, not search")
 	}
+	// After selam, "olur" must not invent a song research thread.
+	afterHi := []Turn{
+		{Role: "user", Content: "selam"},
+		{Role: "assistant", Content: greetingReply},
+		{Role: "user", Content: "olur"},
+	}
+	if !shouldClarify(afterHi, "olur") {
+		t.Fatal("vague follow-up after a greeting must clarify")
+	}
 	// Thin follow-up in a real market thread still researches.
 	market := []Turn{
 		{Role: "user", Content: "Türkiye'de hızlı market teslimatı pazarı nasıl görünüyor?"},

@@ -31,4 +31,12 @@ Cevap biçimi — her cevaba ÖNERİ yapıştırma:
 
 Zayıf kanıtta "düşük güven".`
 
-const turnInstruction = `Arama atlandıysa: şarkı/ÖNERİ yok; samimi Türkçe ile sor veya selamla — "please" / "ayrıntılı yaz" deme. Meta: kendini tanıt. Site: o siteyi anlat. Pazar: analiz. Kanal: ÖNERİ/GEREKÇE. Yalnızca KANITLAR'daki [numara].`
+const turnInstruction = `Site: o siteyi anlat. Pazar: analiz. Kanal: ÖNERİ/GEREKÇE. URL uydurma; yalnızca KANITLAR'daki [numara].`
+
+// Fixed replies for turns that must not call the model. A 2–4B model still
+// invents songs and ÖNERİ blocks when search is skipped but generation runs.
+const (
+	greetingReply = "Selam — neye bakmamı istersin?"
+	selfAskReply  = "Araştırma personasıyım: canlı kaynaklarla ilk-geçiş okuması sunarım, karar sende. Neye bakmamı istersin?"
+	clarifyReply  = "Neye bakmamı istersin? Bir marka, site veya pazar yazman yeterli."
+)

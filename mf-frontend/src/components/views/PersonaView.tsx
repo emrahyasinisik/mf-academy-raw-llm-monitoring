@@ -236,6 +236,13 @@ export function PersonaView() {
         })),
         budgetChars: budget,
       });
+      // Mirrors analysis minSubjectBytes=40 — fail in Turkish before the API.
+      if (body.subject.length < 40) {
+        setReportError(
+          "Rapor için henüz yeterli bağlam yok. Önce bir marka, site veya pazar sorusu sor; birkaç tur sohbet olsun.",
+        );
+        return;
+      }
       const a = await api.analysisRun({
         domain: "startup-investability",
         subject_title: body.subject_title,
@@ -254,8 +261,11 @@ export function PersonaView() {
         setReportError("Rapor hazır; konuşmaya bağlanamadı.");
       }
     } catch (e) {
+      const raw = e instanceof ApiError ? e.message : "Rapor üretilemedi.";
       setReportError(
-        e instanceof ApiError ? e.message : "Rapor üretilemedi.",
+        /too short|at least \d+ characters/i.test(raw)
+          ? "Rapor için henüz yeterli bağlam yok. Önce bir marka, site veya pazar sorusu sor; birkaç tur sohbet olsun."
+          : raw,
       );
     } finally {
       setReportLoading(false);
