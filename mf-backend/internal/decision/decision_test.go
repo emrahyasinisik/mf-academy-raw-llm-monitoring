@@ -140,6 +140,9 @@ func TestShouldClarifyPersonaJoke(t *testing.T) {
 	if !isPersonaAddress("sen armutsun **") {
 		t.Fatal("punctuation must not hide a persona address")
 	}
+	if !isGreeting("selam") || !shouldClarify(nil, "selam") {
+		t.Fatal("greetings must clarify warmly, not search")
+	}
 	// Thin follow-up in a real market thread still researches.
 	market := []Turn{
 		{Role: "user", Content: "Türkiye'de hızlı market teslimatı pazarı nasıl görünüyor?"},

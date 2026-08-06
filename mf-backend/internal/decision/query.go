@@ -45,6 +45,17 @@ func isSelfAsk(s string) bool {
 	}
 }
 
+// isGreeting is a hello with no ask. Warm reply, no research, no lecture.
+func isGreeting(s string) bool {
+	switch normalizeChat(s) {
+	case "selam", "merhaba", "selamlar", "iyi günler", "iyi akşamlar",
+		"günaydın", "hey", "hi", "hello", "sa", "slm", "mrb":
+		return true
+	default:
+		return false
+	}
+}
+
 // isPersonaAddress is a joke/hitap aimed at the assistant ("sen armutsun").
 // Searching it dredges song lyrics from a prior "kimsin" thread.
 func isPersonaAddress(s string) bool {
@@ -71,7 +82,7 @@ func isTooVague(s string) bool {
 // shouldClarify skips live search and asks the user to restate the ask.
 // Established research threads still search thin follow-ups ("başka markalar?").
 func shouldClarify(history []Turn, latest string) bool {
-	if isPersonaAddress(latest) {
+	if isGreeting(latest) || isPersonaAddress(latest) {
 		return true
 	}
 	if !isTooVague(latest) {

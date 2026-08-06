@@ -228,10 +228,12 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	switch {
 	case isSelfAsk(latest.Content):
 		// Do not search: "sen kimsin" retrieves a pop song.
-		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı. Kendini kısaca tanıt.\n"
+		evidence = evidenceHeader + "\n- Soru personaya yöneltilmiş; canlı arama atlandı. Kendini kısaca, samimi Türkçe ile tanıt.\n"
+	case isGreeting(latest.Content):
+		evidence = evidenceHeader + "\n- Selamlaşma; canlı arama atlandı. Kısa ve sıcak cevap ver (ör. \"Selam — neye bakmamı istersin?\"). İngilizce sözcük kullanma. ÖNERİ/KARAR yok.\n"
 	case shouldClarify(history, latest.Content):
 		// "sen armutsun" and other non-asks: searching invents Hidra lyrics.
-		evidence = evidenceHeader + "\n- Canlı arama atlandı: mesaj net bir araştırma konusu değil. Şarkı/ürün analizi ve ÖNERİ yazma. Tek cümleyle ne hakkında bakmak istediğini ayrıntılı yazmasını iste.\n"
+		evidence = evidenceHeader + "\n- Canlı arama atlandı: mesaj net değil. Şarkı analizi ve ÖNERİ yazma. Samimi tek cümle: neye bakmamı istersin, marka/site/pazar yazman yeterli. \"Ayrıntılı yaz please\" gibi üslup YASAK.\n"
 	default:
 		primary, fallback := researchQueries(history, latest.Content)
 		sources, evidence, steps = a.gather(ctx, primary, fallback, plan.evidence)
