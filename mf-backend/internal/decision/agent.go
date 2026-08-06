@@ -332,7 +332,10 @@ func (a *Agent) gather(ctx context.Context, query string, budget int) ([]Source,
 	}
 
 	if n == 0 {
-		b.WriteString("- Hiçbir kaynak bulunamadı; kullanıcıdan daha fazla bilgi iste veya kararının belirsiz olduğunu söyle.\n")
+		// Do not nudge the model toward investability here: Amaç may be
+		// marketing (or anything else), and "gerekli yatırılabilirlik alanları
+		// eksik" is exactly the failure mode that ignored the user's purpose.
+		b.WriteString("- Hiçbir kaynak bulunamadı; Amaç'a uygun TEK bir netleştirici soru sor veya sonucunun belirsiz / düşük güven olduğunu söyle. Uydurma.\n")
 	}
 	if dropped > 0 {
 		// Logged rather than written into the prompt: the model cannot act on

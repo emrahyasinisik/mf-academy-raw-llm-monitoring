@@ -641,8 +641,8 @@ export function PersonaView() {
             </div>
           </div>
           <p className="text-xs mt-2 px-1" style={{ color: "var(--text-faint)" }}>
-            Persona her turda canlı web ve DeepKwiki üzerinden araştırır; okumasını
-            kaynaklara bağlar. <span className="mono">Enter</span> gönderir,{" "}
+            Persona her turda canlı araştırır; okumasını kaynaklara bağlar.{" "}
+            <span className="mono">Enter</span> gönderir,{" "}
             <span className="mono">Shift+Enter</span> satır atlar.
           </p>
         </div>
@@ -811,7 +811,6 @@ function PersonaBubble({
         <RichText text={verdict ? stripVerdictLines(msg.content) : msg.content} />
       </div>
 
-      {msg.research.length > 0 && <ResearchTrail steps={msg.research} />}
       {msg.sources.length > 0 && <SourceList sources={msg.sources} />}
 
       {showReportCta && verdict && (
@@ -835,68 +834,6 @@ function PersonaBubble({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * What the persona ran this turn.
- *
- * A failed tool is drawn differently from an empty one, because they are not the
- * same finding and the reader acts on them differently: "no coverage on this
- * subject" is about the market, "the search never ran" is about our
- * configuration — a keyless DuckDuckGo blocked at the datacentre IP, or a
- * DeepKwiki corpus nobody seeded. Both used to render as "· 0", which reads as
- * the first while being the second.
- */
-function ResearchTrail({ steps }: { steps: ResearchStep[] }) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {steps.map((s, i) => {
-        const label = s.tool === "web_research" ? "web" : "DeepKwiki";
-        const failed = Boolean(s.error);
-        // Older turns carry no provider; the tool's own name is the honest
-        // fallback, not the string "undefined".
-        const provider = s.provider || label;
-        return (
-          <span
-            key={i}
-            className="pill mono"
-            // The provider is in the tooltip rather than the pill: it matters
-            // when an answer looks thin, and never before that.
-            title={
-              failed
-                ? `${provider}: ${s.error}\n\nSorgu: ${s.query}`
-                : `${provider}\n\nSorgu: ${s.query}`
-            }
-            style={failed ? { color: "var(--bad)", borderColor: "var(--bad)" } : undefined}
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              aria-hidden
-            >
-              {failed ? (
-                <>
-                  <circle cx="8" cy="8" r="6" />
-                  <path d="M8 5v4M8 11h.01" />
-                </>
-              ) : (
-                <>
-                  <circle cx="7" cy="7" r="4.5" />
-                  <path d="m10.5 10.5 3 3" />
-                </>
-              )}
-            </svg>
-            {label} · {failed ? "çalışmadı" : s.results}
-          </span>
-        );
-      })}
     </div>
   );
 }
@@ -926,9 +863,6 @@ function SourceList({ sources }: { sources: DecisionSource[] }) {
             [{s.n}]
           </span>
           <div className="min-w-0">
-            <span className={`pill mr-2 ${s.kind === "web" ? "" : "pill-ok"}`}>
-              {s.kind === "web" ? "web" : "DeepKwiki"}
-            </span>
             {s.url ? (
               <a
                 href={s.url}
