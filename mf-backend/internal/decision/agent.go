@@ -358,7 +358,7 @@ func (a *Agent) gather(ctx context.Context, query, fallback string, budget int) 
 	if n == 0 {
 		// Tool failure ≠ unknown brand. Tell the model to say the search failed,
 		// not that Hepsiburada has no public footprint.
-		b.WriteString("- Kaynak yok (arama boş veya araç hatası). Markanın var olmadığını varsayma. Pazarlama sorusuysa varsayımlarını yazıp geçici ÖNERİ ver veya TEK net soru sor; uydurma kanıt yazma.\n")
+		b.WriteString("- Kaynak yok. Konunun var olmadığını söyleme. Kimlik sorusuysa TEK soruyla resmi site/URL iste. Pazarlama/yatırım ise TEK net soru veya varsayımlı geçici cevap. Uydurma kanıt yazma.\n")
 	}
 	if dropped > 0 {
 		// Logged rather than written into the prompt: the model cannot act on

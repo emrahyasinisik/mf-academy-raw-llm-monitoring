@@ -92,6 +92,25 @@ func TestResearchQueriesFromFreeTextBubble(t *testing.T) {
 	}
 }
 
+func TestResearchQueriesIdentityAskStripsChatNoise(t *testing.T) {
+	msg := "visevent app'i biliyormusun?"
+	primary, fallback := researchQueries([]Turn{{Role: "user", Content: msg}}, msg)
+	low := strings.ToLower(primary)
+	if !strings.Contains(low, "visevent") {
+		t.Fatalf("identity ask must search the brand, got %q", primary)
+	}
+	if strings.Contains(low, "biliyor") {
+		t.Fatalf("chat wrapper must not be searched: %q", primary)
+	}
+	if strings.Contains(low, "pazarlama") || strings.Contains(low, "reklam") {
+		t.Fatalf("identity ask must not get a marketing hint: %q", primary)
+	}
+	// Fallback is omitted when it would equal primary — fine for a short brand query.
+	if fallback != "" && !strings.Contains(strings.ToLower(fallback), "visevent") {
+		t.Fatalf("fallback should keep the brand when present, got %q", fallback)
+	}
+}
+
 func TestDeriveSubject(t *testing.T) {
 	got := deriveSubject([]Turn{
 		{Role: "assistant", Content: "Merhaba"},

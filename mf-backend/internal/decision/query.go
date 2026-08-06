@@ -102,6 +102,10 @@ func researchQueries(history []Turn, latest string) (primary, fallback string) {
 	if entity == "" {
 		entity = firstWords(latest, 12)
 	}
+	entity = stripAskNoise(entity)
+	if entity == "" {
+		entity = firstWords(stripAskNoise(body), 8)
+	}
 
 	hint := researchHint(purpose)
 	if hint == "" {
@@ -110,9 +114,15 @@ func researchQueries(history []Turn, latest string) (primary, fallback string) {
 	if hint == "" {
 		hint = researchHint(latest)
 	}
+	// "X'i biliyor musun?" is an identity ask — don't staple marketing keywords.
+	identityAsk := hint == "" && (strings.Contains(strings.ToLower(body), "biliyor") ||
+		strings.Contains(strings.ToLower(latest), "biliyor") ||
+		strings.Contains(strings.ToLower(body), "nedir"))
 
 	if latest != first && strings.TrimSpace(latest) != "" {
-		primary = strings.TrimSpace(entity + " " + firstWords(latest, 10))
+		primary = strings.TrimSpace(entity + " " + firstWords(stripAskNoise(latest), 10))
+	} else if identityAsk {
+		primary = entity
 	} else {
 		primary = strings.TrimSpace(entity + " " + hint)
 	}
@@ -132,4 +142,34 @@ func firstWords(s string, n int) string {
 		return strings.Join(fields, " ")
 	}
 	return strings.Join(fields[:n], " ")
+}
+
+// Words that pad a chat ask but poison a search query ("visevent app'i
+// biliyor musun?" must search VisEvent, not the polite wrapper).
+var askNoise = map[string]struct{}{
+	"biliyor": {}, "biliyormusun": {}, "biliyormusun?": {},
+	"musun": {}, "musun?": {}, "misin": {}, "misin?": {},
+	"nedir": {}, "nedir?": {}, "hakkında": {}, "hakkinda": {},
+	"ne": {}, "nasıl": {}, "nasil": {}, "için": {}, "icin": {},
+	"bir": {}, "bu": {}, "şu": {}, "su": {}, "var": {}, "mı": {}, "mi": {},
+	"app'i": {}, "appi": {}, "uygulaması": {}, "uygulamasi": {},
+	"uygulama": {}, "app": {}, // keep brand; "app" alone is noise next to a name
+}
+
+// stripAskNoise keeps proper nouns / domains and drops chat fillers. "app" is
+// dropped only when another token remains — otherwise "event app" would vanish.
+func stripAskNoise(s string) string {
+	fields := strings.Fields(s)
+	kept := make([]string, 0, len(fields))
+	for _, f := range fields {
+		key := strings.ToLower(strings.Trim(f, "?.!,;'\"“”"))
+		if _, noise := askNoise[key]; noise {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	if len(kept) == 0 {
+		return strings.TrimSpace(s)
+	}
+	return strings.Join(kept, " ")
 }
