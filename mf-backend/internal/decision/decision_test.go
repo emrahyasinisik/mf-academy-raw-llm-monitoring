@@ -146,7 +146,7 @@ func TestShouldClarifyPersonaJoke(t *testing.T) {
 	// After selam, "olur" must not invent a song research thread.
 	afterHi := []Turn{
 		{Role: "user", Content: "selam"},
-		{Role: "assistant", Content: greetingReply},
+		{Role: "assistant", Content: greetingReply("selam")},
 		{Role: "user", Content: "olur"},
 	}
 	if !shouldClarify(afterHi, "olur") {
@@ -160,6 +160,18 @@ func TestShouldClarifyPersonaJoke(t *testing.T) {
 	}
 	if shouldClarify(market, "başka markalar yok mu") {
 		t.Fatal("market follow-ups must still research")
+	}
+}
+
+func TestGreetingReplyWording(t *testing.T) {
+	if got := greetingReply("selam"); got != "Selam — hangi konuda bakmamı istersin?" {
+		t.Fatalf("selam reply = %q", got)
+	}
+	if got := greetingReply("merhaba"); got != "Merhaba — hangi konuda bakmamı istersin?" {
+		t.Fatalf("merhaba reply = %q", got)
+	}
+	if strings.Contains(strings.ToLower(greetingReply("selam")), "neye") {
+		t.Fatal("avoid colloquial neye in canned greetings")
 	}
 }
 

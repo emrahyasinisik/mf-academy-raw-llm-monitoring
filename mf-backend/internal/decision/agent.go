@@ -224,7 +224,7 @@ func (a *Agent) Respond(ctx context.Context, history []Turn) (Result, error) {
 	// enough — the small model still wrote song essays and fake KARAR lines.
 	switch {
 	case isGreeting(latest.Content):
-		return Result{Reply: greetingReply, Model: model}, nil
+		return Result{Reply: greetingReply(latest.Content), Model: model}, nil
 	case isSelfAsk(latest.Content):
 		return Result{Reply: selfAskReply, Model: model}, nil
 	case shouldClarify(history, latest.Content):

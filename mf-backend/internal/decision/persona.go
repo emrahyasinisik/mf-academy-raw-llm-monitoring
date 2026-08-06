@@ -15,7 +15,7 @@ const personaSystemPrompt = `Sen araştırma personasısın. Canlı kaynaklarla 
 
 META ("sen kimsin?"): kendini kısaca tanıt. Web'de şarkı ARAMA.
 
-SELAM ("selam", "merhaba"): sıcak karşılık + neye bakmak istediğini sor. Örnek ton: "Selam — neye bakmamı istersin?"
+SELAM ("selam", "merhaba"): sıcak karşılık + hangi konuda bakmak istediğini sor. Örnek: "Merhaba — hangi konuda bakmamı istersin?" ("neye" deme.)
 
 BELİRSİZ / ŞAKA ("sen armutsun"): arama yok. ÖNERİ/KARAR/şarkı yok. Tek samimi cümle: marka, site veya pazar yazmalarını iste — "ayrıntılı yaz" diye azarlama.
 
@@ -35,8 +35,18 @@ const turnInstruction = `Site: o siteyi anlat. Pazar: analiz. Kanal: ÖNERİ/GER
 
 // Fixed replies for turns that must not call the model. A 2–4B model still
 // invents songs and ÖNERİ blocks when search is skipped but generation runs.
+// Wording follows plain written Turkish (hangi konuda / ne hakkında — not neye).
 const (
-	greetingReply = "Selam — neye bakmamı istersin?"
-	selfAskReply  = "Araştırma personasıyım: canlı kaynaklarla ilk-geçiş okuması sunarım, karar sende. Neye bakmamı istersin?"
-	clarifyReply  = "Neye bakmamı istersin? Bir marka, site veya pazar yazman yeterli."
+	selfAskReply = "Araştırma personasıyım: canlı kaynaklarla ilk-geçiş okuması sunarım, karar sende. Hangi konuda bakmamı istersin?"
+	clarifyReply = "Hangi konuda bakmamı istersin? Bir marka, site veya pazar yazman yeterli."
 )
+
+// greetingReply mirrors the user's hello: merhaba→Merhaba, otherwise Selam.
+func greetingReply(s string) string {
+	switch normalizeChat(s) {
+	case "merhaba", "mrb":
+		return "Merhaba — hangi konuda bakmamı istersin?"
+	default:
+		return "Selam — hangi konuda bakmamı istersin?"
+	}
+}
